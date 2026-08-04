@@ -6,7 +6,7 @@ import json
 import sys
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, parent_dir)
-from ddpm import Unet3D, GaussianDiffusion_Nolatent
+from ddpm import GaussianDiffusion_Nolatent, Unet3D, normalize_spatial_shape
 from get_dataset.get_dataset import get_inference_dataloader
 import torchio as tio
 import yaml
@@ -49,18 +49,26 @@ def main(conf: DictConfig):
         raise ValueError("Wrong data type")
     print("Start", data_type)
     device = dev(conf.get('device'))
+    spatial_shape = normalize_spatial_shape(
+        conf.get('spatial_shape_dhw'),
+        image_size=conf.diffusion_img_size,
+        num_frames=conf.diffusion_depth_size,
+    )
+    base_dim = conf.get('base_dim') or conf.diffusion_img_size
 
     model = Unet3D(
-        dim=conf.diffusion_img_size,
+        dim=base_dim,
         dim_mults=conf.dim_mults,
         channels=conf.diffusion_num_channels,
         cond_dim=conf.cond_dim,
+        temporal_max_distance=conf.get('temporal_max_distance', 32),
     )
 
     diffusion = GaussianDiffusion_Nolatent(
         model,
         image_size=conf.diffusion_img_size,
         num_frames=conf.diffusion_depth_size,
+        spatial_shape=spatial_shape,
         channels=conf.diffusion_num_channels,
         timesteps=conf.timesteps,
         loss_type=conf.loss_type,
@@ -119,7 +127,7 @@ def main(conf: DictConfig):
             sample_fn = diffusion.p_sample_loop_repaint
 
             output = sample_fn(
-                shape = (batch_size, conf.diffusion_num_channels, conf.diffusion_depth_size, conf.diffusion_img_size, conf.diffusion_img_size),
+                shape=diffusion.sample_shape(batch_size),
                 model_kwargs=model_kwargs,
                 device=device,
                 progress=show_progress,

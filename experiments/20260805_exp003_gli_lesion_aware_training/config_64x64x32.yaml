@@ -1,0 +1,18 @@
+experiment_id: 20260805_exp003_gli_lesion_aware_training
+experiment_type: method
+runtime_hydra_override: +experiment=gli_64x64x32
+dataset_root: /workspace/LeFusion_v2/dataset/brats2024_gli_t1c_local_patches
+patch_size_xyz: [64, 64, 32]
+spatial_shape_dhw: [32, 64, 64]
+lesion_channel_order: [NETC, SNFH, ET, RC]
+diffusion_num_channels: 4
+cond_dim: 64
+base_dim: 64
+temporal_max_distance: 128
+batch_size: 1
+amp: true
+smoke_steps: 20
+results_folder: experiments/20260805_exp003_gli_lesion_aware_training/outputs/patch_64x64x32
+wandb_project: lefusion-brats2024-gli
+wandb_run_name: 20260805_exp003_gli_lesion_aware_training-patch_64x64x32-smoke
+

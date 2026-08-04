@@ -398,14 +398,15 @@ class Unet3D(nn.Module):
         init_dim=None,
         init_kernel_size=7,
         use_sparse_linear_attn=True,
-        resnet_groups=8
+        resnet_groups=8,
+        temporal_max_distance=32,
     ):
         super().__init__()
         rotary_emb = RotaryEmbedding(min(32, attn_dim_head))
         def temporal_attn(dim): return EinopsToAndFrom('b c f h w', 'b (h w) f c', Attention(
             dim, heads=attn_heads, dim_head=attn_dim_head, rotary_emb=rotary_emb))
         self.time_rel_pos_bias = RelativePositionBias(
-            heads=attn_heads, max_distance=32)
+            heads=attn_heads, max_distance=temporal_max_distance)
         init_dim = default(init_dim, dim)
         assert is_odd(init_kernel_size)
         init_padding = init_kernel_size // 2
@@ -552,6 +553,67 @@ def cosine_beta_schedule(timesteps, s=0.008):
     return torch.clip(betas, 0, 0.9999)
 
 
+def normalize_spatial_shape(spatial_shape=None, *, image_size=None, num_frames=None):
+    """Return a validated ``(depth, height, width)`` tuple.
+
+    ``image_size`` and ``num_frames`` retain compatibility with the original
+    square-patch configuration.  New configurations should pass
+    ``spatial_shape`` explicitly.
+    """
+    if spatial_shape is None:
+        if image_size is None or num_frames is None:
+            raise ValueError(
+                "spatial_shape or both image_size and num_frames must be provided"
+            )
+        spatial_shape = (num_frames, image_size, image_size)
+    shape = tuple(int(value) for value in spatial_shape)
+    if len(shape) != 3 or any(value <= 0 for value in shape):
+        raise ValueError(
+            f"spatial_shape must contain three positive integers in DHW order: {spatial_shape!r}"
+        )
+    return shape
+
+
+def masked_lesion_loss(prediction, target, lesion_mask, loss_type='l1'):
+    """Average equally over non-empty ``(sample, lesion channel)`` units."""
+    if prediction.shape != target.shape or prediction.shape != lesion_mask.shape:
+        raise ValueError(
+            "prediction, target, and lesion_mask must have identical shapes: "
+            f"{prediction.shape}, {target.shape}, {lesion_mask.shape}"
+        )
+    if prediction.ndim != 5:
+        raise ValueError(f"GLI tensors must be 5D BCHWD tensors, got {prediction.shape}")
+
+    mask = lesion_mask.to(device=prediction.device, dtype=prediction.dtype)
+    if loss_type == 'l1':
+        error = (prediction - target).abs()
+    elif loss_type == 'l2':
+        error = (prediction - target).square()
+    else:
+        raise NotImplementedError(f"unsupported loss type: {loss_type}")
+
+    spatial_dims = tuple(range(2, prediction.ndim))
+    voxel_counts = mask.sum(dim=spatial_dims)
+    active_units = voxel_counts > 0
+    if not bool(active_units.any()):
+        raise ValueError("GLI lesion_mask contains no lesion voxels in the entire batch")
+    unit_losses = (error * mask).sum(dim=spatial_dims) / voxel_counts.clamp_min(1)
+    return unit_losses[active_units].mean()
+
+
+def prepare_training_batch(data_frame, device, data_type):
+    """Move the model inputs to one device and select the dataset mask contract."""
+    data = data_frame['data'].to(device, non_blocking=True)
+    mask_key = 'lesion_mask' if data_type == 'gli' else 'label'
+    if mask_key not in data_frame:
+        raise KeyError(f"training batch is missing required field: {mask_key}")
+    mask = data_frame[mask_key].to(device, non_blocking=True)
+    hist = data_frame.get('hist')
+    if hist is not None:
+        hist = hist.to(device, dtype=torch.float32, non_blocking=True)
+    return data, mask, hist
+
+
 class GaussianDiffusion_Nolatent(nn.Module):
     def __init__(
         self,
@@ -559,6 +621,7 @@ class GaussianDiffusion_Nolatent(nn.Module):
         *,
         image_size,
         num_frames,
+        spatial_shape=None,
         text_use_bert_cls=False,
         channels=2,
         timesteps=1000,
@@ -573,6 +636,9 @@ class GaussianDiffusion_Nolatent(nn.Module):
         self.channels = channels
         self.image_size = image_size
         self.num_frames = num_frames
+        self.spatial_shape = normalize_spatial_shape(
+            spatial_shape, image_size=image_size, num_frames=num_frames
+        )
         self.denoise_fn = denoise_fn
         self.vqgan = None
         self.device=device
@@ -618,6 +684,12 @@ class GaussianDiffusion_Nolatent(nn.Module):
 
         self.use_dynamic_thres = use_dynamic_thres
         self.dynamic_thres_percentile = dynamic_thres_percentile
+
+    def sample_shape(self, batch_size):
+        batch_size = int(batch_size)
+        if batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {batch_size}")
+        return (batch_size, self.channels, *self.spatial_shape)
 
     def q_mean_variance(self, x_start, t):
         mean = extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
@@ -852,19 +924,47 @@ class GaussianDiffusion_Nolatent(nn.Module):
                 loss = F.mse_loss(noise_1, x_recon1) + F.mse_loss(noise_2, x_recon2)
             else:
                 raise NotImplementedError()
+        elif self.data_type == 'gli':
+            if self.channels != 4:
+                raise ValueError(f"GLI diffusion requires 4 channels, got {self.channels}")
+            loss = masked_lesion_loss(x_recon, noise, mask, self.loss_type)
+        else:
+            raise ValueError(f"unsupported data type: {self.data_type}")
         return loss
 
-    def forward(self, x, mask, *args, **kwargs):
+    def forward(self, x, mask, *args, t=None, noise=None, **kwargs):
         if isinstance(x, tuple):
             x, h = x
         else:
             h = None
-        b, device, img_size, = x.shape[0], x.device, self.image_size
-        check_shape(x, 'b c f h w', c=self.channels,
-                    f=self.num_frames, h=img_size, w=img_size)
-        t = torch.randint(0, self.num_timesteps, (b,), device=device).long().to(self.device)
+        if x.ndim != 5:
+            raise ValueError(f"diffusion input must be BCHWD, got {x.shape}")
+        expected = (self.channels, *self.spatial_shape)
+        if tuple(x.shape[1:]) != expected:
+            raise ValueError(
+                f"diffusion input shape mismatch: got {tuple(x.shape[1:])}, expected {expected}"
+            )
+        if mask.shape != x.shape:
+            raise ValueError(
+                f"mask shape must match diffusion input: got {mask.shape}, expected {x.shape}"
+            )
+        b, device = x.shape[0], x.device
+        if t is None:
+            t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
+        else:
+            t = t.to(device=device, dtype=torch.long)
+            if tuple(t.shape) != (b,):
+                raise ValueError(f"timestep shape must be ({b},), got {tuple(t.shape)}")
+        if noise is not None:
+            noise = noise.to(device=device, dtype=x.dtype)
+            if noise.shape != x.shape:
+                raise ValueError(
+                    f"noise shape must match diffusion input: got {noise.shape}, expected {x.shape}"
+                )
         cond = h
-        return self.p_losses(**dict(x_start=x, t=t, mask=mask, cond=cond, *args, **kwargs))
+        return self.p_losses(
+            **dict(x_start=x, t=t, mask=mask, cond=cond, noise=noise, *args, **kwargs)
+        )
 
 
 class Trainer(object):
@@ -900,6 +1000,7 @@ class Trainer(object):
 
         self.batch_size = train_batch_size
         self.image_size = diffusion_model.image_size
+        self.spatial_shape = diffusion_model.spatial_shape
         self.gradient_accumulate_every = gradient_accumulate_every
         self.train_num_steps = train_num_steps
         self.device = device
@@ -979,13 +1080,9 @@ class Trainer(object):
             for i in range(self.gradient_accumulate_every):
 
                 data_frame = next(self.dl)
-                data = data_frame['data'].to(self.device)
-                mask = data_frame['label'].to(self.device)
-
-                if 'hist' in data_frame:
-                    hist = data_frame['hist'].cuda()
-                else:
-                    hist = None
+                data, mask, hist = prepare_training_batch(
+                    data_frame, self.device, self.model.data_type
+                )
 
                 with autocast(enabled=self.amp):
 

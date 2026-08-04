@@ -1,6 +1,9 @@
 diffusion_img_size: ???
 diffusion_depth_size: ???
 diffusion_num_channels: ???
+base_dim: null
+spatial_shape_dhw: null
+temporal_max_distance: 32
 cond_dim: ???
 dim_mults: [1,2,4,8]
 results_folder: ???

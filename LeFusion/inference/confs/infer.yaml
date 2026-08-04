@@ -6,6 +6,9 @@ types: ???
 diffusion_img_size: ???
 diffusion_depth_size: ???
 diffusion_num_channels: ???
+base_dim: null
+spatial_shape_dhw: null
+temporal_max_distance: 32
 dim_mults: [1,2,4,8]
 batch_size: ???
 
@@ -82,4 +85,3 @@ schedule_jump_params:
   n_sample: 1
   jump_length: 10 
   jump_n_sample: 10
-
