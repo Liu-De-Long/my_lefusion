@@ -1,0 +1,4 @@
+branch: 未检测到 Git 工作树
+commit: 未检测到 Git 工作树
+status: 未检测到 Git 工作树
+change: 项目结构整理；迁移统计产物路径并更新文档引用。

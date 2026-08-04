@@ -1,0 +1,10 @@
+commit: unavailable
+branch: unavailable
+
+change:
+- 新增 BraTS 2024 GLI T1c 局部 patch 裁剪流程。
+- 新增两种 patch 大小的统一实验配置。
+- 增加并行病例审计、断点续作、staging 原子发布、逐 NPZ 完整性验证和 QA 输出。
+
+note:
+- 当前 my_experiment 工作区不包含 .git 元数据，无法记录真实 commit 和 branch；不得伪造版本号。

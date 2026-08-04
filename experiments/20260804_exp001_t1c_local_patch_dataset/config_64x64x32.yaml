@@ -1,0 +1,27 @@
+experiment_id: 20260804_exp001_t1c_local_patch_dataset
+data_root: /workspace/LeFusion-main/BraTS-2024-Complete/BraTS-GLI
+source_split: train
+output_root: /workspace/LeFusion_v2/dataset/brats2024_gli_t1c_local_patches
+modality: t1c
+labels:
+  1: netc
+  2: snfh
+  3: et
+  4: rc
+patch_size_xyz: [64, 64, 32]
+samples_per_present_label:
+  interior: 1
+  boundary: 1
+normalization:
+  foreground: nonzero
+  percentiles: [0.5, 99.5]
+  output_range: [-1.0, 1.0]
+histogram:
+  bins: 16
+  range: [-1.0, 1.0]
+split:
+  strategy: subject_grouped_presence_stratified
+  train_fraction: 0.8
+  val_fraction: 0.2
+seed: 20260804
+storage: compressed_npz

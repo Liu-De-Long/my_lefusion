@@ -1,0 +1,27 @@
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environments and secrets
+.venv/
+venv/
+.env
+
+# Training/runtime outputs and experiment-generated data
+outputs/
+wandb/
+data/
+activations_dir/
+*.log
+
+# Large/generated model artifacts
+*.ckpt
+*.pth
+*.pt
+*.nii
+*.nii.gz
+*.npz
+*.npy
