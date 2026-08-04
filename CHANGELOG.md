@@ -152,3 +152,37 @@ GLI 第一版接入建议使用 3D mask-centered crop，不做空间重采样；
 ## 下一步
 
 实现 GLI loader：读取单份 T1c 与标量 segmentation，在加载阶段展开 NETC/SNFH/ET/RC 四个 lesion channel，并验证 `[X,Y,Z]` 到 `[C,D,H,W]` 的轴转换与 histogram 条件拼接。
+
+---
+
+## 实验 ID
+
+20260805_exp002_gli_loader_t1c_multilesion
+
+## 日期
+
+2026-08-05
+
+## 目标
+
+实现并注册 BraTS2024 GLI T1c 局部 patch loader，参考原始 EMIDEC 的 scalar label 语义，同时暴露四通道 lesion mask 和 64 维 histogram 条件。
+
+## 方法
+
+- 在 `LeFusion/dataset/gli_hist.py` 实现可复用 loader。
+- 保留 `label` 为 scalar segmentation，新增 `lesion_mask` 为 NETC/SNFH/ET/RC 四通道二值 mask。
+- 将 NPZ 的 `[X,Y,Z]` 按 `[channel,z,x,y]` 转换为 LeFusion 的 `[C,D,H,W]`。
+- 在 `get_dataset.py` 注册 `gli`，新增 focused tests 和实验配置。
+- 本轮不启动训练。
+
+## 结果
+
+代码和测试已在本地 feature branch 编写，等待本地依赖检查、远端同步和真实 patch smoke test。
+
+## 结论
+
+GLI loader 的 scalar label 与四通道 lesion mask 语义已分离，避免将原始 EMIDEC 的前景选择逻辑错误套用到 GLI。当前训练 loss 和推理入口仍未改造。
+
+## 下一步
+
+完成两端 focused tests，记录真实 commit 和远端测试结果；随后将 GLI loss、Trainer 传递和矩形 patch 支持作为独立后续实验。

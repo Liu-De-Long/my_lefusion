@@ -1,0 +1,8 @@
+commit: pending
+branch: feature/20260805-exp002-gli-loader
+baseline_commit: f01e2edf3f554d738c8dc29d96f1d45808b5e6c3
+
+change:
+- 新增 GLI T1c loader，保留 scalar label 并提供四通道 lesion_mask。
+- 注册 gli dataset，增加 histogram、轴转换和 padding metadata 约定。
+- 增加 focused tests 和两种 patch 尺寸配置。

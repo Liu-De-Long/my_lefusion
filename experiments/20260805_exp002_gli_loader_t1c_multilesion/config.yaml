@@ -1,0 +1,19 @@
+experiment_id: 20260805_exp002_gli_loader_t1c_multilesion
+experiment_type: method
+dataset_root: /workspace/LeFusion_v2/dataset/brats2024_gli_t1c_local_patches
+split: train
+patch_sizes_xyz:
+  - [64, 64, 32]
+  - [80, 96, 80]
+modality: t1c
+image_modality_channels: 1
+label: scalar_segmentation
+lesion_channel_order: [NETC, SNFH, ET, RC]
+label_values: [1, 2, 3, 4]
+hist_bins: 16
+cond_dim: 64
+axis_conversion: "XYZ -> CDHW as [x,y,z] -> [channel,z,x,y]"
+metadata:
+  padding_fraction: "1 - valid_volume_fraction"
+  valid_volume_fraction: "valid voxels divided by patch voxels"
+training: not_run

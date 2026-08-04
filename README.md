@@ -141,6 +141,8 @@ YYYYMMDD_short_goal_vN
 
 该数据集使用 T1c 单模态图像和标量 segmentation，后续 loader 将展开为 NETC/SNFH/ET/RC 四通道 lesion mask。两种 patch 尺寸分别为 `64×64×32` 和 `80×96×80`，每种尺寸 9842 个 patch。
 
+GLI loader 的兼容约定为：`label` 保留 scalar segmentation，`lesion_mask` 提供 NETC/SNFH/ET/RC 四通道二值 mask；T1c 按四个 lesion channel 复制为 LeFusion 的 `data` 张量，histogram 条件按四个 16-bin block 拼接为 `cond_dim=64`。
+
 请查看：
 
 - 当前状态：`STATUS.md`

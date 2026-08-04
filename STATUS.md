@@ -50,6 +50,7 @@ v0.2.0-brats-gli-t1c-local-patches
 - 已新增确定性局部裁剪器：`scripts/brats_gli_crop_local_patches.py`。
 - 已完成 `20260804_exp001_t1c_local_patch_dataset`：1621 例、731 个患者组、两种尺寸合计 19684 个 NPZ，失败病例为 0，归一化退化病例为 0。
 - 已发布数据集到 `/workspace/LeFusion_v2/dataset/brats2024_gli_t1c_local_patches`，并保留 manifest、患者划分、QA 图和完整性汇总。
+- 已开始 `20260805_exp002_gli_loader_t1c_multilesion`：loader 保留 scalar `label`，新增 NETC/SNFH/ET/RC 四通道 `lesion_mask`，固定 `hist` 条件维度为 64。
 
 ## 失败尝试
 
@@ -57,8 +58,8 @@ v0.2.0-brats-gli-t1c-local-patches
 
 ## 已知问题
 
-- 尚未实现 BraTS2024 GLI 数据集类。
-- `LeFusion/get_dataset/get_dataset.py` 尚未注册 GLI 数据集。
+- GLI loader 已在本地 feature branch 实现，尚未完成远端同步和测试验收。
+- `LeFusion/get_dataset/get_dataset.py` 已注册 GLI 训练 dataset，但训练入口仍未接受 `gli`。
 - `LeFusion/train/train.py` 和 `LeFusion/inference/inference.py` 目前只接受 `lidc` 与 `emidec`。
 - GLI loader 的四通道展开和模型接入尚未实现；裁剪数据已固定为 T1c、四标签、16-bin histogram、两种 patch 尺寸和患者级划分。
 - 尚未创建 GLI 训练/推理脚本或 Hydra 配置。
@@ -71,9 +72,7 @@ v0.2.0-brats-gli-t1c-local-patches
 ## 下一步
 
 1. 用官方说明或 metadata 复核 GLI/PTG 标签语义，尤其 `label_4` 是否为 `RC`。
-2. 实现 GLI dataset v1：T1c 单模态输入，将标量 segmentation 展开为 NETC/SNFH/ET/RC 四通道 lesion mask。
-3. 接入 `64×64×32` 和 `80×96×80` 两份已发布 patch 配置，保持 `[X,Y,Z]` 到 `[C,D,H,W]` 的轴转换一致。
-4. 在 dataloader 中暴露 patch padding/截断相关 metadata，并验证 histogram 条件维度为 `4×16=64`。
-5. 在 `LeFusion/get_dataset/get_dataset.py` 中注册 GLI。
-6. 添加 GLI 训练和推理脚本或 Hydra 配置。
-7. 运行第一次 loader shape/hist 冒烟测试，再决定是否启动 5-10 例小规模过拟合实验。
+2. 完成本地和远端 GLI loader focused tests，验证两种 patch 尺寸和真实发布数据。
+3. 将 `20260805_exp002_gli_loader_t1c_multilesion` 文档状态更新为已完成并记录真实 commit。
+4. 后续单独实现 GLI loss、Trainer 的 `lesion_mask` 传递和矩形 patch shape 支持。
+5. 再设计 GLI inference loader 和 RePaint keep-mask；本轮不启动训练。

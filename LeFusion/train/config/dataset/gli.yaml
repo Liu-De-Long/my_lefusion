@@ -1,0 +1,8 @@
+data_type: gli
+root_dir: ???
+patch_size_xyz: [64, 64, 32]
+split: train
+image_channels: 1
+lesion_channels: 4
+hist_bins: 16
+cond_dim: 64
