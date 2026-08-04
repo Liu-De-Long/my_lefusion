@@ -26,11 +26,11 @@
 
 ## 结果
 
-本地测试 fixture 覆盖轴转换、scalar label、四通道 lesion mask、histogram 顺序、batch shape、padding metadata 和 factory 注册。远端测试将使用已发布的真实 patch 数据集验证两种尺寸迭代。
+本地语法检查通过。远端 focused tests 4/4 通过，包含已发布真实数据的两种 patch 尺寸迭代；全量既有测试与新测试合计 10 项通过，1 项因未设置真实数据环境变量跳过。
 
 ## 结论
 
-GLI loader 可以在不破坏原始 EMIDEC scalar-label 约定的前提下提供四通道 lesion mask。当前 diffusion loss 尚未实现 `gli` 分支，因此本实验只确认数据接口，不宣称已具备训练能力。
+GLI loader 可以在不破坏原始 EMIDEC scalar-label 约定的前提下提供四通道 lesion mask。当前 diffusion loss 尚未实现 `gli` 分支，因此本实验只确认数据接口，不宣称已具备训练能力。实验未启动训练。
 
 当前空间截断 metadata 定义为 patch padding 比例；由于 manifest 没有整病灶原始体素数，未计算 lesion coverage 截断比例。
 

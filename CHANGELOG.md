@@ -177,7 +177,7 @@ GLI 第一版接入建议使用 3D mask-centered crop，不做空间重采样；
 
 ## 结果
 
-代码和测试已在本地 feature branch 编写，等待本地依赖检查、远端同步和真实 patch smoke test。
+代码已提交到 `feature/20260805-exp002-gli-loader`，commit 为 `fc7d7e1`。本地语法检查通过；远端 focused tests 4/4 通过，包含真实发布数据两种 patch 尺寸迭代；全量测试 10 项通过、1 项因本地未设置真实数据路径跳过。
 
 ## 结论
 
@@ -185,4 +185,4 @@ GLI loader 的 scalar label 与四通道 lesion mask 语义已分离，避免将
 
 ## 下一步
 
-完成两端 focused tests，记录真实 commit 和远端测试结果；随后将 GLI loss、Trainer 传递和矩形 patch 支持作为独立后续实验。
+后续将 GLI loss、Trainer 传递和矩形 patch 支持作为独立方法实验；本次未启动训练。

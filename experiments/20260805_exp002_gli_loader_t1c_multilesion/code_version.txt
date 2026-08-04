@@ -1,4 +1,4 @@
-commit: pending
+commit: fc7d7e1
 branch: feature/20260805-exp002-gli-loader
 baseline_commit: f01e2edf3f554d738c8dc29d96f1d45808b5e6c3
 
