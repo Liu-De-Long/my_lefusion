@@ -1,4 +1,8 @@
 # @package _global_
+defaults:
+  - override /dataset: gli
+  - _self_
+
 experiment_id: 20260805_exp003_gli_lesion_aware_training
 variant: patch_64x64x32
 
@@ -37,4 +41,3 @@ smoke:
   seed: 20260805
   steps: 20
   fixed_timestep: 100
-
