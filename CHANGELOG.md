@@ -186,3 +186,23 @@ GLI loader 的 scalar label 与四通道 lesion mask 语义已分离，避免将
 ## 下一步
 
 后续将 GLI loss、Trainer 传递和矩形 patch 支持作为独立方法实验；本次未启动训练。
+
+---
+
+## 文档整理
+
+## 日期
+
+2026-08-05
+
+## 目标
+
+将已实施的 GLI loader 设计、scalar label 兼容语义、四通道 lesion mask、轴转换、padding metadata 和验证标准整理为可复用方案文档。
+
+## 结果
+
+新增：`docs/20260805_001_gli_loader_implementation_plan.md`。
+
+## 结论
+
+方案文档已与 `20260805_exp002_gli_loader_t1c_multilesion` 实验记录关联，后续 GLI loss、训练和推理接入可按该文档继续拆分实验。
