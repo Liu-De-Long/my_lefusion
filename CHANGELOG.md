@@ -206,3 +206,46 @@ GLI loader 的 scalar label 与四通道 lesion mask 语义已分离，避免将
 ## 结论
 
 方案文档已与 `20260805_exp002_gli_loader_t1c_multilesion` 实验记录关联，后续 GLI loss、训练和推理接入可按该文档继续拆分实验。
+
+---
+
+## 实验 ID
+
+20260805_exp003_gli_lesion_aware_training
+
+## 日期
+
+2026-08-05
+
+## 目标
+
+实现 GLI 四通道 lesion-aware loss、Trainer 的 `lesion_mask` 传递和完整三维空间 shape 支持，并验证 `64×64×32` 与 `80×96×80` 两种 patch 的训练接入可行性。
+
+## 方法
+
+- 训练入口接受 `gli`，解耦 `base_dim` 与 `spatial_shape_dhw`。
+- GLI loss 对所有非空 `(sample, lesion channel)` 单元等权平均，每个单元先按自身病灶 voxel 数归一化。
+- histogram 使用当前训练 device，不再写死 `.cuda()`。
+- 参数化 temporal relative-position `max_distance`，GLI 配置统一使用 `128`。
+- 增加两份 Hydra 配置、可复用 smoke 工具和 loss/shape/Hydra 集成测试。
+- 推理入口改用 diffusion 的完整 sample shape，但没有开放 GLI RePaint 推理。
+
+## 结果
+
+- 代码 commit：`dbeabd5e1d9f6f35fc0348031c800043e554585f`。
+- 新增集成测试 5/5 通过；项目全量测试 16 项通过；真实发布数据 loader 4/4 通过。
+- 两份 Hydra 配置均通过 `--cfg job --resolve`，无未解析字段。
+- `64×64×32`：真实输入 `[1,4,32,64,64]`，固定 batch 20 步首 5 步 loss 均值 `0.785975`、末 5 步 `0.360158`，峰值显存 `6309.063 MiB`。
+- `80×96×80`：真实输入 `[1,4,80,80,96]`，单步 loss `0.852194`，前向/反向通过，峰值显存 `33944.751 MiB`，未 OOM。
+- W&B 64 patch run：<https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/23hogegm>
+- W&B 矩形 patch run：<https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/228g4h4j>
+- 初次在线启动因远端没有已配置凭据而在模型计算前失败；随后以 offline 模式完成 smoke，并在用户提供临时环境凭据后同步成功。该凭据未写入项目文件、配置或 Git。
+- 同步完成后删除 `experiments/20260805_exp003_gli_lesion_aware_training/outputs/` 下的 W&B offline 临时缓存；未生成 checkpoint，因此整个临时 outputs 目录可安全删除。
+
+## 结论
+
+`64×64×32` 已通过固定 batch overfit smoke；`80×96×80` 已通过真实单 batch 前向和反向，当前 A100 80GB 上 batch size 1 的峰值显存约 `33.15 GiB`。两种尺寸的训练接口均可行，但正式训练仍未启动，当前结果不属于模型性能结论。
+
+## 下一步
+
+先复核 GLI 标签医学语义，再确认正式训练 batch size、gradient accumulation、验证策略和在线 W&B 环境；GLI RePaint inference 作为后续独立方法实验实施。

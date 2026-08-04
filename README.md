@@ -17,7 +17,7 @@ LeFusion 论文入口：<https://arxiv.org/abs/2403.14066>
 
 ## 技术流程
 
-当前代码仍是 LeFusion 原始流程的精简副本，已实现 LIDC 和 EMIDEC 两条路径。BraTS2024 GLI 迁移尚未接入数据工厂。
+当前代码是 LeFusion 原始流程的实验副本，已保留 LIDC 和 EMIDEC 路径，并完成 BraTS2024 GLI loader、四通道 lesion-aware loss、训练 batch 传递和矩形空间 shape 接入。
 
 当前可复用主流程：
 
@@ -29,16 +29,15 @@ LeFusion 论文入口：<https://arxiv.org/abs/2403.14066>
 6. histogram 条件：`LeFusion/inference/hist_clusters/*.json`
 7. shell 参数入口：`emidec_train.sh`、`emidec_inference.sh`
 
-计划中的 BraTS2024 GLI 流程：
+BraTS2024 GLI 流程状态：
 
-1. 建立 GLI 数据集类，读取多模态 MRI 和分割标签。
-2. 定义 GLI 病灶标签到多通道表示的映射。
-3. 为每个目标病灶区域计算直方图条件。
-4. 在 `get_dataset.py` 中注册 GLI train/inference dataloader。
-5. 添加 GLI 训练和推理配置。
-6. 训练 LeFusion GLI 模型。
-7. 用 RePaint-style sampling 生成 GLI 合成图像和标签。
-8. 用下游分割实验评估合成数据收益。
+1. 已建立 T1c 局部 patch GLI dataset，并定义 NETC/SNFH/ET/RC 四通道 lesion mask。
+2. 已计算四组 16-bin histogram，并在训练 dataset factory 中注册 GLI。
+3. 已增加 GLI lesion-aware loss、`lesion_mask` 训练传递和三维矩形 shape 支持。
+4. 已完成 `64×64×32` 固定 batch overfit smoke 和 `80×96×80` 单 batch 前向/反向 smoke。
+5. 尚未启动正式训练。
+6. GLI inference loader、RePaint keep-mask、histogram cluster 和输出合并仍待实现。
+7. 后续正式训练和下游分割评估必须在标签语义复核后开展。
 
 ## 项目结构
 
@@ -101,7 +100,14 @@ bash emidec_train.sh
 bash emidec_inference.sh
 ```
 
-注意：上述 EMIDEC 脚本仍使用原始数据布局和参数。BraTS2024 GLI 的训练/推理脚本尚未创建，不能直接用 EMIDEC 脚本替代。
+注意：上述 EMIDEC 脚本仍使用原始数据布局和参数，不能替代 GLI 配置。GLI 的可复用 smoke 入口为：
+
+```bash
+python scripts/gli_training_smoke.py +experiment=gli_64x64x32
+python scripts/gli_training_smoke.py +experiment=gli_80x96x80
+```
+
+GLI smoke 和后续训练使用 W&B；凭据只能通过服务器环境变量 `WANDB_API_KEY` 或服务器本机登录缓存提供。
 
 ## 实验管理方式
 
@@ -143,6 +149,8 @@ YYYYMMDD_short_goal_vN
 
 GLI loader 的兼容约定为：`label` 保留 scalar segmentation，`lesion_mask` 提供 NETC/SNFH/ET/RC 四通道二值 mask；T1c 按四个 lesion channel 复制为 LeFusion 的 `data` 张量，histogram 条件按四个 16-bin block 拼接为 `cond_dim=64`。
 
+GLI loss 对 batch 中所有非空 `(sample, lesion channel)` 单元等权平均；每个单元先按自身病灶体素数归一化，空单元跳过，整个 batch 全空时直接报错。两种训练空间分别为 `[D,H,W]=[32,64,64]` 和 `[80,80,96]`。
+
 请查看：
 
 - 当前状态：`STATUS.md`
@@ -150,3 +158,4 @@ GLI loader 的兼容约定为：`label` 保留 scalar segmentation，`lesion_mas
 - GLI 数据统计和预处理方案：`docs/20260804_002_brats2024_gli_patch_preprocessing_plan.md`
 - 可复用 GLI 病灶统计脚本：`scripts/brats_gli_lesion_patch_stats.py`
 - T1c 局部 patch 实验：`experiments/20260804_exp001_t1c_local_patch_dataset/result.md`
+- GLI lesion-aware 训练接入：`experiments/20260805_exp003_gli_lesion_aware_training/result.md`

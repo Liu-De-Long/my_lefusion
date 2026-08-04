@@ -1,0 +1,8 @@
+commit: dbeabd5e1d9f6f35fc0348031c800043e554585f
+branch: feature/20260805-exp003-gli-training
+baseline_commit: 0bd4157a626734c39ced9acacf4221241f0aa724
+
+change:
+- 训练入口接受 GLI，并解耦 UNet base_dim 与三维空间 shape。
+- 新增四通道 lesion-aware loss、lesion_mask 训练传递和当前 device histogram。
+- 增加矩形 sample shape、两份 Hydra 配置、可复用 smoke 工具和集成测试。

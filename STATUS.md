@@ -2,7 +2,7 @@
 
 ## 当前版本
 
-v0.2.0-brats-gli-t1c-local-patches
+v0.3.0-gli-lesion-aware-training-smoke
 
 ## 当前最佳实验
 
@@ -52,6 +52,12 @@ v0.2.0-brats-gli-t1c-local-patches
 - 已发布数据集到 `/workspace/LeFusion_v2/dataset/brats2024_gli_t1c_local_patches`，并保留 manifest、患者划分、QA 图和完整性汇总。
 - 已完成 `20260805_exp002_gli_loader_t1c_multilesion`：loader 保留 scalar `label`，新增 NETC/SNFH/ET/RC 四通道 `lesion_mask`，固定 `hist` 条件维度为 64；远端 focused tests 4/4 通过。
 - 已记录 GLI loader 实施方案：`docs/20260805_001_gli_loader_implementation_plan.md`。
+- 已完成 `20260805_exp003_gli_lesion_aware_training`：训练入口接受 GLI，Trainer 传递四通道 `lesion_mask`，histogram 使用当前 device，diffusion 支持完整 `[D,H,W]` shape。
+- 已实现 GLI loss：所有非空 `(sample, lesion channel)` 单元等权平均，不按病灶大小加权；空单元跳过，全空 batch 报错。
+- 已完成两份 Hydra 配置解析和全量测试：16 项通过；真实发布数据 loader 4/4 通过。
+- `64×64×32` 真实固定 batch 20 步 overfit smoke 通过，首 5 步 loss 均值 `0.785975`，末 5 步 `0.360158`，峰值显存 `6309.063 MiB`。
+- `80×96×80` 真实单 batch 前向/反向通过，输入 `[1,4,80,80,96]`，峰值显存 `33944.751 MiB`，未 OOM。
+- 两次 smoke 已同步到 W&B，run ID 为 `23hogegm` 和 `228g4h4j`；同步后已删除远端临时 offline 缓存，未生成 checkpoint。
 
 ## 失败尝试
 
@@ -59,11 +65,9 @@ v0.2.0-brats-gli-t1c-local-patches
 
 ## 已知问题
 
-- GLI loader 已在 feature branch `feature/20260805-exp002-gli-loader` 实现，commit 为 `fc7d7e1`，并已完成远端同步和测试验收。
-- `LeFusion/get_dataset/get_dataset.py` 已注册 GLI 训练 dataset，但训练入口仍未接受 `gli`。
-- `LeFusion/train/train.py` 和 `LeFusion/inference/inference.py` 目前只接受 `lidc` 与 `emidec`。
-- GLI loader 已完成四通道展开；GLI diffusion loss、Trainer 传递和模型接入尚未实现。
-- 尚未创建 GLI 训练/推理脚本或 Hydra 配置。
+- 当前训练接入位于 `feature/20260805-exp003-gli-training`，代码 commit 为 `dbeabd5e1d9f6f35fc0348031c800043e554585f`；尚未合并到 `main`。
+- GLI 正式训练尚未启动，当前 smoke 结果不能作为最佳模型或正式指标。
+- 尚未创建 GLI 正式训练 checkpoint；两种 patch 的正式 batch size 仍需在训练方案确认后确定。
 - 尚未创建 GLI 直方图聚类中心 JSON。
 - `val` split 未发现 `seg` 标签，不能直接作为监督验证集。
 - GLI 标签 `1,2,3,4` 的医学语义尚未从官方说明中确认。
@@ -73,5 +77,5 @@ v0.2.0-brats-gli-t1c-local-patches
 ## 下一步
 
 1. 用官方说明或 metadata 复核 GLI/PTG 标签语义，尤其 `label_4` 是否为 `RC`。
-2. 后续单独实现 GLI loss、Trainer 的 `lesion_mask` 传递和矩形 patch shape 支持。
-3. 再设计 GLI inference loader 和 RePaint keep-mask；本轮不启动训练。
+2. 确认正式训练的 batch size、gradient accumulation、验证频率和 W&B 命名后再启动训练。
+3. 单独设计 GLI inference loader、四通道 RePaint keep-mask、histogram cluster 和输出合并；当前 inference 仅完成通用矩形 shape 构造。
