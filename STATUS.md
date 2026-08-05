@@ -2,17 +2,22 @@
 
 ## 当前版本
 
-v0.5.0-gli-formal-training-gates
+v0.5.1-gli-formal-evaluation
 
 ## 当前最佳实验
 
-`20260805_exp004_gli_inference_closed_loop`
+`20260805_exp005_gli_formal_training_baseline`
 
-当前最新方法实现为 `20260805_exp005_gli_formal_training_baseline`；它只完成正式训练门禁代码和测试，尚未产生可比较的模型结果，因此当前最佳模型入口仍保持 exp004 smoke。
+当前正式模型入口为 `20260805_exp005_gli_formal_training_baseline` 的
+`64×64×32` seed `20260805`、step 46000 `best.pt/ema`。该入口已通过固定 validation、
+零更新 resume 和完整 `t_T=300` val 闭环 QA；test 仅运行冻结的 50% 子集。
 
 ## 当前最佳结果
 
-已发布的数据资产仍为两种尺寸各 9842 个 patch；当前最新方法结果是 patch 级 GLI 训练 checkpoint、train-only cluster、逐步 RePaint、四通道合成和单通道保存闭环。该结果是接口 smoke，不是正式模型性能结果。
+已发布的数据资产仍为两种尺寸各 9842 个 patch。正式 `best.pt/ema` 的固定 val loss 为
+`0.0965080350`；8 个分层 val patch 的完整 RePaint QA 通过，未发现推理新增背景污染，
+推理峰值显存为 `1087.46 MiB` 且稳定。test 50% 确定性子集正在双 GPU 运行，尚无最终
+test 汇总，不得外推为全量 test 指标。
 
 ## 当前流程
 
@@ -88,8 +93,9 @@ v0.5.0-gli-formal-training-gates
 ## 已知问题
 
 - 当前闭环实现位于 `feature/20260805-exp004-gli-inference`，验证代码 commit 为 `bcf9097a6ccbd20db6ab6d992ae72872c5ea65dd`；尚未合并到 `main`。
-- GLI 正式训练已于 2026-08-05 启动：仅运行 `64×64×32`、seed `20260805`，使用 GPU 0、1 的 `DataParallel`；尚未产生可比较的正式模型指标，当前 smoke 结果仍不能作为最佳模型或正式指标。
-- 当前两个 checkpoint 仅由 20-step/1-step smoke 产生，不能作为正式训练 checkpoint 或医学质量模型。
+- GLI 正式训练已完成 50,000 step；当前只认可固定的 step 46000 `best.pt/ema` 作为
+  exp005 评估入口。该 checkpoint 通过工程闭环 QA，但尚不能据此声称医学有效性。
+- exp004 的 20-step/1-step checkpoint 仍只是 smoke，不能与 exp005 正式 checkpoint 混用。
 - exp004 W&B run 仅保存在远端 offline 目录，尚无在线 run URL。用户已说明在 F 盘准备新的 W&B key，但该凭据尚未以安全方式加载到远端环境并验证 online；key 禁止写入项目文件或 Git。
 - `val` split 未发现 `seg` 标签，不能直接作为监督验证集。
 - 当前 RePaint smoke 使用 `t_T=5`，生成结果呈随机纹理，只证明闭环、shape 和 mask 语义正确，不证明病灶生成质量。
@@ -100,6 +106,8 @@ v0.5.0-gli-formal-training-gates
 
 ## 下一步
 
-1. 正式训练已完成 50,000 step；固定使用 step 46000 的 `best.pt/ema`，实施 schema 2 inference 兼容、固定 val 复核、零更新 resume 和完整 `t_T=300` val QA。
-2. val 全部门禁通过后，自动启动 test 的确定性 50% 子集；按 `anchor_label × sample_role` 分层、固定 seed `20260806` 和 SHA-256 顺序冻结 subset manifest，并使用 GPU 0、1 独立分片。
-3. 半量 test 只代表冻结子集，不表述为全量 test；不自动启动其他 seed 或 `80×96×80`。
+1. 继续监控 GPU 0/1 上正在运行的 test 50% 两个 shard；失败时只做原位 resume，不改变
+   manifest、checkpoint、cluster、schedule 或 seed。
+2. 两 shard 完成后执行互斥/并集/重复输出/有限值/shape/显存与背景 QA 的合并审计，并将
+   最终结果记录为“test 50% 确定性子集”。
+3. 不启动剩余 test、其他 seed 或 `80×96×80`；任何扩展均需新的用户授权。

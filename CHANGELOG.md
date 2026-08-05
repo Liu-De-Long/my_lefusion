@@ -487,3 +487,16 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
 - 半量子集按 `anchor_label × sample_role` 分层，以固定 seed `20260806` 和稳定路径 SHA-256 排序选择精确 `floor(N/2)`，冻结 subset manifest 后由 GPU 0、1 独立分片运行。
 - test 输出必须标记为“test 50% 确定性子集”，不得外推或表述为全量 test。
 - 实现提交：`9662ba1e3695191c0c368f55f3f62a7bca1a080a`；该提交只扩展正式 checkpoint 评估基础设施，不改变已完成训练的模型和 loss。
+
+## 2026-08-06 — exp005 正式 val QA 通过并启动 test 50% 子集
+
+- 固定使用 schema 2、step 46000 的 `best.pt/ema`；固定 val 复算 loss 为
+  `0.0965080350`，与 checkpoint 记录误差 `1.16e-7`，完整覆盖与 resume 门禁通过。
+- 8 个分层 val patch 的正式 `t_T=300` QA 通过：四通道顺序、shape、explicit support、
+  RePaint 闭环、有限值、背景不变性和显存稳定性均满足硬门禁；代表性 montage 目检无推理
+  新增明显背景污染。
+- 冻结 test 50% manifest：1038 中选择 519，SHA-256 为
+  `295b20a01327dcd0071058efd8fe854135688a843c1888ef33242a908b6c3698`；两分片
+  260/259、交集为 0、并集等于冻结子集。
+- 已于 2026-08-06 03:42 CST 启动 GPU 0/1 两个独立 shard；未启动全量 test、其他 seed
+  或 80 patch，也未为 inference 创建 W&B run。

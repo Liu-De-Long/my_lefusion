@@ -455,3 +455,47 @@ experiments/20260805_exp005_gli_formal_training_baseline/outputs/
 
 按已有 5-call smoke 线性估算，519 个 patch 的完整 `t_T=300` 双 GPU test 约需
 `10–13` 小时，预计输出 `2–4 GiB`。实际时间和峰值显存以 val 完整 QA 实测为准。
+
+### 14.7 2026-08-06 正式门禁结果与半量 test 启动记录
+
+正式 checkpoint、validation、resume 与 val inference QA 已按本节冻结契约完成：
+
+- 固定 checkpoint 为 `best.pt`，SHA-256 为
+  `2d554fd10ce2671ffe6b62231c180e91e5809ce83c8a590f374475c563a37d69`；固定读取
+  schema 2 的 `ema` 权重，step 为 `46000`，未回退到 raw `model`。
+- best EMA 固定 validation 覆盖 `1032` patch、`73` subject、4 个 anchor label 和
+  `3207` 个有效单元。复算 total loss 为 `0.0965080350`，与 checkpoint 记录
+  `0.0965079195` 的绝对误差为 `1.16e-7`，小于 `1e-6` 门限；NETC/SNFH/ET/RC
+  loss 分别为 `0.108614461/0.073248001/0.126505197/0.087730055`。
+- `latest.pt` 被独立恢复两次，均执行 `0` 次 optimizer update；两次恢复后的下一 batch
+  指纹均为 `0eee8b5...`，证明 sampler/batch offset 与 RNG 恢复一致。该检查没有继续训练，
+  也没有创建 W&B run。
+- val QA manifest 冻结为 8 个 patch，覆盖 label 1/2/3/4 与 interior/boundary；7 个 subject，
+  且每个入选 patch 均包含四个 lesion label。manifest SHA-256 为
+  `51a67b56...`。
+- `t_T=5` wiring smoke 与同一批样本的正式 `t_T=300` QA 均通过。正式 QA 共执行
+  `8 × 300` 次 model call，耗时 `155.945 s`，推理峰值显存 `1087.46 MiB`；最后三个
+  batch 的 allocated/reserved span 分别为 `1/0 MiB`，判定显存稳定。
+- inference 内部通道 shape 恒为 `[4,32,64,64]`，顺序严格为
+  `1=NETC, 2=SNFH, 3=ET, 4=RC`；输出 DHW/XYZ 分别为 `[32,64,64]` 与
+  `[64,64,32]`。全部输出有限，lesion support 外体素数为 0。
+- 8/8 样本的 healthy-brain 与 explicit-support 外相对输入变化均精确为 0，boundary
+  outer-shell 最大变化也为 0。一个 boundary patch 的输入本身在 support 外有
+  `0.7448%` 非零体素；输出逐体素原样继承且未扩大。代表性 montage 目检未见推理新增的
+  颅外或边界伪影，因此该输入继承现象不构成 RePaint 背景污染 blocker。
+
+全部 val 门禁通过后，于 2026-08-06 03:42 CST 自动启动冻结的 test 50% 子集：
+
+- test 总数 `1038`，确定性选择 `519`；覆盖 `73` 个 subject。anchor label 计数为
+  `1:74, 2:174, 3:129, 4:142`，sample role 为 `boundary:260, interior:259`。
+- subset manifest SHA-256 为
+  `295b20a01327dcd0071058efd8fe854135688a843c1888ef33242a908b6c3698`。
+- GPU 0/1 分片分别为 `260/259`，交集为 0，并集严格等于 519 个冻结样本；两个进程均固定
+  使用相同 `best.pt/ema`、cluster、`t_T=300` 与逐样本 seed 契约。
+- 启动检查时两张 GPU 均约占用 `1753 MiB`、利用率约 `91%`，两分片均已完成并落盘首个
+  样本。该运行没有登录或创建 W&B run，也不会扩展到剩余 519 个 test patch、其他 seed
+  或 `80×96×80`。
+
+按完整 val QA 的实测吞吐估算，双 GPU 半量 test 约需 `1.4–1.8` 小时；最终耗时、磁盘、
+完整性与汇总指标必须等待两个 shard 完成并执行合并审计后记录，不得把当前“已启动”表述为
+“test 已完成”。

@@ -75,3 +75,26 @@ W&B online、64 patch 显存、validation 与 resume preflight 均已通过。�
 - test 子集按 `anchor_label × sample_role` 分层，以固定 seed `20260806` 和稳定路径 SHA-256 顺序选择精确 `floor(N/2)`，冻结 subset manifest 后使用 GPU 0、1 独立分片。
 - 详细接口、验收阈值、输出目录和合并契约记录于 `docs/20260805_003_gli_inference_closed_loop.md` 第 14 节。
 - 正式闭环 QA 与半量 test 实现提交为 `9662ba1e3695191c0c368f55f3f62a7bca1a080a`；训练运行代码仍由 checkpoint metadata 固定为 `ea88464f3bf51350f5bd7d33f1bfcc4d7f80b6c1`。
+
+## 正式 checkpoint gate 与 val inference QA 结果
+
+- 固定读取 `best.pt/ema`（schema 2、step 46000）；checkpoint SHA-256 为
+  `2d554fd10ce2671ffe6b62231c180e91e5809ce83c8a590f374475c563a37d69`。
+- 固定 val 复算覆盖 1032 patch、73 subject、4 个 label、3207 个有效单元；total loss
+  `0.0965080350`，与 checkpoint 记录误差 `1.16e-7`，门禁通过。
+- `latest.pt` 两次零更新 resume 的下一 batch 指纹一致；没有继续训练或创建 W&B run。
+- 8 个冻结 val 样本的 `t_T=300` QA 全部通过：通道为 NETC/SNFH/ET/RC，8/8 的
+  healthy-brain、support 外和 boundary outer-shell 相对输入变化均为 0；显存峰值
+  `1087.46 MiB` 且稳定，无 NaN/Inf、OOM 或残留进程。
+- 一个 boundary 输入在 support 外已有 `0.7448%` 非零体素，输出精确继承而未扩大；
+  montage 目检未见推理新增的明显背景污染。
+
+## test 50% 确定性子集
+
+- val 全部门禁通过后，已于 2026-08-06 03:42 CST 自动启动 test 的 519/1038 patch，
+  不运行全量 test。
+- 冻结 manifest SHA-256：
+  `295b20a01327dcd0071058efd8fe854135688a843c1888ef33242a908b6c3698`；GPU 0/1
+  分片为 260/259，互斥且并集等于冻结子集。
+- 启动检查时两进程均正常、两张 GPU 利用率均约 91%，两分片均已落盘首个样本。
+- 当前状态是“test 50% 确定性子集运行中”，不是全量 test，也不是已完成结果。
