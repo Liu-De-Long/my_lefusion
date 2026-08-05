@@ -116,7 +116,11 @@ def build_model_and_diffusion(
 
     model = model.to(device)
     if use_data_parallel and device.type == 'cuda' and torch.cuda.device_count() > 1:
-        model = nn.DataParallel(model)
+        device_ids = cfg.model.get('data_parallel_device_ids')
+        model = nn.DataParallel(
+            model,
+            device_ids=None if device_ids is None else [int(value) for value in device_ids],
+        )
 
     return GaussianDiffusion_Nolatent(
         model,

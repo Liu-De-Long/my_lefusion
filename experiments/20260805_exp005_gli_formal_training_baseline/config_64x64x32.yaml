@@ -6,6 +6,9 @@ patch_size_xyz: [64, 64, 32]
 initial_micro_batch: 4
 gradient_accumulation: 1
 effective_batch: 4
+gpu_strategy: DataParallel
+gpu_ids: [0, 1]
+per_gpu_micro_batch: 2
 oom_fallbacks:
   - {micro_batch: 2, gradient_accumulation: 2}
   - {micro_batch: 1, gradient_accumulation: 4}
