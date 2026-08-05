@@ -322,3 +322,42 @@ GLI patch 级训练 checkpoint→cluster condition→RePaint→四通道合成�
 ## 下一步
 
 复核标签医学语义并配置新的远端 W&B 凭据；只有在用户另行确认正式训练配置后，才启动长期训练和完整 RePaint 质量评估。
+
+---
+
+## 文档整理
+
+## 日期
+
+2026-08-05
+
+## 目标
+
+记录 BraTS2024 GLI 正式训练前的标签确认、normalization、类别平衡、训练参数、validation/test 隔离、checkpoint/resume、W&B 安全接入和项目管理决策。
+
+## 方法
+
+- 使用 BraTS 官方评测说明确认 `0=background、1=NETC、2=SNFH、3=ET、4=RC`。
+- 核对 patch、四通道 mask、histogram、loss、cluster 和 inference channel 顺序。
+- 复核 exp004 normalization support audit，决定保留当前 normalization。
+- 对两种 patch 的 train/val/test 做 anchor、lesion、subject、role 和多标签分布统计。
+- 比较自然采样、anchor 平衡、`(subject,label)` 平衡和分层 sampler，推荐分层 sampler baseline。
+- 设计两阶段正式训练参数、validation、checkpoint、resume、early stopping、三 seed 复现和 W&B online 安全流程。
+
+## 结果
+
+- 新增长期方案：`docs/20260805_004_gli_formal_training_plan.md`。
+- 标签语义证据充分，不再是 blocker。
+- 保留当前 `T1c != 0 -> p0.5/p99.5 -> clip -> [-1,1]` normalization。
+- 推荐先训练 `64×64×32`，再将 `80×96×80` 作为第二阶段对照。
+- 推荐新实验 ID：`20260805_exp005_gli_formal_training_baseline`。
+- 推荐分层 sampler；保持现有 loss 不变，但该训练流程变化需要新 branch 和 Git commit。
+- 用户已说明在 F 盘准备新的 W&B key；本次未读取、未显示、未写入项目，也未登录或创建 run。
+
+## 结论
+
+当前仍不能直接启动正式训练。正式训练前必须先实现 sampler、validation、完整 checkpoint/resume、W&B online fail-closed 和 preflight，并统一 normalization audit provenance。
+
+## 下一步
+
+等待用户确认方案文档中列出的 experiment ID、branch、sampler、训练参数、复现次数和 W&B entity；确认后先实施代码与测试，不自动启动训练。

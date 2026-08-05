@@ -37,7 +37,8 @@ BraTS2024 GLI 流程状态：
 4. 已完成 `64×64×32` 固定 batch overfit smoke 和 `80×96×80` 单 batch 前向/反向 smoke。
 5. 尚未启动正式训练。
 6. 已完成 GLI inference loader、train-only histogram cluster、逐 timestep 共享背景 RePaint、四通道病灶合成和 NPZ/NIfTI 保存回读 smoke。
-7. 后续正式训练和下游分割评估必须在标签语义复核后开展。
+7. 已通过 BraTS 官方评测说明确认标签为 `0=background、1=NETC、2=SNFH、3=ET、4=RC`。
+8. 正式训练方案已整理；在 sampler、validation、checkpoint/resume 和 W&B online 门禁完成前仍不得启动全量训练。
 
 ## 项目结构
 
@@ -169,6 +170,7 @@ GLI loss 对 batch 中所有非空 `(sample, lesion channel)` 单元等权平均
 - GLI loader 实施方案：`docs/20260805_001_gli_loader_implementation_plan.md`
 - GLI lesion-aware 训练接入方案：`docs/20260805_002_gli_lesion_aware_training_integration_plan.md`
 - GLI patch 级 inference 闭环接口：`docs/20260805_003_gli_inference_closed_loop.md`
+- GLI 正式训练方案与可行性判断：`docs/20260805_004_gli_formal_training_plan.md`
 - 可复用 GLI 病灶统计脚本：`scripts/brats_gli_lesion_patch_stats.py`
 - T1c 局部 patch 实验：`experiments/20260804_exp001_t1c_local_patch_dataset/result.md`
 - GLI lesion-aware 训练接入：`experiments/20260805_exp003_gli_lesion_aware_training/result.md`

@@ -66,6 +66,9 @@ v0.4.0-gli-inference-closed-loop-smoke
 - 已生成两份 validation-only checkpoint：64 patch 20-step overfit 通过，矩形 patch 1-step 前向/反向通过；均绑定 commit `bcf9097`。
 - 真实 test inference smoke 均通过：64 patch 为 5 次模型调用、`2.61 s`、`1083 MiB`；矩形 patch 为 5 次模型调用、`4.69 s`、`6519 MiB`。两者 DHW/XYZ、affine、NIfTI round-trip、内部四通道与最终单通道均正确。
 - 全量测试在真实 patch 根目录下 22/22 通过；四份 Hydra 配置完整解析且无 `???`。
+- 已通过 BraTS 官方评测说明确认标签语义为 `0=background、1=NETC、2=SNFH、3=ET、4=RC`；代码中的 patch、四通道 mask、histogram、loss、cluster 和 inference channel 顺序一致，标签语义不再是正式训练 blocker。
+- 已完成正式训练可行性复核并保留当前 normalization；长期方案记录于 `docs/20260805_004_gli_formal_training_plan.md`。
+- 已确定推荐 baseline 为按 `anchor_label × sample_role` 分层并在层内按 subject 平衡的 sampler；该方案保持现有 loss 不变，但属于训练流程方法变化。
 
 ## 失败尝试
 
@@ -76,15 +79,16 @@ v0.4.0-gli-inference-closed-loop-smoke
 - 当前闭环实现位于 `feature/20260805-exp004-gli-inference`，验证代码 commit 为 `bcf9097a6ccbd20db6ab6d992ae72872c5ea65dd`；尚未合并到 `main`。
 - GLI 正式训练尚未启动，当前 smoke 结果不能作为最佳模型或正式指标。
 - 当前两个 checkpoint 仅由 20-step/1-step smoke 产生，不能作为正式训练 checkpoint 或医学质量模型。
-- exp004 W&B run 仅保存在远端 offline 目录，尚无在线 run URL；正式训练前必须配置新的远端环境凭据并完成在线记录。
+- exp004 W&B run 仅保存在远端 offline 目录，尚无在线 run URL。用户已说明在 F 盘准备新的 W&B key，但该凭据尚未以安全方式加载到远端环境并验证 online；key 禁止写入项目文件或 Git。
 - `val` split 未发现 `seg` 标签，不能直接作为监督验证集。
-- GLI 标签 `1,2,3,4` 的医学语义尚未从官方说明中确认。
 - 当前 RePaint smoke 使用 `t_T=5`，生成结果呈随机纹理，只证明闭环、shape 和 mask 语义正确，不证明病灶生成质量。
-- 当前统计按 BraTS post-treatment glioma 语义命名：`1=NETC`、`2=SNFH`、`3=ET`、`4=RC`。后续实现前仍需用官方说明或 metadata 复核一次。
+- 当前 Trainer 尚无正式 validation、per-channel metrics、early stopping、完整 checkpoint/resume 和分层 sampler，不能直接启动全量训练。
+- normalization audit 的 `summary.json` 仍保留 `manual_qa_status=pending`，与已完成视觉检查的项目文档不一致，正式训练前需统一 provenance。
 
 ## 下一步
 
-1. 用官方说明或 metadata 复核 GLI/PTG 标签语义，尤其 `label_4` 是否为 `RC`。
-2. 在远端通过环境变量或本机登录缓存配置新的 W&B 凭据，并同步 exp004 offline smoke；不得使用会话中暴露的旧 key。
-3. 确认正式训练的 batch size、gradient accumulation、验证频率、checkpoint 策略和 W&B 命名后，再单独授权启动正式训练。
-4. 正式 checkpoint 可用后，再用完整 RePaint schedule 评估病灶 histogram、边界连续性和下游医学有效性。
+1. 等待用户确认 `docs/20260805_004_gli_formal_training_plan.md` 中列出的 experiment ID、branch、sampler、两阶段 patch 和训练参数。
+2. 确认后创建 exp005 feature branch，实施 sampler、validation、checkpoint/resume、W&B online fail-closed 和测试；先不启动正式训练。
+3. 由用户将新的 W&B key 安全加载到远端环境变量或凭据缓存；不得读取、输出或写入 Git。
+4. 另行授权后执行 online、显存、validation 和 resume preflight；通过后先训练 `64×64×32` seed `20260805`。
+5. 正式 checkpoint 可用并冻结模型选择后，再决定 `80×96×80` 对照和完整 RePaint/test 医学 QA。
