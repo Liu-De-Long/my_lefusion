@@ -275,3 +275,50 @@ GLI loader 的 scalar label 与四通道 lesion mask 语义已分离，避免将
 ## 下一步
 
 先复核 GLI 标签医学语义，再确认正式训练 batch size、gradient accumulation、验证策略和在线 W&B 环境；GLI RePaint inference 作为后续独立方法实验实施。
+
+---
+
+## 实验 ID
+
+20260805_exp004_gli_inference_closed_loop
+
+## 日期
+
+2026-08-05
+
+## 目标
+
+在不启动正式训练的前提下，完成 GLI patch 级 validation checkpoint、train-only histogram cluster、逐 timestep RePaint、四通道病灶合成、单通道保存和 normalization QA 闭环。
+
+## 方法
+
+- 保留原 584 个 train subject，将原 147 个 holdout subject 确定性拆分为 73 val 和 74 test。
+- scalar segmentation 作为事实源，确定性展开四通道 lesion mask；逐 batch 校验标签映射和互斥性。
+- 四个 lesion channel 在每个反向转换中共享同一条固定 noise 的前向扩散 T1c 背景轨迹；终态背景直接取 sampler 的共享状态，不执行采样结束后的原图硬覆盖。
+- 在 train patch 上按 label 独立聚类 16-bin histogram，并按 `(subject,label)` 归一权重；inference 选择最近 cluster center。
+- 从四模态原始体积构建显式 support，仅用于 QA、分区指标和 lesion 合法性，不参与 RePaint。
+- 分别生成 64 patch 20-step 和矩形 patch 1-step validation checkpoint，并在 test split 上执行缩减 `t_T=5` inference smoke。
+
+## 结果
+
+- 实现 commit：`bcf9097a6ccbd20db6ab6d992ae72872c5ea65dd`；分支：`feature/20260805-exp004-gli-inference`。
+- 全量测试 22/22 通过；四份 Hydra 配置解析通过且无未解析字段。
+- split 为 `584/73/74` 且零交集；两种 patch 的 NETC/SNFH/ET/RC cluster 均选择 `k=[5,3,2,2]`。
+- 64-subject normalization 审计四项门禁全部通过：median Dice `0.999997`、p05 `0.990682`、median extra `0`、p95 extra `0.2444%`。最差和随机 montage 的视觉检查未见系统性颅外伪影，保留当前 normalization。
+- 64 validation checkpoint：20-step overfit 首 5 步 loss `0.785975`、末 5 步 `0.360158`，峰值显存 `6309.063 MiB`。
+- 矩形 validation checkpoint：1-step loss `0.852194`，峰值显存 `33944.751 MiB`。
+- 64 inference：5 次模型调用、`2.6067 s`、`1083.212 MiB`；矩形 inference：5 次模型调用、`4.6900 s`、`6518.637 MiB`。两者四通道/单通道 shape、XYZ/DHW、affine 和 NIfTI round-trip 均通过。
+- 首次 online W&B 初始化因远端没有环境凭据而在模型计算前失败；随后以 offline 模式完成，run ID 为 `30rwobgb` 和 `30wigck6`，暂无线上的 run URL。
+
+## 清理
+
+- 删除 Hydra 配置解析在远端仓库根生成的临时 `.hydra/config.yaml`、`.hydra/hydra.yaml` 和 `.hydra/overrides.yaml`；这些文件仅是解析副产物，不是实验资产。
+- 未删除 validation checkpoint、W&B offline run、cluster、normalization QA 和 inference 输出；它们仍是当前闭环的有效远端资产，并由 `.gitignore` 排除。
+
+## 结论
+
+GLI patch 级训练 checkpoint→cluster condition→RePaint→四通道合成→单通道保存闭环已打通，64 与矩形 patch 均可行。当前 checkpoint 和缩减 schedule 只证明接口正确，不能作为正式模型质量结论；正式训练仍需官方标签语义与 W&B 在线记录。
+
+## 下一步
+
+复核标签医学语义并配置新的远端 W&B 凭据；只有在用户另行确认正式训练配置后，才启动长期训练和完整 RePaint 质量评估。

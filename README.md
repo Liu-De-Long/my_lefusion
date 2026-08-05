@@ -17,7 +17,7 @@ LeFusion 论文入口：<https://arxiv.org/abs/2403.14066>
 
 ## 技术流程
 
-当前代码是 LeFusion 原始流程的实验副本，已保留 LIDC 和 EMIDEC 路径，并完成 BraTS2024 GLI loader、四通道 lesion-aware loss、训练 batch 传递和矩形空间 shape 接入。
+当前代码是 LeFusion 原始流程的实验副本，已保留 LIDC 和 EMIDEC 路径，并完成 BraTS2024 GLI loader、四通道 lesion-aware loss、训练 batch 传递、矩形空间 shape 和 patch 级 RePaint inference 闭环。
 
 当前可复用主流程：
 
@@ -36,7 +36,7 @@ BraTS2024 GLI 流程状态：
 3. 已增加 GLI lesion-aware loss、`lesion_mask` 训练传递和三维矩形 shape 支持。
 4. 已完成 `64×64×32` 固定 batch overfit smoke 和 `80×96×80` 单 batch 前向/反向 smoke。
 5. 尚未启动正式训练。
-6. GLI inference loader、RePaint keep-mask、histogram cluster 和输出合并仍待实现。
+6. 已完成 GLI inference loader、train-only histogram cluster、逐 timestep 共享背景 RePaint、四通道病灶合成和 NPZ/NIfTI 保存回读 smoke。
 7. 后续正式训练和下游分割评估必须在标签语义复核后开展。
 
 ## 项目结构
@@ -109,6 +109,16 @@ python scripts/gli_training_smoke.py +experiment=gli_80x96x80
 
 GLI smoke 和后续训练使用 W&B；凭据只能通过服务器环境变量 `WANDB_API_KEY` 或服务器本机登录缓存提供。
 
+GLI inference 闭环的可复用入口为：
+
+```bash
+python scripts/gli_build_inference_assets.py --dataset-root /workspace/LeFusion_v2/dataset/brats2024_gli_t1c_local_patches --output-root experiments/20260805_exp004_gli_inference_closed_loop/outputs --split-output experiments/20260805_exp004_gli_inference_closed_loop/splits_v2.json
+python LeFusion/inference/inference.py --config-name gli_64x64x32
+python LeFusion/inference/inference.py --config-name gli_80x96x80
+```
+
+上述 inference 配置默认使用缩减的 `t_T=5` schedule，只验收接口和保存闭环，不代表正式采样质量。
+
 ## 实验管理方式
 
 本项目用三个根文档管理实验：
@@ -158,6 +168,8 @@ GLI loss 对 batch 中所有非空 `(sample, lesion channel)` 单元等权平均
 - GLI 数据统计和预处理方案：`docs/20260804_002_brats2024_gli_patch_preprocessing_plan.md`
 - GLI loader 实施方案：`docs/20260805_001_gli_loader_implementation_plan.md`
 - GLI lesion-aware 训练接入方案：`docs/20260805_002_gli_lesion_aware_training_integration_plan.md`
+- GLI patch 级 inference 闭环接口：`docs/20260805_003_gli_inference_closed_loop.md`
 - 可复用 GLI 病灶统计脚本：`scripts/brats_gli_lesion_patch_stats.py`
 - T1c 局部 patch 实验：`experiments/20260804_exp001_t1c_local_patch_dataset/result.md`
 - GLI lesion-aware 训练接入：`experiments/20260805_exp003_gli_lesion_aware_training/result.md`
+- GLI inference 闭环：`experiments/20260805_exp004_gli_inference_closed_loop/result.md`

@@ -1,4 +1,4 @@
-commit: pending_initial_implementation_commit
+commit: bcf9097a6ccbd20db6ab6d992ae72872c5ea65dd
 branch: feature/20260805-exp004-gli-inference
 baseline_commit: 20013257e15f9b3e3149b104677bd2268861b966
 

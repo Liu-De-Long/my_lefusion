@@ -2,15 +2,15 @@
 
 ## 当前版本
 
-v0.3.0-gli-lesion-aware-training-smoke
+v0.4.0-gli-inference-closed-loop-smoke
 
 ## 当前最佳实验
 
-`20260804_exp001_t1c_local_patch_dataset`
+`20260805_exp004_gli_inference_closed_loop`
 
 ## 当前最佳结果
 
-已发布 BraTS2024 GLI T1c 局部病灶 patch 数据集：两种尺寸各 9842 个 patch，合计 19684 个 NPZ，完整性验证通过。
+已发布的数据资产仍为两种尺寸各 9842 个 patch；当前最新方法结果是 patch 级 GLI 训练 checkpoint、train-only cluster、逐步 RePaint、四通道合成和单通道保存闭环。该结果是接口 smoke，不是正式模型性能结果。
 
 ## 当前流程
 
@@ -59,24 +59,32 @@ v0.3.0-gli-lesion-aware-training-smoke
 - `64×64×32` 真实固定 batch 20 步 overfit smoke 通过，首 5 步 loss 均值 `0.785975`，末 5 步 `0.360158`，峰值显存 `6309.063 MiB`。
 - `80×96×80` 真实单 batch 前向/反向通过，输入 `[1,4,80,80,96]`，峰值显存 `33944.751 MiB`，未 OOM。
 - 两次 smoke 已同步到 W&B，run ID 为 `23hogegm` 和 `228g4h4j`；同步后已删除远端临时 offline 缓存，未生成 checkpoint。
+- 已完成 `20260805_exp004_gli_inference_closed_loop`，当前实现分支为 `feature/20260805-exp004-gli-inference`，验证代码 commit 为 `bcf9097a6ccbd20db6ab6d992ae72872c5ea65dd`。
+- 已生成 versioned `splits_v2.json`：train/val/test 为 `584/73/74`，subject 零交集；两种 patch 共用。
+- 已按 label 对 train-only 16-bin histogram 聚类，两种 patch 的 NETC/SNFH/ET/RC 均选择 `k=[5,3,2,2]`，并保留 k-sweep、PCA、中心分位带、cluster 规模和代表 patch 图。
+- 已完成 64 个 train subject 的 normalization 审计：median Dice `0.999997`、p05 Dice `0.990682`、median extra `0`、p95 extra `0.2444%`，四项自动门禁通过；最差和随机 montage 未见系统性颅外伪影，因此保留当前 normalization，同时保留显式 support 仅用于 QA。
+- 已生成两份 validation-only checkpoint：64 patch 20-step overfit 通过，矩形 patch 1-step 前向/反向通过；均绑定 commit `bcf9097`。
+- 真实 test inference smoke 均通过：64 patch 为 5 次模型调用、`2.61 s`、`1083 MiB`；矩形 patch 为 5 次模型调用、`4.69 s`、`6519 MiB`。两者 DHW/XYZ、affine、NIfTI round-trip、内部四通道与最终单通道均正确。
+- 全量测试在真实 patch 根目录下 22/22 通过；四份 Hydra 配置完整解析且无 `???`。
 
 ## 失败尝试
 
-暂无记录。
+- exp004 首次在线 W&B checkpoint smoke 因远端无环境凭据而在模型计算前失败；随后改为 W&B offline 完成。offline run 尚未同步，不能满足正式训练的在线日志门禁。
 
 ## 已知问题
 
-- 当前训练接入位于 `feature/20260805-exp003-gli-training`，代码 commit 为 `dbeabd5e1d9f6f35fc0348031c800043e554585f`；尚未合并到 `main`。
+- 当前闭环实现位于 `feature/20260805-exp004-gli-inference`，验证代码 commit 为 `bcf9097a6ccbd20db6ab6d992ae72872c5ea65dd`；尚未合并到 `main`。
 - GLI 正式训练尚未启动，当前 smoke 结果不能作为最佳模型或正式指标。
-- 尚未创建 GLI 正式训练 checkpoint；两种 patch 的正式 batch size 仍需在训练方案确认后确定。
-- 尚未创建 GLI 直方图聚类中心 JSON。
+- 当前两个 checkpoint 仅由 20-step/1-step smoke 产生，不能作为正式训练 checkpoint 或医学质量模型。
+- exp004 W&B run 仅保存在远端 offline 目录，尚无在线 run URL；正式训练前必须配置新的远端环境凭据并完成在线记录。
 - `val` split 未发现 `seg` 标签，不能直接作为监督验证集。
 - GLI 标签 `1,2,3,4` 的医学语义尚未从官方说明中确认。
-- 数据检查中使用的一次性临时脚本已删除；后续如需稳定数据审计工具，应重新设计为可复用脚本并补充文档说明。
+- 当前 RePaint smoke 使用 `t_T=5`，生成结果呈随机纹理，只证明闭环、shape 和 mask 语义正确，不证明病灶生成质量。
 - 当前统计按 BraTS post-treatment glioma 语义命名：`1=NETC`、`2=SNFH`、`3=ET`、`4=RC`。后续实现前仍需用官方说明或 metadata 复核一次。
 
 ## 下一步
 
 1. 用官方说明或 metadata 复核 GLI/PTG 标签语义，尤其 `label_4` 是否为 `RC`。
-2. 确认正式训练的 batch size、gradient accumulation、验证频率和 W&B 命名后再启动训练。
-3. 单独设计 GLI inference loader、四通道 RePaint keep-mask、histogram cluster 和输出合并；当前 inference 仅完成通用矩形 shape 构造。
+2. 在远端通过环境变量或本机登录缓存配置新的 W&B 凭据，并同步 exp004 offline smoke；不得使用会话中暴露的旧 key。
+3. 确认正式训练的 batch size、gradient accumulation、验证频率、checkpoint 策略和 W&B 命名后，再单独授权启动正式训练。
+4. 正式 checkpoint 可用后，再用完整 RePaint schedule 评估病灶 histogram、边界连续性和下游医学有效性。
