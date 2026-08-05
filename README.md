@@ -39,6 +39,7 @@ BraTS2024 GLI 流程状态：
 6. 已完成 GLI inference loader、train-only histogram cluster、逐 timestep 共享背景 RePaint、四通道病灶合成和 NPZ/NIfTI 保存回读 smoke。
 7. 已通过 BraTS 官方评测说明确认标签为 `0=background、1=NETC、2=SNFH、3=ET、4=RC`。
 8. 正式训练方案已整理；在 sampler、validation、checkpoint/resume 和 W&B online 门禁完成前仍不得启动全量训练。
+9. 已在 exp005 实现分层 sampler、正式 validation、完整 checkpoint/resume、early stopping 和 W&B online fail-closed 接入；远端非训练测试 28/28 通过，但 W&B/GPU preflight 尚未授权和执行，因此仍未启动正式训练。
 
 ## 项目结构
 
@@ -109,6 +110,15 @@ python scripts/gli_training_smoke.py +experiment=gli_80x96x80
 ```
 
 GLI smoke 和后续训练使用 W&B；凭据只能通过服务器环境变量 `WANDB_API_KEY` 或服务器本机登录缓存提供。
+
+exp005 正式配置的只读解析入口为：
+
+```bash
+python LeFusion/train/train.py +experiment=gli_formal_64x64x32 --cfg job --resolve
+python LeFusion/train/train.py +experiment=gli_formal_80x96x80 --cfg job --resolve
+```
+
+以上命令只解析配置，不登录 W&B、不创建 run、不启动训练。正式训练入口必须在 W&B、显存、validation 和 resume preflight 另行授权并通过后才能执行。
 
 GLI inference 闭环的可复用入口为：
 

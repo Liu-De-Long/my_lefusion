@@ -383,3 +383,42 @@ GLI patch 级训练 checkpoint→cluster condition→RePaint→四通道合成�
 ## 结论
 
 该文档作为 exp005 正式 checkpoint 验证及后续生成质量评估的长期接口依据继续保留。
+
+---
+
+## 实验 ID
+
+`20260805_exp005_gli_formal_training_baseline`
+
+## 日期
+
+2026-08-05
+
+## 目标
+
+在不登录 W&B、不创建 run、不启动训练的前提下，实现 GLI 正式训练所需的采样、验证、恢复和在线日志门禁。
+
+## 方法
+
+- 实现按 `anchor_label × sample_role` 分层、层内按 subject 平衡的确定性 sampler，保持现有 lesion-aware loss 不变。
+- 新增固定 timestep/noise 的监督 val，记录 EMA 总 loss、NETC/SNFH/ET/RC loss、各通道和总有效单元数、patch/subject/anchor label 覆盖。
+- 实现 early stopping、原子 `latest.pt`、`best.pt`、最近三个 milestone 和完整 checkpoint/resume。
+- W&B 使用固定 entity/project/run ID 与 `resume=never/must`，online 初始化失败时 fail closed，不读取或保存 key。
+- 新增两种 patch 的正式 Hydra 配置；参数保持可配置，50,000 step 作为上限而非必须跑满。
+
+## 结果
+
+- 实现代码版本：`7a288dc2f59947db2c8bf00200a59f19f6e0bc7a`。
+- focused tests 首轮通过；全量测试曾发现旧 `SimpleNamespace` factory 兼容问题，已在 `cd2affb` 修复。
+- 直接训练脚本配置解析曾发现 `train.tracking` 包解析问题，已在 `4ee7ebf` 修复。
+- 最终远端全量非训练测试 28/28 通过；两份正式配置解析通过且无 `???`。
+- exp004 normalization audit stale 字段已改为人工 QA 完成并保留当前 normalization，JSON 回读通过。
+- 本轮没有登录 W&B、创建 run、执行 GPU preflight 或启动训练。
+
+## 结论
+
+exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式全量训练。micro-batch 可根据显存调整并用 accumulation 保持 effective batch；三个 seed 是本项目复现候选，不是原始 LeFusion 的强制规则；训练可在 validation 收敛时提前停止。
+
+## 下一步
+
+用户安全配置远端 W&B key 后，另行授权 W&B online、显存、validation 和 resume preflight；preflight 通过后仍需再次确认才能启动首个正式 run。

@@ -176,16 +176,16 @@ batch size 1 下，自然采样的长期期望 loss 贡献为：
 | AMP | 开启 | 开启 |
 | Gradient clipping | global norm `1.0` | `1.0` |
 | EMA | `0.995`，每 10 step 更新 | 相同 |
-| Max optimizer steps | 50,000 | 50,000 |
+| Max optimizer steps | 最多 50,000 | 最多 50,000 |
 | Effective epochs | `50000×4/7772=25.73` | 相同 |
 | Validation | 每 2,000 optimizer steps | 相同 |
 | Latest checkpoint | 每 500 step 原子更新 | 相同 |
 | Milestone | 每 5,000 step，保留最近 3 个 | 相同 |
 | Best | 最低 `val/ema/total_loss` | 相同 |
 | Early stopping | 10k step 后启用；patience 8；relative min delta 0.5% | 相同 |
-| Seeds | `20260805/20260806/20260807` | 相同 |
+| Seeds | 首轮 `20260805`；候选复现 `20260806/20260807` | 相同 |
 
-64 patch 的 batch 4 尚未真实测量。正式实施后先做显存 preflight；若 OOM，不自动修改参数，而是报告并建议改为 `batch=2, accumulation=2`，保持 effective batch 为 4。
+这些值是可配置的正式 baseline，不是不可更改的硬编码。64 patch 的 batch 4 尚未真实测量，必须先做显存 preflight；若 OOM，可在报告后改为 `batch=2, accumulation=2`，仍不足时改为 `batch=1, accumulation=4`，保持 effective batch 为 4。`50,000` optimizer steps 是训练预算上限，不要求必须跑满；10k step 后由固定 validation 的 `val/ema/total_loss` 判断是否收敛并 early stop。任何 batch 或训练上限调整都记录为配置变化，不静默修改。
 
 ### 6.3 Validation 与 test 隔离
 
@@ -216,6 +216,7 @@ batch size 1 下，自然采样的长期期望 loss 贡献为：
 
 ### 6.5 复现次数
 
+- 原始 LeFusion 训练入口没有“三个 seed 自动重复”或必须三 seed 的规则；三 seed 是本项目为降低单次随机性、形成更可靠正式结论而提出的复现设计。
 - 第一阶段先运行 seed `20260805`。
 - 单 run 通过完整 validation、resume 和 W&B 门禁后，再运行 `20260806/20260807`。
 - 64 patch 正式结论使用三次独立 seed。
@@ -331,33 +332,31 @@ feature/20260805-exp005-gli-formal-training
 
 ## 10. 正式训练 blockers
 
-当前仍需解决：
+实现后仍需解决：
 
-1. 当前 Trainer 没有正式 validation、per-channel metrics 和 early stopping。
-2. checkpoint 不能完整恢复 optimizer、RNG、sampler 和 W&B run。
-3. 尚未实现推荐的分层 sampler。
-4. 新 W&B 凭据尚未以安全方式加载到远端环境并验证 online；F 盘准备完成不等于远端已可用。
-5. normalization audit 的人工 QA 状态记录存在一处新旧不一致。
-6. 64 patch batch 4 尚需显存与 resume preflight。
+1. 新 W&B 凭据尚未以安全方式加载到远端环境并验证 online；F 盘准备完成不等于远端已可用。
+2. 64 patch batch 4 尚需显存、validation 和 resume preflight。
+
+Trainer validation/per-channel metrics/early stopping、完整 checkpoint/resume、分层 sampler 和 normalization audit provenance 已完成实现或修正，并通过非训练测试。
 
 标签语义和 normalization 不再是 blocker。
 
 ## 11. 用户需要确认或决定的事项
 
-### 必须确认
+### 已确认
 
-1. 是否接受新 experiment ID：`20260805_exp005_gli_formal_training_baseline`。
-2. 是否接受新 branch：`feature/20260805-exp005-gli-formal-training`，并授权实施后创建 Git commit。
-3. 是否接受分层 sampler 作为唯一 baseline；这属于方法变化，但保持 loss 不变。
-4. 是否接受第一阶段只先实施和 preflight `64×64×32`，正式训练也先运行它。
-5. 是否接受推荐参数：64 为 `batch=4/accum=1`，80 为 `batch=1/accum=4`，effective batch 均为 4，LR `1e-4`，50,000 optimizer steps。
-6. 是否接受 validation、checkpoint、early stopping 和三 seed 复现策略。
+1. experiment ID：`20260805_exp005_gli_formal_training_baseline`。
+2. branch：`feature/20260805-exp005-gli-formal-training`，并授权实施代码、测试和 Git commit。
+3. 分层 sampler 作为唯一 baseline；属于方法变化，但保持 loss 不变。
+4. 第一阶段先实施 `64×64×32`，`80×96×80` 作为第二阶段对照。
+5. baseline 初值为 64 `batch=4/accum=1`、80 `batch=1/accum=4`、effective batch 4、LR `1e-4`、最多 50,000 optimizer steps；允许根据 preflight 显存调整 micro-batch/accumulation，并允许按 validation 收敛 early stop。
+6. W&B entity：`jinyuanbao719-xi-an-jiaotong-university-`；key 由用户自行安全配置到远端。
 
-### W&B 需要用户完成或说明
+### W&B 仍需用户完成
 
 7. 确认 F 盘新增的是全新的、未暴露的 W&B key，旧 key 已撤销或不再使用。
 8. 提供该 key 的安全使用方式：由用户自行加载到远端 `WANDB_API_KEY` 或远端凭据缓存；不需要把 key 内容发给 Codex。
-9. 确认 W&B entity。若不指定，则运行时使用远端 `WANDB_ENTITY`；project 固定为 `lefusion-brats2024-gli`。
+9. entity 已确认；project 固定为 `lefusion-brats2024-gli`。仍需在不向 Codex 暴露 key 内容的前提下完成远端配置。
 
 ### 可以分阶段决定
 

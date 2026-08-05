@@ -22,15 +22,21 @@
 
 ## 结果
 
-实施与测试进行中。尚未登录 W&B、创建 run 或启动训练。
+- 已完成分层 sampler、正式 validation、per-channel loss/有效单元/覆盖指标、early stopping、best/latest/milestone、完整 checkpoint/resume 和 W&B fail-closed 接入。
+- checkpoint 保存并校验 model、EMA、optimizer、scaler、optimizer step、sampler/epoch/batch offset、Python/NumPy/Torch/CUDA RNG、early-stopping 状态、resolved config/hash、split/manifest hash、Git SHA 和 W&B run ID。
+- 两份正式 Hydra 配置均可直接解析且无 `???`；64 配置允许通过 override 改为 `batch=2/accumulation=2`，保持 effective batch 为 4。
+- 远端全量 `unittest` 28/28 通过，包含真实发布 patch 的两种尺寸 loader；新增测试覆盖 sampler 平衡、validation 聚合、early stopping、checkpoint 元数据和精确数据序列 resume。
+- exp004 normalization audit 的 stale 状态已更新为 `completed_no_systematic_background_pollution` 和 `keep_t1c_nonzero_percentile_normalization`，JSON 回读通过。
+- 实现代码版本：`7a288dc2f59947db2c8bf00200a59f19f6e0bc7a`。
+- 尚未读取或使用 W&B key，未登录 W&B、未创建 run、未做 GPU preflight、未启动训练。
 
 ## 结论
 
-待代码、配置和测试全部通过后再判断是否具备 preflight 条件；preflight 与正式训练仍需另行授权。
+代码和非训练测试已通过，具备进入独立 preflight 的代码条件。当前仍不能启动正式训练：用户需先把新 key 安全配置到远端，且 W&B online、64 patch 显存、validation 和 resume preflight 均需另行授权并通过。
 
 ## 下一步
 
-完成实现、远端非训练测试和 Git 同步，然后报告剩余 blocker。
+由用户安全配置远端 W&B 凭据；另行确认后执行不超过门禁范围的 online、显存、validation 和 resume preflight，不自动继续正式训练。
 
 ## 输出路径
 

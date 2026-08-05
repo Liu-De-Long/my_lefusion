@@ -2,11 +2,13 @@
 
 ## 当前版本
 
-v0.4.0-gli-inference-closed-loop-smoke
+v0.5.0-gli-formal-training-gates
 
 ## 当前最佳实验
 
 `20260805_exp004_gli_inference_closed_loop`
+
+当前最新方法实现为 `20260805_exp005_gli_formal_training_baseline`；它只完成正式训练门禁代码和测试，尚未产生可比较的模型结果，因此当前最佳模型入口仍保持 exp004 smoke。
 
 ## 当前最佳结果
 
@@ -70,6 +72,11 @@ v0.4.0-gli-inference-closed-loop-smoke
 - 已通过 BraTS 官方评测说明确认标签语义为 `0=background、1=NETC、2=SNFH、3=ET、4=RC`；代码中的 patch、四通道 mask、histogram、loss、cluster 和 inference channel 顺序一致，标签语义不再是正式训练 blocker。
 - 已完成正式训练可行性复核并保留当前 normalization；长期方案记录于 `docs/20260805_004_gli_formal_training_plan.md`。
 - 已确定推荐 baseline 为按 `anchor_label × sample_role` 分层并在层内按 subject 平衡的 sampler；该方案保持现有 loss 不变，但属于训练流程方法变化。
+- 已创建 `feature/20260805-exp005-gli-formal-training` 和 exp005 实验卡，完成分层 sampler、固定 val timestep/noise、总 loss/各 lesion channel loss/有效单元/覆盖指标、early stopping、best/latest/milestone 和完整 checkpoint/resume。
+- 正式 checkpoint 已覆盖 optimizer、AMP scaler、sampler/epoch/batch offset、Python/NumPy/Torch/CUDA RNG、resolved config/hash、split/manifest hash、Git SHA 和 W&B run ID，并对不一致状态 fail closed。
+- W&B 正式配置已固定 entity `jinyuanbao719-xi-an-jiaotong-university-`、run ID 和 `resume=never/must` 语义；online 初始化失败会在训练计算前退出，不回退 offline。
+- 两份正式 Hydra 配置解析通过；远端全量非训练测试 28/28 通过，包含真实发布 patch 的两种尺寸 loader 和精确数据序列 resume。
+- normalization audit 输出已将 stale 状态更新为 `completed_no_systematic_background_pollution` 和 `keep_t1c_nonzero_percentile_normalization`，JSON 回读通过。
 
 ## 失败尝试
 
@@ -83,13 +90,13 @@ v0.4.0-gli-inference-closed-loop-smoke
 - exp004 W&B run 仅保存在远端 offline 目录，尚无在线 run URL。用户已说明在 F 盘准备新的 W&B key，但该凭据尚未以安全方式加载到远端环境并验证 online；key 禁止写入项目文件或 Git。
 - `val` split 未发现 `seg` 标签，不能直接作为监督验证集。
 - 当前 RePaint smoke 使用 `t_T=5`，生成结果呈随机纹理，只证明闭环、shape 和 mask 语义正确，不证明病灶生成质量。
-- 当前 Trainer 尚无正式 validation、per-channel metrics、early stopping、完整 checkpoint/resume 和分层 sampler，不能直接启动全量训练。
-- normalization audit 的 `summary.json` 仍保留 `manual_qa_status=pending`，与已完成视觉检查的项目文档不一致，正式训练前需统一 provenance。
+- exp005 代码门禁虽已实现，但尚未做真实 W&B online、64 patch batch 4 显存、validation 和 checkpoint resume preflight，不能直接启动全量训练。
+- baseline 的 batch 是 preflight 初值而非硬编码：64 可从 `4/1` 调为 `2/2` 或 `1/4`；`50,000` optimizer steps 是上限，可由 early stopping 提前结束。
+- 原始 LeFusion 入口没有强制三 seed；`20260806/20260807` 是在首个 seed 通过后再决定的正式复现候选。
 
 ## 下一步
 
-1. 等待用户确认 `docs/20260805_004_gli_formal_training_plan.md` 中列出的 experiment ID、branch、sampler、两阶段 patch 和训练参数。
-2. 确认后创建 exp005 feature branch，实施 sampler、validation、checkpoint/resume、W&B online fail-closed 和测试；先不启动正式训练。
-3. 由用户将新的 W&B key 安全加载到远端环境变量或凭据缓存；不得读取、输出或写入 Git。
-4. 另行授权后执行 online、显存、validation 和 resume preflight；通过后先训练 `64×64×32` seed `20260805`。
-5. 正式 checkpoint 可用并冻结模型选择后，再决定 `80×96×80` 对照和完整 RePaint/test 医学 QA。
+1. 由用户将新的 W&B key 安全加载到远端环境变量或凭据缓存；不得读取、输出或写入 Git。
+2. 另行授权后执行 W&B online、64 patch 显存、validation 和 resume preflight；只汇报门禁结果，不自动启动正式训练。
+3. preflight 通过并再次确认后，先训练 `64×64×32` seed `20260805`；是否补跑另外两个 seed 根据首个 run 决定。
+4. 正式 checkpoint 可用并冻结模型选择后，再决定 `80×96×80` 对照和完整 RePaint/test 医学 QA。
