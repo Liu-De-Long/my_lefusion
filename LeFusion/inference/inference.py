@@ -13,7 +13,10 @@ from ddpm import GaussianDiffusion_Nolatent, Unet3D, normalize_spatial_shape
 from get_dataset.get_dataset import get_inference_dataloader
 from train.train import build_model_and_diffusion
 from checkpointing import load_diffusion_checkpoint
-from inference.gli_utils import dhw_to_xyz, load_cluster_centers, nearest_cluster_condition
+if __package__:
+    from inference.gli_utils import dhw_to_xyz, load_cluster_centers, nearest_cluster_condition
+else:
+    from gli_utils import dhw_to_xyz, load_cluster_centers, nearest_cluster_condition
 import torchio as tio
 import nibabel as nib
 import numpy as np
