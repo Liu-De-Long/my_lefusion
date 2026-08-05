@@ -1,14 +1,21 @@
 import sys
 import os
+import random
+import subprocess
+from pathlib import Path
+
+import numpy as np
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, parent_dir)
 from ddpm import Unet3D, Trainer, GaussianDiffusion_Nolatent
 import hydra
 from omegaconf import DictConfig, OmegaConf
-from get_dataset.get_dataset import get_train_dataset
+from get_dataset.get_dataset import get_train_dataset, get_validation_dataset
 import torch
 from ddpm.unet import UNet
 import torch.nn as nn
+from checkpointing import canonical_config_hash, sha256_file
+from train.tracking import initialize_wandb, validate_wandb_config
 
 
 SUPPORTED_DATA_TYPES = ('lidc', 'emidec', 'gli')
@@ -51,6 +58,31 @@ def validate_training_config(cfg: DictConfig) -> tuple[str, tuple[int, int, int]
                 "GLI patch/model shape mismatch: "
                 f"patch_size_xyz={patch_xyz} maps to {expected_dhw}, got {spatial_shape}"
             )
+        formal_cfg = cfg.get('formal_training')
+        if formal_cfg is not None and bool(formal_cfg.get('enabled', False)):
+            effective_batch = int(cfg.model.batch_size) * int(
+                cfg.model.gradient_accumulate_every
+            )
+            if effective_batch != int(formal_cfg.effective_batch_size):
+                raise ValueError(
+                    f"effective batch mismatch: {effective_batch} != "
+                    f"{formal_cfg.effective_batch_size}"
+                )
+            if int(cfg.model.train_num_steps) <= 0:
+                raise ValueError("formal max optimizer steps must be positive")
+            if float(cfg.model.max_grad_norm) <= 0:
+                raise ValueError("formal gradient clipping must be positive")
+            if not bool(cfg.validation.enabled) or str(cfg.validation.split) != 'val':
+                raise ValueError("formal training requires supervised split='val' validation")
+            if str(cfg.sampler.name) != 'gli_anchor_role_subject':
+                raise ValueError("formal GLI training requires the approved stratified sampler")
+            resume_from = cfg.checkpoint.get('resume_from')
+            expected_resume = 'must' if resume_from else 'never'
+            if str(cfg.wandb.resume) != expected_resume:
+                raise ValueError(
+                    f"wandb.resume must be {expected_resume!r} for this checkpoint mode"
+                )
+            validate_wandb_config(cfg)
     return data_type, spatial_shape
 
 
@@ -83,7 +115,7 @@ def build_model_and_diffusion(
         raise ValueError(f"Model {cfg.model.denoising_fn} doesn't exist")
 
     model = model.to(device)
-    if use_data_parallel and device.type == 'cuda':
+    if use_data_parallel and device.type == 'cuda' and torch.cuda.device_count() > 1:
         model = nn.DataParallel(model)
 
     return GaussianDiffusion_Nolatent(
@@ -99,33 +131,59 @@ def build_model_and_diffusion(
     ).to(device)
 
 
-def initialize_wandb(cfg: DictConfig):
-    wandb_cfg = cfg.get('wandb')
-    if wandb_cfg is None or not bool(wandb_cfg.get('enabled', False)):
-        return None
-    import wandb
+def set_global_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
-    entity = wandb_cfg.get('entity') or os.environ.get('WANDB_ENTITY')
-    wandb_dir = wandb_cfg.get('dir', cfg.model.results_folder)
-    os.makedirs(wandb_dir, exist_ok=True)
-    return wandb.init(
-        project=wandb_cfg.get('project', 'lefusion-brats2024-gli'),
-        entity=entity,
-        name=wandb_cfg.get('run_name'),
-        mode=wandb_cfg.get('mode', 'online'),
-        config=OmegaConf.to_container(cfg, resolve=True),
-        dir=wandb_dir,
-    )
+
+def resolve_git_sha() -> str:
+    configured = os.environ.get('GIT_COMMIT')
+    if configured:
+        return configured
+    repository = Path(__file__).resolve().parents[2]
+    return subprocess.check_output(
+        ['git', 'rev-parse', 'HEAD'], cwd=repository, text=True
+    ).strip()
+
+
+def build_checkpoint_metadata(cfg, train_dataset, spatial_shape):
+    resolved = OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
+    split_file = Path(str(cfg.dataset.split_file)).expanduser()
+    run_id = cfg.wandb.get('run_id')
+    return resolved, {
+        'experiment_id': str(cfg.experiment_id),
+        'git_sha': resolve_git_sha(),
+        'config_hash': canonical_config_hash(resolved),
+        'manifest_hash': sha256_file(train_dataset.manifest_path),
+        'split_hash': sha256_file(split_file),
+        'data_type': str(cfg.dataset.data_type),
+        'patch_size_xyz': [int(value) for value in cfg.dataset.patch_size_xyz],
+        'spatial_shape_dhw': list(spatial_shape),
+        'sampler_name': str(cfg.sampler.name),
+        'wandb_run_id': None if run_id is None else str(run_id),
+    }
 
 
 @hydra.main(config_path='config', config_name='base_cfg', version_base=None)
 def run(cfg: DictConfig):
+    data_type, spatial_shape = validate_training_config(cfg)
+    set_global_seed(int(cfg.get('seed', 0)))
     if torch.cuda.is_available():
         torch.cuda.set_device(cfg.model.gpus)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     diffusion = build_model_and_diffusion(cfg, device)
 
-    train_dataset, *_ = get_train_dataset(cfg)
+    train_dataset, train_sampler = get_train_dataset(cfg)
+    validation_dataset = get_validation_dataset(cfg)
+    resolved_config = None
+    checkpoint_metadata = None
+    if data_type == 'gli' and cfg.get('formal_training', {}).get('enabled', False):
+        resolved_config, checkpoint_metadata = build_checkpoint_metadata(
+            cfg, train_dataset, spatial_shape
+        )
 
     trainer = Trainer(
         diffusion,
@@ -142,9 +200,19 @@ def run(cfg: DictConfig):
         results_folder=cfg.model.results_folder,
         num_workers=cfg.model.num_workers,
         device=device,
+        max_grad_norm=cfg.model.get('max_grad_norm'),
+        train_sampler=train_sampler,
+        validation_dataset=validation_dataset,
+        validation_config=cfg.get('validation'),
+        checkpoint_config=cfg.get('checkpoint'),
+        checkpoint_metadata=checkpoint_metadata,
+        resolved_config=resolved_config,
     )
 
-    if cfg.model.load_milestone:
+    resume_from = cfg.get('checkpoint', {}).get('resume_from')
+    if resume_from:
+        trainer.load(resume_from)
+    elif cfg.model.load_milestone:
         trainer.load(cfg.model.load_milestone)
 
     wandb_run = initialize_wandb(cfg)

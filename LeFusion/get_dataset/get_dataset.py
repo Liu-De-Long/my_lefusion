@@ -1,7 +1,7 @@
 from torch.utils.data import DataLoader
 from dataset import LIDCDataset, LIDCInDataset
 from dataset import EMIDECDataset, EMIDECInDataset
-from dataset import GLIDataset, GLIInferenceDataset
+from dataset import GLIDataset, GLIInferenceDataset, GLIStratifiedSampler
 
 
 def get_inference_dataloader(
@@ -57,7 +57,34 @@ def get_train_dataset(cfg):
             split=cfg.dataset.get('split', 'train'),
             split_file=cfg.dataset.get('split_file'),
         )
-        sampler = None
+        sampler_cfg = cfg.get('sampler')
+        if sampler_cfg is not None and bool(sampler_cfg.get('enabled', False)):
+            if sampler_cfg.get('name') != 'gli_anchor_role_subject':
+                raise ValueError(f"unsupported GLI sampler: {sampler_cfg.get('name')!r}")
+            sampler = GLIStratifiedSampler(
+                train_dataset.records,
+                seed=int(sampler_cfg.get('seed', cfg.get('seed', 0))),
+                num_samples=int(sampler_cfg.get('samples_per_epoch', len(train_dataset))),
+            )
+        else:
+            sampler = None
     else:
         raise ValueError(f"Wrong data type: {cfg.dataset.data_type}")
     return train_dataset, sampler
+
+
+def get_validation_dataset(cfg):
+    validation_cfg = cfg.get('validation')
+    if validation_cfg is None or not bool(validation_cfg.get('enabled', False)):
+        return None
+    if cfg.dataset.data_type != 'gli':
+        raise ValueError("formal validation is currently implemented only for GLI")
+    split = str(validation_cfg.get('split', 'val'))
+    if split != 'val':
+        raise ValueError(f"supervised validation must use split='val', got {split!r}")
+    return GLIDataset(
+        root_dir=cfg.dataset.root_dir,
+        patch_size_xyz=cfg.dataset.patch_size_xyz,
+        split=split,
+        split_file=cfg.dataset.get('split_file'),
+    )

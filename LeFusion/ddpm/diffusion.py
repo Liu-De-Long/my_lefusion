@@ -574,8 +574,8 @@ def normalize_spatial_shape(spatial_shape=None, *, image_size=None, num_frames=N
     return shape
 
 
-def masked_lesion_loss(prediction, target, lesion_mask, loss_type='l1'):
-    """Average equally over non-empty ``(sample, lesion channel)`` units."""
+def masked_lesion_loss_details(prediction, target, lesion_mask, loss_type='l1'):
+    """Return the unchanged GLI loss plus aggregatable per-channel details."""
     if prediction.shape != target.shape or prediction.shape != lesion_mask.shape:
         raise ValueError(
             "prediction, target, and lesion_mask must have identical shapes: "
@@ -598,7 +598,22 @@ def masked_lesion_loss(prediction, target, lesion_mask, loss_type='l1'):
     if not bool(active_units.any()):
         raise ValueError("GLI lesion_mask contains no lesion voxels in the entire batch")
     unit_losses = (error * mask).sum(dim=spatial_dims) / voxel_counts.clamp_min(1)
-    return unit_losses[active_units].mean()
+    active_float = active_units.to(unit_losses.dtype)
+    total_loss_sum = (unit_losses * active_float).sum()
+    effective_units = active_units.sum()
+    return {
+        "loss": total_loss_sum / effective_units,
+        "total_loss_sum": total_loss_sum,
+        "effective_units": effective_units,
+        "channel_loss_sums": (unit_losses * active_float).sum(dim=0),
+        "channel_effective_units": active_units.sum(dim=0),
+        "voxel_counts": voxel_counts,
+    }
+
+
+def masked_lesion_loss(prediction, target, lesion_mask, loss_type='l1'):
+    """Average equally over non-empty ``(sample, lesion channel)`` units."""
+    return masked_lesion_loss_details(prediction, target, lesion_mask, loss_type)["loss"]
 
 
 def prepare_training_batch(data_frame, device, data_type):
@@ -1080,6 +1095,29 @@ class GaussianDiffusion_Nolatent(nn.Module):
             **dict(x_start=x, t=t, mask=mask, cond=cond, noise=noise, *args, **kwargs)
         )
 
+    def gli_validation_loss_details(self, x, mask, cond, *, t, noise):
+        """Compute deterministic GLI validation metrics without changing loss rules."""
+        if self.data_type != "gli":
+            raise ValueError("gli_validation_loss_details requires data_type='gli'")
+        if tuple(x.shape) != tuple(mask.shape) or tuple(x.shape) != tuple(noise.shape):
+            raise ValueError("GLI validation data, mask, and noise must have identical shapes")
+        expected = (self.channels, *self.spatial_shape)
+        if tuple(x.shape[1:]) != expected:
+            raise ValueError(
+                f"GLI validation shape mismatch: {tuple(x.shape[1:])} != {expected}"
+            )
+        if tuple(t.shape) != (x.shape[0],):
+            raise ValueError(f"GLI validation timestep shape mismatch: {tuple(t.shape)}")
+        x = x.to(device=self.device, dtype=torch.float32)
+        mask = mask.to(device=x.device, dtype=x.dtype)
+        noise = noise.to(device=x.device, dtype=x.dtype)
+        t = t.to(device=x.device, dtype=torch.long)
+        if cond is not None:
+            cond = cond.to(device=x.device, dtype=torch.float32)
+        x_noisy = self.q_sample(x_start=x, t=t, noise=noise)
+        prediction = self.denoise_fn(x=x_noisy, time=t, cond=cond)
+        return masked_lesion_loss_details(prediction, noise, mask, self.loss_type)
+
 
 class Trainer(object):
     def __init__(
@@ -1102,6 +1140,12 @@ class Trainer(object):
         max_grad_norm=None,
         num_workers=20,
         device=None,
+        train_sampler=None,
+        validation_dataset=None,
+        validation_config=None,
+        checkpoint_config=None,
+        checkpoint_metadata=None,
+        resolved_config=None,
     ):
         super().__init__()
         self.model = diffusion_model
@@ -1122,11 +1166,12 @@ class Trainer(object):
         self.cfg = cfg
 
         self.ds = dataset
-        dl = DataLoader(self.ds, batch_size=train_batch_size,
-                        shuffle=True, pin_memory=True, num_workers=num_workers)
-
-        self.len_dataloader = len(dl)
-        self.dl = cycle(dl)
+        self.train_sampler = train_sampler
+        self.num_workers = int(num_workers)
+        self.train_epoch = 0
+        self.batch_in_epoch = 0
+        self._train_iterator = None
+        self.len_dataloader = math.ceil(len(self.ds) / self.batch_size)
 
         print(f'found {len(self.ds)} videos as gif files')
         assert len(
@@ -1144,7 +1189,32 @@ class Trainer(object):
         self.results_folder = Path(results_folder)
         self.results_folder.mkdir(exist_ok=True, parents=True)
 
+        self.validation_dataset = validation_dataset
+        self.validation_config = validation_config or {}
+        self.validation_every = int(self.validation_config.get('every_steps', 0))
+        self.validation_batch_size = int(self.validation_config.get('batch_size', 1))
+        self.validation_num_workers = int(self.validation_config.get('num_workers', 0))
+        self.validation_seed = int(self.validation_config.get('seed', 0))
+        self.early_stopping = None
+        early_cfg = self.validation_config.get('early_stopping')
+        if self.validation_dataset is not None and early_cfg is not None:
+            from train.validation import EarlyStopping
+
+            self.early_stopping = EarlyStopping(
+                patience=int(early_cfg['patience']),
+                relative_min_delta=float(early_cfg['relative_min_delta']),
+                warmup_steps=int(early_cfg['warmup_steps']),
+            )
+
+        self.checkpoint_config = checkpoint_config or {}
+        self.latest_every = int(self.checkpoint_config.get('latest_every_steps', 0))
+        self.milestone_every = int(self.checkpoint_config.get('milestone_every_steps', 0))
+        self.keep_milestones = int(self.checkpoint_config.get('keep_milestones', 3))
+        self.checkpoint_metadata = dict(checkpoint_metadata or {})
+        self.resolved_config = resolved_config or {}
+
         self.reset_parameters()
+        self._reset_train_iterator()
 
     def reset_parameters(self):
         self.ema_model.load_state_dict(self.model.state_dict())
@@ -1155,32 +1225,139 @@ class Trainer(object):
             return
         self.ema.update_model_average(self.ema_model, self.model)
 
-    def save(self, milestone):
-        data = {
+    def _reset_train_iterator(self, *, skip_batches=0):
+        if self.train_sampler is not None and hasattr(self.train_sampler, 'set_epoch'):
+            self.train_sampler.set_epoch(self.train_epoch)
+        generator = torch.Generator()
+        generator.manual_seed(int(self.cfg.get('seed', 0)) + self.train_epoch)
+        loader = DataLoader(
+            self.ds,
+            batch_size=self.batch_size,
+            sampler=self.train_sampler,
+            shuffle=self.train_sampler is None,
+            pin_memory=self.device is not None and self.device.type == 'cuda',
+            num_workers=self.num_workers,
+            drop_last=bool(self.cfg.get('sampler', {}).get('drop_last', False)),
+            generator=generator,
+        )
+        self.len_dataloader = len(loader)
+        if self.len_dataloader <= 0:
+            raise RuntimeError('training DataLoader is empty')
+        self._train_iterator = iter(loader)
+        for _ in range(int(skip_batches)):
+            try:
+                next(self._train_iterator)
+            except StopIteration as exc:
+                raise ValueError('checkpoint batch offset exceeds training epoch') from exc
+
+    def _next_train_batch(self):
+        try:
+            batch = next(self._train_iterator)
+        except StopIteration:
+            self.train_epoch += 1
+            self.batch_in_epoch = 0
+            self._reset_train_iterator()
+            batch = next(self._train_iterator)
+        self.batch_in_epoch += 1
+        return batch
+
+    def _checkpoint_payload(self, kind):
+        from checkpointing import GLI_TRAINING_CHECKPOINT_SCHEMA, capture_rng_state
+
+        metadata = dict(self.checkpoint_metadata)
+        metadata['checkpoint_kind'] = str(kind)
+        sampler_state = None
+        if self.train_sampler is not None and hasattr(self.train_sampler, 'state_dict'):
+            sampler_state = self.train_sampler.state_dict()
+        return {
+            'schema_version': GLI_TRAINING_CHECKPOINT_SCHEMA,
+            'metadata': metadata,
             'step': self.step,
             'model': self.model.state_dict(),
             'ema': self.ema_model.state_dict(),
-            'scaler': self.scaler.state_dict()
+            'optimizer': self.opt.state_dict(),
+            'scaler': self.scaler.state_dict(),
+            'rng_state': capture_rng_state(),
+            'train_state': {
+                'optimizer_step': self.step,
+                'train_epoch': self.train_epoch,
+                'batch_in_epoch': self.batch_in_epoch,
+                'sampler': sampler_state,
+            },
+            'early_stopping': None if self.early_stopping is None else self.early_stopping.state_dict(),
+            'resolved_config': self.resolved_config,
         }
-        torch.save(data, str(self.results_folder / f'model-{milestone}.pt'))
 
-    def load(self, milestone, map_location=None, **kwargs):
-        if milestone == -1:
-            all_milestones = [int(p.stem.split('-')[-1])
-                              for p in Path(self.results_folder).glob('**/*.pt')]
-            assert len(
-                all_milestones) > 0, 'need to have at least one milestone to load from latest checkpoint (milestone == -1)'
-            milestone = max(all_milestones)
+    def save_checkpoint(self, path, *, kind):
+        from checkpointing import atomic_torch_save
 
-        if map_location:
-            data = torch.load(milestone, map_location=map_location)
-        else:
-            data = torch.load(milestone)
+        atomic_torch_save(self._checkpoint_payload(kind), path)
 
-        self.step = data['step']
+    def save(self, milestone):
+        self.save_checkpoint(
+            self.results_folder / f'model-{milestone}.pt', kind=f'legacy-milestone-{milestone}'
+        )
+
+    def load(self, checkpoint_path, map_location=None, **kwargs):
+        from checkpointing import load_training_checkpoint, restore_rng_state
+
+        data = load_training_checkpoint(
+            checkpoint_path, expected_metadata=self.checkpoint_metadata
+        )
         self.model.load_state_dict(data['model'], **kwargs)
         self.ema_model.load_state_dict(data['ema'], **kwargs)
+        self.opt.load_state_dict(data['optimizer'])
         self.scaler.load_state_dict(data['scaler'])
+        train_state = data['train_state']
+        self.step = int(train_state['optimizer_step'])
+        self.train_epoch = int(train_state['train_epoch'])
+        self.batch_in_epoch = int(train_state['batch_in_epoch'])
+        sampler_state = train_state.get('sampler')
+        if sampler_state is not None:
+            if self.train_sampler is None or not hasattr(self.train_sampler, 'load_state_dict'):
+                raise ValueError('checkpoint contains sampler state but Trainer has no stateful sampler')
+            self.train_sampler.load_state_dict(sampler_state)
+        early_state = data.get('early_stopping')
+        if early_state is not None:
+            if self.early_stopping is None:
+                raise ValueError('checkpoint contains early-stopping state but config disables it')
+            self.early_stopping.load_state_dict(early_state)
+        restore_rng_state(data['rng_state'])
+        self._reset_train_iterator(skip_batches=self.batch_in_epoch)
+
+    def _prune_milestones(self):
+        milestones = sorted(
+            self.results_folder.glob('milestone-*.pt'),
+            key=lambda path: int(path.stem.split('-')[-1]),
+        )
+        for path in milestones[:-self.keep_milestones]:
+            path.unlink()
+
+    def _run_validation(self, log_fn):
+        from train.validation import run_gli_validation
+
+        metrics = run_gli_validation(
+            self.ema_model,
+            self.validation_dataset,
+            device=self.device,
+            batch_size=self.validation_batch_size,
+            num_workers=self.validation_num_workers,
+            seed=self.validation_seed,
+        )
+        metrics['optimizer_step'] = self.step
+        for name in ('netc', 'snfh', 'et', 'rc'):
+            if int(metrics[f'val/ema/{name}_effective_units']) <= 0:
+                raise RuntimeError(f'validation has no effective {name} units')
+        log_fn(metrics)
+        improved = False
+        should_stop = False
+        if self.early_stopping is not None:
+            improved, should_stop = self.early_stopping.update(
+                float(metrics['val/ema/total_loss']), self.step
+            )
+            if improved:
+                self.save_checkpoint(self.results_folder / 'best.pt', kind='best')
+        return metrics, should_stop
 
     def train(
         self,
@@ -1190,10 +1367,12 @@ class Trainer(object):
     ):
         assert callable(log_fn)
 
+        stopped_early = False
         while self.step < self.train_num_steps:
+            micro_losses = []
             for i in range(self.gradient_accumulate_every):
 
-                data_frame = next(self.dl)
+                data_frame = self._next_train_batch()
                 data, mask, hist = prepare_training_batch(
                     data_frame, self.device, self.model.data_type
                 )
@@ -1210,13 +1389,14 @@ class Trainer(object):
                     self.scaler.scale(
                         loss / self.gradient_accumulate_every).backward()
 
-                print(f'{self.step}: {loss.item()}')
+                micro_losses.append(float(loss.detach().cpu()))
 
-            log = {'loss': loss.item()}
+            log = {'train/total_loss': sum(micro_losses) / len(micro_losses)}
 
+            grad_norm = None
             if exists(self.max_grad_norm):
                 self.scaler.unscale_(self.opt)
-                nn.utils.clip_grad_norm_(
+                grad_norm = nn.utils.clip_grad_norm_(
                     self.model.parameters(), self.max_grad_norm)
 
             self.scaler.step(self.opt)
@@ -1225,17 +1405,33 @@ class Trainer(object):
 
             if self.step % self.update_ema_every == 0:
                 self.step_ema()
-
-            if self.step != 0 and self.step % self.save_and_sample_every == 0:
-                self.ema_model.eval()
-                with torch.no_grad():
-                    milestone = self.step // self.save_and_sample_every
-                self.save(milestone)
-
-            log_fn(log)
             self.step += 1
+            log['optimizer_step'] = self.step
+            log['train/effective_epoch'] = (
+                self.step * self.batch_size * self.gradient_accumulate_every / len(self.ds)
+            )
+            if grad_norm is not None:
+                log['train/grad_norm'] = float(grad_norm.detach().cpu())
+            log_fn(log)
 
-        print('training completed')
+            if self.latest_every and self.step % self.latest_every == 0:
+                self.save_checkpoint(self.results_folder / 'latest.pt', kind='latest')
+            if self.milestone_every and self.step % self.milestone_every == 0:
+                self.save_checkpoint(
+                    self.results_folder / f'milestone-{self.step}.pt', kind='milestone'
+                )
+                self._prune_milestones()
+            if (
+                self.validation_dataset is not None
+                and self.validation_every
+                and self.step % self.validation_every == 0
+            ):
+                _, stopped_early = self._run_validation(log_fn)
+                if stopped_early:
+                    break
+
+        self.save_checkpoint(self.results_folder / 'latest.pt', kind='latest')
+        print('training stopped early' if stopped_early else 'training completed')
 
 
 

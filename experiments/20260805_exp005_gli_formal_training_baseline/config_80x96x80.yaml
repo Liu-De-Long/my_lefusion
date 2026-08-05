@@ -1,0 +1,14 @@
+experiment_id: 20260805_exp005_gli_formal_training_baseline
+experiment_type: method
+runtime_hydra_override: +experiment=gli_formal_80x96x80
+phase: second_stage_control
+patch_size_xyz: [80, 96, 80]
+initial_micro_batch: 1
+gradient_accumulation: 4
+effective_batch: 4
+learning_rate: 1e-4
+max_optimizer_steps: 50000
+early_stopping_metric: val/ema/total_loss
+initial_seed: 20260805
+planned_repetition_seeds: [20260806, 20260807]
+training_authorized: false
