@@ -209,6 +209,32 @@ GLI loader 的 scalar label 与四通道 lesion mask 语义已分离，避免将
 
 ---
 
+## 文档整理
+
+## 日期
+
+2026-08-05
+
+## 目标
+
+将 GLI lesion-aware 训练接入、四通道 loss、DHW shape 约定和验收门禁整理为跨实验可复用的长期方案。
+
+## 结果
+
+新增：`docs/20260805_002_gli_lesion_aware_training_integration_plan.md`。
+
+文档覆盖训练入口、Trainer 数据传递、非空 `(sample, lesion channel)` 等权 loss、64×64×32 与 80×96×80 shape 约束、配置隔离和 smoke 验收标准。
+
+## 结论
+
+该方案文档作为后续 GLI 训练和矩形 patch 实验的共同接口说明；单次运行结果仍保留在各实验目录的 `result.md` 中。
+
+## 下一步
+
+后续 GLI inference loader、RePaint keep-mask 和输出合并继续使用独立方法实验管理。
+
+---
+
 ## 实验 ID
 
 20260805_exp003_gli_lesion_aware_training

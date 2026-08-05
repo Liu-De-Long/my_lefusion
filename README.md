@@ -156,6 +156,8 @@ GLI loss 对 batch 中所有非空 `(sample, lesion channel)` 单元等权平均
 - 当前状态：`STATUS.md`
 - 实验历史：`CHANGELOG.md`
 - GLI 数据统计和预处理方案：`docs/20260804_002_brats2024_gli_patch_preprocessing_plan.md`
+- GLI loader 实施方案：`docs/20260805_001_gli_loader_implementation_plan.md`
+- GLI lesion-aware 训练接入方案：`docs/20260805_002_gli_lesion_aware_training_integration_plan.md`
 - 可复用 GLI 病灶统计脚本：`scripts/brats_gli_lesion_patch_stats.py`
 - T1c 局部 patch 实验：`experiments/20260804_exp001_t1c_local_patch_dataset/result.md`
 - GLI lesion-aware 训练接入：`experiments/20260805_exp003_gli_lesion_aware_training/result.md`
