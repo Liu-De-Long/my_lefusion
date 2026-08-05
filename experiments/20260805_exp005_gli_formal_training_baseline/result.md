@@ -66,3 +66,11 @@ W&B online、64 patch 显存、validation 与 resume preflight 均已通过。�
 - 运行时 Git HEAD：`ea88464f3bf51350f5bd7d33f1bfcc4d7f80b6c1`；实现和配置提交：`75b187ce6664d4fa44ddad32dd328112998ff5c4`。
 - W&B online run：[exp005-p64-s20260805](https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp005-p64-s20260805)。
 - 输出目录：`outputs/patch_64x64x32/seed_20260805/`；运行日志：`train.run.log`；checkpoint 将由既定的 latest/best/milestone 规则写入该目录。
+
+## 正式闭环 QA 与半量 test 授权
+
+- 2026-08-06，用户固定使用 `best.pt` 的 `ema` 权重，不在 QA/test 阶段改选 checkpoint。
+- 先完成 schema 2 inference 兼容、best EMA 固定 val、actual-checkpoint 零更新 resume 和完整 `t_T=300` val inference QA；任一门禁失败即停止。
+- val 全部门禁通过后，自动运行 test 的确定性 50% patch 子集，不运行全量 test。
+- test 子集按 `anchor_label × sample_role` 分层，以固定 seed `20260806` 和稳定路径 SHA-256 顺序选择精确 `floor(N/2)`，冻结 subset manifest 后使用 GPU 0、1 独立分片。
+- 详细接口、验收阈值、输出目录和合并契约记录于 `docs/20260805_003_gli_inference_closed_loop.md` 第 14 节。

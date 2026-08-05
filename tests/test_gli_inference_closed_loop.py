@@ -36,6 +36,12 @@ from inference.gli_utils import (  # noqa: E402
     nearest_cluster_condition,
     xyz_to_dhw,
 )
+from inference.gli_selection import (  # noqa: E402
+    build_selection_manifest,
+    manifest_shard_paths,
+    select_stratified_fraction,
+    select_val_qa,
+)
 
 
 ASSET_SCRIPT = ROOT / "scripts" / "gli_build_inference_assets.py"
@@ -303,13 +309,94 @@ class GLIInferenceClosedLoopTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "cond_dim"):
                 load_diffusion_checkpoint(model, path, weights_key="model", expected_metadata=wrong)
 
+            formal_path = Path(temporary_dir) / "formal.pt"
+            torch.save(
+                {
+                    "schema_version": 2,
+                    "metadata": {"data_type": "gli"},
+                    "resolved_config": {"model": expected},
+                    "model": model.state_dict(),
+                    "ema": model.state_dict(),
+                },
+                formal_path,
+            )
+            loaded = load_diffusion_checkpoint(
+                model, formal_path, weights_key="ema", expected_metadata=expected
+            )
+            self.assertEqual(loaded["schema_version"], 2)
+
         for name, expected_shape in (
             ("gli_64x64x32.yaml", [32, 64, 64]),
             ("gli_80x96x80.yaml", [80, 80, 96]),
+            ("gli_exp005_p64_val_qa.yaml", [32, 64, 64]),
+            ("gli_exp005_p64_test_subset50_shard0.yaml", [32, 64, 64]),
+            ("gli_exp005_p64_test_subset50_shard1.yaml", [32, 64, 64]),
         ):
             cfg = OmegaConf.load(ROOT / "LeFusion" / "inference" / "confs" / name)
             OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
             self.assertEqual(list(cfg.model.spatial_shape_dhw), expected_shape)
+            if name.startswith("gli_exp005"):
+                self.assertEqual(str(cfg.checkpoint.weights_key), "ema")
+                self.assertEqual(int(cfg.repaint.schedule_jump_params.t_T), 300)
+
+    def test_deterministic_half_selection_and_shards(self) -> None:
+        records = []
+        for label in (1, 2, 3, 4):
+            for role in ("interior", "boundary"):
+                for index in range(5):
+                    records.append(
+                        {
+                            "relative_path": f"{label}/{role}/{index}.npz",
+                            "case_id": f"case-{label}-{role}-{index}",
+                            "subject_id": f"subject-{label}-{index}",
+                            "anchor_label": str(label),
+                            "sample_role": role,
+                        }
+                    )
+        selected, selection = select_stratified_fraction(records, fraction=0.5, seed=20260806)
+        repeated, _ = select_stratified_fraction(records, fraction=0.5, seed=20260806)
+        self.assertEqual(selected, repeated)
+        self.assertEqual(len(selected), 20)
+        self.assertEqual(set(selection["stratum_quotas"].values()), {2, 3})
+        payload = build_selection_manifest(
+            records,
+            selected,
+            selection=selection,
+            split="test",
+            patch_size_xyz=(64, 64, 32),
+            shard_count=2,
+            provenance={"dataset_manifest_sha256": "a", "split_sha256": "b"},
+        )
+        shard0 = manifest_shard_paths(payload, shard_index=0, shard_count=2)
+        shard1 = manifest_shard_paths(payload, shard_index=1, shard_count=2)
+        self.assertFalse(set(shard0).intersection(shard1))
+        self.assertEqual(set(shard0).union(shard1), set(payload["selected_relative_paths"]))
+
+    def test_val_qa_selection_covers_label_role_and_prefers_multilabel(self) -> None:
+        records = []
+        counts = {}
+        for label in (1, 2, 3, 4):
+            for role in ("interior", "boundary"):
+                for index in range(2):
+                    relative = f"{label}/{role}/{index}.npz"
+                    records.append(
+                        {
+                            "relative_path": relative,
+                            "case_id": relative,
+                            "subject_id": f"subject-{label}-{index}",
+                            "anchor_label": str(label),
+                            "sample_role": role,
+                        }
+                    )
+                    counts[relative] = index + 1
+        selected, _ = select_val_qa(records, seed=20260806, lesion_label_counts=counts)
+        self.assertEqual(len(selected), 8)
+        chosen = [records[index] for index in selected]
+        self.assertEqual(
+            {(int(row["anchor_label"]), row["sample_role"]) for row in chosen},
+            {(label, role) for label in (1, 2, 3, 4) for role in ("interior", "boundary")},
+        )
+        self.assertTrue(all(counts[row["relative_path"]] == 2 for row in chosen))
 
 
 if __name__ == "__main__":

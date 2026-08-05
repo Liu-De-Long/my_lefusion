@@ -100,6 +100,6 @@ v0.5.0-gli-formal-training-gates
 
 ## 下一步
 
-1. 监测当前唯一的 `64×64×32` seed `20260805` 正式 run，复核 W&B、validation、checkpoint 与 resume 结果。
-2. 首个正式 run 完成并复核后，再由用户决定是否补跑 `20260806/20260807`。
-3. 64 patch 结论冻结后，再由用户决定是否启动 `80×96×80` 对照和完整 RePaint/test 医学 QA。
+1. 正式训练已完成 50,000 step；固定使用 step 46000 的 `best.pt/ema`，实施 schema 2 inference 兼容、固定 val 复核、零更新 resume 和完整 `t_T=300` val QA。
+2. val 全部门禁通过后，自动启动 test 的确定性 50% 子集；按 `anchor_label × sample_role` 分层、固定 seed `20260806` 和 SHA-256 顺序冻结 subset manifest，并使用 GPU 0、1 独立分片。
+3. 半量 test 只代表冻结子集，不表述为全量 test；不自动启动其他 seed 或 `80×96×80`。

@@ -478,3 +478,11 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
 - 运行使用 GPU 0、1 的 `DataParallel`，全局 batch 为 4（每卡 2），运行时 Git HEAD 为 `ea88464f3bf51350f5bd7d33f1bfcc4d7f80b6c1`，实现/配置版本为 `75b187ce6664d4fa44ddad32dd328112998ff5c4`。
 - 已确认 W&B online run：`exp005-p64-s20260805`，链接为 https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp005-p64-s20260805 。
 - 正式输出目录为 `experiments/20260805_exp005_gli_formal_training_baseline/outputs/patch_64x64x32/seed_20260805/`；运行日志为其中的 `train.run.log`。
+
+## 2026-08-06 — 修订 exp005 正式闭环 QA 与半量 test 方案
+
+- 用户固定使用正式 `best.pt` 的 `ema` 权重，并授权 schema 2 checkpoint inference 兼容、QA 指标、双 GPU test 分片和 Git 提交。
+- 将正式门禁写入 `docs/20260805_003_gli_inference_closed_loop.md`：先复核 best EMA validation 和 actual-checkpoint 零更新 resume，再在 val 上执行完整 `t_T=300` 闭环 QA。
+- 只有全部 val 门禁通过才自动开始 test；test 范围由全量改为确定性 50% patch 子集。
+- 半量子集按 `anchor_label × sample_role` 分层，以固定 seed `20260806` 和稳定路径 SHA-256 排序选择精确 `floor(N/2)`，冻结 subset manifest 后由 GPU 0、1 独立分片运行。
+- test 输出必须标记为“test 50% 确定性子集”，不得外推或表述为全量 test。

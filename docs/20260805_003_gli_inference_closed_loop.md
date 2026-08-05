@@ -341,3 +341,117 @@ checkpoint、cluster、inference 输出和临时 Hydra 目录不能跨 patch 尺
 4. 远端只切换到同名 branch 验证，不形成独立提交；
 5. 将 smoke 结果、失败原因、输出路径和下一步写入对应 `result.md`、`STATUS.md`、
    `CHANGELOG.md`。
+
+## 14. exp005 正式 checkpoint 的 validation、闭环 QA 与半量 test 方案
+
+### 14.1 授权与固定模型入口
+
+2026-08-06，用户确认对 `20260805_exp005_gli_formal_training_baseline` 执行正式
+checkpoint 评估，并固定使用：
+
+- checkpoint：`outputs/patch_64x64x32/seed_20260805/checkpoints/best.pt`；
+- 权重：`ema`，不得在 QA 或 test 阶段改用 raw `model`；
+- patch：仅 `64×64×32`；
+- 不启动其他 seed，不启动 `80×96×80`；
+- validation、零更新 resume 和完整 val inference QA 全部通过后，自动开始冻结的半量
+  test，不再临时选择 checkpoint 或调整采样参数。
+
+`best.pt` 为 schema 2 正式训练 checkpoint，step 为 `46000`。它记录的 EMA validation
+best 为 `0.0965079195`。50k 最终 validation 为 `0.0961709834`，虽然数值略低，但相对
+改善约 `0.35%`，没有达到 early-stopping 配置的 `0.5%` relative min-delta，因此
+`best.pt` 没有更新。本次遵循用户决定，仍冻结 step 46000 的 `best.pt/ema`。
+
+### 14.2 正式运行前的兼容修改
+
+现有 exp004 inference 配置不能原样用于正式 checkpoint：它只接受 schema 1、指向
+validation smoke checkpoint、使用 raw `model`、读取 `test` 且仅运行 `t_T=5`。实施时
+必须：
+
+1. 让 inference checkpoint loader 直接接受 schema 2，不创建转换版 checkpoint；
+2. 从 `resolved_config.model` 校验网络结构，并校验 experiment、patch shape、split、
+   manifest、Git SHA 和 W&B run ID；
+3. 规范化 DataParallel 的 `module.` 前缀后 strict-load `ema`；
+4. provenance 同时支持正式字段 `git_sha`，并记录 checkpoint step、schema、SHA-256；
+5. 创建 exp005 独立的 val QA 与半量 test 配置和输出目录，禁止覆盖 exp004 smoke。
+
+这些修改属于评估基础设施兼容，不改变模型结构、loss、normalization、cluster 或 RePaint
+数学语义；继续归入 exp005，但必须形成 Git commit 并通过回归测试。
+
+### 14.3 validation 与 resume 门禁
+
+test 前必须依次通过：
+
+1. 用 `best.pt/ema` 重跑固定 val，覆盖 1032 patch、73 subject、四个 anchor label 和
+   3207 个有效单元；指标应与 step 46000 的记录一致，允许的纯浮点误差上限为 `1e-6`；
+2. 对实际 `latest.pt` 执行零 optimizer update 的 resume preflight，恢复 model、EMA、
+   optimizer、AMP scaler、sampler/batch offset 和 Python/NumPy/Torch/CUDA RNG；
+3. resume 只校验恢复和下一 batch 指纹，不继续训练、不登录或创建新的 W&B run；
+4. metadata、config hash、split hash、manifest hash、Git SHA 或 W&B run ID 任一不一致时
+   fail closed，不进入 inference QA。
+
+### 14.4 val 完整闭环 QA
+
+QA 只使用 val，不提前读取 test 结果。确定性选择至少 8 个 patch，覆盖：
+
+- NETC/SNFH/ET/RC 四个 anchor label；
+- interior 与 boundary；
+- 尽可能多的多标签 patch。
+
+`t_T=5` 只作为 wiring smoke；同一组样本必须继续完成 `t_T=300`、`n_sample=1`、
+`jump_length=1`、`jump_n_sample=1` 的正式 QA，最终门禁只由完整 schedule 决定。
+
+硬性验收项：
+
+- channel 0/1/2/3 严格对应 `NETC/SNFH/ET/RC` 和 label 1/2/3/4；
+- scalar segmentation 与四通道 lesion mask 逐 voxel 一致、互斥；
+- explicit brain support 为 bool、shape/affine 正确、非空，并覆盖全部 lesion；
+- healthy brain、support 外区域及 lesion 外边界相对输入的变化均不超过 `1e-6`；
+- 分开记录“推理新增背景变化”和“输入继承的 support 外非零”，不得把两者混为背景污染；
+- 每个样本完整 schedule 的 model calls 为 300，输出有限且 shape 正确；
+- NPZ/NIfTI、affine、DHW/XYZ 和保存回读一致；
+- 至少连续 3 个完整 batch 后显存不持续增长，无 OOM、NaN 或残留进程；
+- 生成随机、分层和最差样本 montage，人工复核是否存在明显颅外或边界伪影。
+
+任一硬门禁失败时停止，不启动 test。
+
+### 14.5 test 的确定性半量子集
+
+test 不做全量，只评估 test patch 的精确 50%。子集必须在看到生成结果前冻结：
+
+1. 读取 test manifest 并确认总 patch、subject、anchor label、sample role 分布；
+2. 按 `anchor_label × sample_role` 分层，以 largest-remainder 配额分配到总数的
+   `floor(N/2)`；若当前 N 为 1038，则选择 519 个 patch；
+3. 层内按固定 seed `20260806` 与稳定 `relative_path` 的 SHA-256 排序选择，不依赖文件
+   枚举顺序；
+4. 写出 `subset_manifest.json`，记录选择规则、seed、split hash、完整入选路径、各层配额、
+   subject 覆盖和 complement 统计；
+5. subset manifest、checkpoint SHA-256、cluster hash、inference config hash 和 Git SHA
+   一经冻结，不得根据 test 输出修改。
+
+半量 test 使用两张 GPU 独立分片，而不是 batch size 1 的 DataParallel。将冻结 manifest
+按稳定顺序交错分成两个互斥 shard；预期为 260/259 个 patch。两个进程使用相同模型、
+EMA、cluster、schedule 和随机种子契约，输出到独立 shard 目录。合并前必须验证：
+
+- 两个 shard 无重叠；
+- 合集与 subset manifest 完全一致；
+- 每个 patch 只有一份结果；
+- 失败 shard 可按 manifest 原位 resume，不重复已完成样本；
+- 合并结果明确标记为“test 50% 确定性子集”，不得表述为全量 test。
+
+### 14.6 输出目录与预计成本
+
+```text
+experiments/20260805_exp005_gli_formal_training_baseline/outputs/
+  patch_64x64x32/seed_20260805/
+    validation_best_ema/
+    resume_preflight/
+    inference_qa_val/
+    test_subset_50/
+      subset_manifest.json
+      shard_0/
+      shard_1/
+      merged/
+```
+
+按已有 5-call smoke 线性估算，519 个 patch 的完整 `t_T=300` 双 GPU test 约需
+`10–13` 小时，预计输出 `2–4 GiB`。实际时间和峰值显存以 val 完整 QA 实测为准。

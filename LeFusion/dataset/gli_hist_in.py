@@ -86,6 +86,7 @@ class GLIInferenceDataset(GLIDataset):
         split: str = "test",
         split_file: str | Path | None = None,
         raw_source_split: str = "train",
+        selected_relative_paths: Sequence[str] | None = None,
     ) -> None:
         self.raw_root_dir = Path(raw_root_dir).expanduser()
         self.raw_source_split = raw_source_split
@@ -95,6 +96,18 @@ class GLIInferenceDataset(GLIDataset):
             split=split,
             split_file=split_file,
         )
+        if selected_relative_paths is not None:
+            by_path = {str(record["relative_path"]): record for record in self.records}
+            requested = [str(path) for path in selected_relative_paths]
+            if len(requested) != len(set(requested)):
+                raise ValueError("selected_relative_paths contains duplicates")
+            missing = [path for path in requested if path not in by_path]
+            if missing:
+                raise ValueError(
+                    f"selection contains {len(missing)} paths outside split={split!r}: "
+                    f"{missing[:3]}"
+                )
+            self.records = [by_path[path] for path in requested]
 
     @lru_cache(maxsize=4)
     def _case_support(self, case_id: str) -> tuple[np.ndarray, int]:

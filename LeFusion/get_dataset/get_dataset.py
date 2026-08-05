@@ -31,6 +31,7 @@ def get_inference_dataloader(
             split=dataset_kwargs.get('split', 'test'),
             split_file=dataset_kwargs.get('split_file'),
             raw_source_split=dataset_kwargs.get('raw_source_split', 'train'),
+            selected_relative_paths=dataset_kwargs.get('selected_relative_paths'),
         )
         loader = DataLoader(
             train_dataset,

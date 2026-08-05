@@ -1,0 +1,70 @@
+data_type: gli
+experiment_id: 20260805_exp005_gli_formal_training_baseline
+variant: patch_64x64x32_seed_20260805_best_ema_val_qa
+device: cuda:0
+
+dataset:
+  data_type: gli
+  root_dir: /workspace/LeFusion_v2/dataset/brats2024_gli_t1c_local_patches
+  raw_root_dir: /workspace/LeFusion-main/BraTS-2024-Complete/BraTS-GLI
+  raw_source_split: train
+  patch_size_xyz: [64, 64, 32]
+  split: val
+  split_file: /workspace/LeFusion_v2/my_experiment/experiments/20260805_exp004_gli_inference_closed_loop/splits_v2.json
+  batch_size: 1
+  num_workers: 0
+
+model:
+  denoising_fn: Unet3D
+  diffusion_img_size: 64
+  diffusion_depth_size: 32
+  spatial_shape_dhw: [32, 64, 64]
+  base_dim: 64
+  temporal_max_distance: 128
+  diffusion_num_channels: 4
+  cond_dim: 64
+  dim_mults: [1, 2, 4, 8]
+  timesteps: 300
+  loss_type: l1
+  amp: true
+
+checkpoint:
+  path: /workspace/LeFusion_v2/my_experiment/experiments/20260805_exp005_gli_formal_training_baseline/outputs/patch_64x64x32/seed_20260805/checkpoints/best.pt
+  weights_key: ema
+
+conditioning:
+  source: cluster
+  selection: nearest
+  clusters_path: /workspace/LeFusion_v2/my_experiment/experiments/20260805_exp004_gli_inference_closed_loop/outputs/patch_64x64x32/clusters/centers.json
+  hist_perturb_std: 0.0
+
+selection:
+  manifest_path: /workspace/LeFusion_v2/my_experiment/experiments/20260805_exp005_gli_formal_training_baseline/outputs/patch_64x64x32/seed_20260805/inference_qa_val/subset_manifest.json
+  shard_index: 0
+  shard_count: 1
+
+sampling:
+  seed: 20260806
+
+repaint:
+  show_progress: true
+  inpa_inj_sched_prev_cumnoise: false
+  schedule_jump_params:
+    t_T: 300
+    n_sample: 1
+    jump_length: 1
+    jump_n_sample: 1
+
+output:
+  root: /workspace/LeFusion_v2/my_experiment/experiments/20260805_exp005_gli_formal_training_baseline/outputs/patch_64x64x32/seed_20260805/inference_qa_val/full
+  max_batches: null
+  overwrite: false
+  resume: true
+  memory_growth_tolerance_mib: 256
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: .
+

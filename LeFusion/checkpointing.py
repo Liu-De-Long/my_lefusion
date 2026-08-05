@@ -107,6 +107,28 @@ def validate_checkpoint_metadata(metadata: Mapping[str, Any], expected: Mapping[
             raise ValueError(f"checkpoint metadata mismatch for {field}: {actual!r} != {wanted!r}")
 
 
+def _training_checkpoint_model_metadata(checkpoint: Mapping[str, Any]) -> dict[str, Any]:
+    """Derive inference-relevant model metadata from a schema-2 checkpoint."""
+    metadata = checkpoint.get("metadata")
+    resolved = checkpoint.get("resolved_config")
+    if not isinstance(metadata, Mapping):
+        raise ValueError("training checkpoint has no metadata mapping")
+    if not isinstance(resolved, Mapping):
+        raise ValueError("training checkpoint has no resolved_config mapping")
+    model = resolved.get("model")
+    if not isinstance(model, Mapping):
+        raise ValueError("training checkpoint resolved_config has no model mapping")
+    return {
+        "data_type": metadata.get("data_type"),
+        "diffusion_num_channels": model.get("diffusion_num_channels"),
+        "cond_dim": model.get("cond_dim"),
+        "base_dim": model.get("base_dim", model.get("diffusion_img_size")),
+        "spatial_shape_dhw": model.get("spatial_shape_dhw"),
+        "timesteps": model.get("timesteps"),
+        "temporal_max_distance": model.get("temporal_max_distance", 32),
+    }
+
+
 def load_diffusion_checkpoint(
     diffusion: torch.nn.Module,
     checkpoint_path: str | Path,
@@ -115,14 +137,23 @@ def load_diffusion_checkpoint(
     expected_metadata: Mapping[str, Any],
 ) -> dict:
     checkpoint = _torch_load(checkpoint_path, map_location="cpu")
-    if int(checkpoint.get("schema_version", -1)) != GLI_VALIDATION_CHECKPOINT_SCHEMA:
+    schema_version = int(checkpoint.get("schema_version", -1))
+    if schema_version not in {
+        GLI_VALIDATION_CHECKPOINT_SCHEMA,
+        GLI_TRAINING_CHECKPOINT_SCHEMA,
+    }:
         raise ValueError(
             f"unsupported checkpoint schema: {checkpoint.get('schema_version')!r}"
         )
     metadata = checkpoint.get("metadata")
     if not isinstance(metadata, Mapping):
         raise ValueError("checkpoint has no metadata mapping")
-    validate_checkpoint_metadata(metadata, expected_metadata)
+    model_metadata = (
+        metadata
+        if schema_version == GLI_VALIDATION_CHECKPOINT_SCHEMA
+        else _training_checkpoint_model_metadata(checkpoint)
+    )
+    validate_checkpoint_metadata(model_metadata, expected_metadata)
     if weights_key not in {"model", "ema"}:
         raise ValueError(f"weights_key must be model or ema, got {weights_key!r}")
     state_dict = checkpoint.get(weights_key)

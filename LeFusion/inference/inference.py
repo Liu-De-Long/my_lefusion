@@ -12,18 +12,20 @@ sys.path.insert(0, parent_dir)
 from ddpm import GaussianDiffusion_Nolatent, Unet3D, normalize_spatial_shape
 from get_dataset.get_dataset import get_inference_dataloader
 from train.train import build_model_and_diffusion
-from checkpointing import load_diffusion_checkpoint
+from checkpointing import load_diffusion_checkpoint, sha256_file
 if __package__:
     from inference.gli_utils import dhw_to_xyz, load_cluster_centers, nearest_cluster_condition
+    from inference.gli_selection import manifest_shard_paths
 else:
     from gli_utils import dhw_to_xyz, load_cluster_centers, nearest_cluster_condition
+    from gli_selection import manifest_shard_paths
 import torchio as tio
 import nibabel as nib
 import numpy as np
 from scipy import ndimage
 from scipy.stats import wasserstein_distance
 import yaml
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 import hydra
 
 def dev(device):
@@ -71,14 +73,53 @@ def _gli_expected_metadata(conf: DictConfig) -> dict:
     }
 
 
-def _safe_output_root(path: str, overwrite: bool) -> Path:
+def _safe_output_root(path: str, overwrite: bool, resume: bool = False) -> Path:
     output = Path(path).expanduser()
-    if output.exists() and any(output.iterdir()) and not overwrite:
+    if output.exists() and any(output.iterdir()) and not overwrite and not resume:
         raise FileExistsError(f"GLI inference output is not empty: {output}")
     output.mkdir(parents=True, exist_ok=True)
     for name in ("generated_npz", "generated_nifti", "qa"):
         (output / name).mkdir(exist_ok=True)
     return output
+
+
+def _checkpoint_git_sha(checkpoint: dict) -> str:
+    metadata = checkpoint.get("metadata", {})
+    return str(metadata.get("git_sha", metadata.get("git_commit", "unknown")))
+
+
+def _sampling_seed(base_seed: int, relative_path: str) -> int:
+    import hashlib
+
+    digest = hashlib.sha256(
+        f"{int(base_seed)}\0{relative_path}".encode("utf-8")
+    ).digest()
+    return int.from_bytes(digest[:8], "big") % (2**31)
+
+
+def _load_progress(path: Path) -> list[dict]:
+    if not path.is_file():
+        return []
+    records = []
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            if not isinstance(record, dict) or "manifest" not in record or "metrics" not in record:
+                raise ValueError(f"invalid progress record at line {line_number}: {path}")
+            records.append(record)
+    paths = [str(record["manifest"]["source_relative_path"]) for record in records]
+    if len(paths) != len(set(paths)):
+        raise ValueError(f"duplicate completed path in progress file: {path}")
+    return records
+
+
+def _append_progress(path: Path, payload: dict) -> None:
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
 
 
 def _region_metrics(
@@ -94,6 +135,8 @@ def _region_metrics(
     difference = np.abs(generated_dhw - input_dhw)
     healthy_values = difference[healthy]
     outside_values = np.abs(generated_dhw[outside])
+    outside_changes = difference[outside]
+    outside_input_values = np.abs(input_dhw[outside])
     lesion_values = difference[lesion]
     shell = ndimage.binary_dilation(lesion, iterations=1) & ~lesion & support_dhw
     metrics = {
@@ -102,8 +145,32 @@ def _region_metrics(
         "healthy_brain_exact": bool(not healthy_values.size or np.all(healthy_values == 0)),
         "outside_mean_abs": float(outside_values.mean()) if outside_values.size else None,
         "outside_max_abs": float(outside_values.max()) if outside_values.size else None,
+        "outside_input_mean_abs": (
+            float(outside_input_values.mean()) if outside_input_values.size else None
+        ),
+        "outside_change_mae": (
+            float(outside_changes.mean()) if outside_changes.size else None
+        ),
+        "outside_change_max_abs": (
+            float(outside_changes.max()) if outside_changes.size else None
+        ),
+        "outside_change_exact": bool(
+            not outside_changes.size or np.all(outside_changes == 0)
+        ),
+        "outside_nonzero_fraction_input": (
+            float(np.mean(outside_input_values > 1e-6)) if outside_input_values.size else None
+        ),
+        "outside_nonzero_fraction_generated": (
+            float(np.mean(outside_values > 1e-6)) if outside_values.size else None
+        ),
         "lesion_change_mae": float(lesion_values.mean()) if lesion_values.size else None,
         "boundary_outer_shell_mae": float(difference[shell].mean()) if shell.any() else None,
+        "boundary_outer_shell_max_abs": (
+            float(difference[shell].max()) if shell.any() else None
+        ),
+        "support_voxels": int(np.count_nonzero(support_dhw)),
+        "outside_voxels": int(np.count_nonzero(outside)),
+        "lesion_outside_support_voxels": int(np.count_nonzero(lesion & ~support_dhw)),
         "per_label_histogram": {},
     }
     bin_edges = np.linspace(-1.0, 1.0, 17)
@@ -163,8 +230,9 @@ def _save_qa(
 def run_gli(conf: DictConfig) -> None:
     device = dev(conf.get('device'))
     if device.type != 'cuda':
-        raise RuntimeError("GLI inference smoke requires CUDA")
+        raise RuntimeError("GLI inference requires CUDA")
     th.cuda.set_device(device)
+    th.cuda.reset_peak_memory_stats(device)
     diffusion = build_model_and_diffusion(conf, device, use_data_parallel=False)
     checkpoint = load_diffusion_checkpoint(
         diffusion,
@@ -172,14 +240,33 @@ def run_gli(conf: DictConfig) -> None:
         weights_key=conf.checkpoint.weights_key,
         expected_metadata=_gli_expected_metadata(conf),
     )
+    checkpoint_load_peak_mib = th.cuda.max_memory_allocated(device) / (1024 ** 2)
+    checkpoint_sha256 = sha256_file(conf.checkpoint.path)
+    checkpoint_git_sha = _checkpoint_git_sha(checkpoint)
+    checkpoint_step = int(checkpoint.get("step", -1))
     diffusion.eval()
     if str(conf.conditioning.source) != "cluster":
-        raise ValueError("GLI closed-loop smoke requires conditioning.source=cluster")
+        raise ValueError("GLI closed-loop inference requires conditioning.source=cluster")
     if str(conf.conditioning.selection) != "nearest":
-        raise ValueError("GLI closed-loop smoke requires conditioning.selection=nearest")
+        raise ValueError("GLI closed-loop inference requires conditioning.selection=nearest")
     if float(conf.conditioning.get("hist_perturb_std", 0.0)) != 0.0:
-        raise ValueError("histogram perturbation must be disabled for the first closed-loop smoke")
+        raise ValueError("histogram perturbation must be disabled for formal closed-loop inference")
     centers = load_cluster_centers(conf.conditioning.clusters_path, conf.dataset.patch_size_xyz)
+    selection_path = Path(str(conf.selection.manifest_path)).expanduser()
+    selection_payload = json.loads(selection_path.read_text(encoding="utf-8"))
+    if str(selection_payload.get("split")) != str(conf.dataset.split):
+        raise ValueError("selection manifest split does not match inference config")
+    if tuple(selection_payload.get("patch_size_xyz", ())) != tuple(
+        int(value) for value in conf.dataset.patch_size_xyz
+    ):
+        raise ValueError("selection manifest patch shape does not match inference config")
+    selected_relative_paths = manifest_shard_paths(
+        selection_payload,
+        shard_index=int(conf.selection.shard_index),
+        shard_count=int(conf.selection.shard_count),
+    )
+    if int(conf.dataset.batch_size) != 1:
+        raise ValueError("formal GLI selected inference requires dataset.batch_size=1")
     loader = get_inference_dataloader(
         dataset_root_dir=conf.dataset.root_dir,
         data_type="gli",
@@ -190,17 +277,70 @@ def run_gli(conf: DictConfig) -> None:
         split=conf.dataset.split,
         split_file=conf.dataset.split_file,
         raw_source_split=conf.dataset.get('raw_source_split', 'train'),
+        selected_relative_paths=selected_relative_paths,
     )
-    output_root = _safe_output_root(conf.output.root, bool(conf.output.get('overwrite', False)))
-    manifests = []
-    all_metrics = []
-    max_batches = int(conf.output.max_batches)
+    provenance = selection_payload.get("provenance", {})
+    dataset_object = loader.dataset
+    if provenance.get("dataset_manifest_sha256") != sha256_file(dataset_object.manifest_path):
+        raise ValueError("selection manifest dataset hash mismatch")
+    if provenance.get("split_sha256") != sha256_file(conf.dataset.split_file):
+        raise ValueError("selection manifest split hash mismatch")
+    output_root = _safe_output_root(
+        conf.output.root,
+        bool(conf.output.get('overwrite', False)),
+        bool(conf.output.get('resume', False)),
+    )
+    run_contract = {
+        "checkpoint_sha256": checkpoint_sha256,
+        "checkpoint_step": checkpoint_step,
+        "checkpoint_weights_key": str(conf.checkpoint.weights_key),
+        "cluster_sha256": sha256_file(conf.conditioning.clusters_path),
+        "selection_manifest_sha256": sha256_file(selection_path),
+        "selection_shard_index": int(conf.selection.shard_index),
+        "selection_shard_count": int(conf.selection.shard_count),
+        "sampling_seed": int(conf.sampling.seed),
+        "repaint_schedule": OmegaConf.to_container(
+            conf.repaint.schedule_jump_params, resolve=True
+        ),
+        "lesion_channel_label_values": [1, 2, 3, 4],
+        "lesion_channel_names": ["NETC", "SNFH", "ET", "RC"],
+    }
+    contract_path = output_root / "run_contract.json"
+    if contract_path.is_file():
+        existing_contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        if existing_contract != run_contract:
+            raise ValueError("existing inference output has a different frozen run contract")
+    else:
+        temporary_contract = output_root / ".run_contract.json.tmp"
+        temporary_contract.write_text(
+            json.dumps(run_contract, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary_contract, contract_path)
+    progress_path = output_root / "progress.jsonl"
+    progress_records = _load_progress(progress_path) if bool(conf.output.get('resume', False)) else []
+    completed_paths = {
+        str(record["manifest"]["source_relative_path"]) for record in progress_records
+    }
+    unexpected_completed = completed_paths.difference(selected_relative_paths)
+    if unexpected_completed:
+        raise ValueError(f"progress contains paths outside frozen shard: {sorted(unexpected_completed)[:3]}")
+    max_batches_value = conf.output.get('max_batches')
+    max_batches = None if max_batches_value is None else int(max_batches_value)
     th.cuda.reset_peak_memory_stats(device)
     started = time.perf_counter()
-    total_model_calls = 0
+    memory_trace = []
+    new_samples = 0
+    sampling_seed = int(conf.sampling.seed)
     for batch_index, batch in enumerate(loader):
-        if batch_index >= max_batches:
+        if max_batches is not None and batch_index >= max_batches:
             break
+        relative_path = str(batch['relative_path'][0])
+        if relative_path in completed_paths:
+            continue
+        sample_seed = _sampling_seed(sampling_seed, relative_path)
+        th.manual_seed(sample_seed)
+        th.cuda.manual_seed_all(sample_seed)
         for key, value in list(batch.items()):
             if isinstance(value, th.Tensor):
                 batch[key] = value.to(device)
@@ -225,7 +365,15 @@ def run_gli(conf: DictConfig) -> None:
             )
         output = details['sample'].float().cpu()
         channels = details['channels'].float().cpu()
-        total_model_calls += int(details['model_calls'])
+        th.cuda.synchronize(device)
+        memory_trace.append(
+            {
+                "source_relative_path": relative_path,
+                "allocated_mib": th.cuda.memory_allocated(device) / (1024 ** 2),
+                "reserved_mib": th.cuda.memory_reserved(device) / (1024 ** 2),
+                "peak_allocated_mib": th.cuda.max_memory_allocated(device) / (1024 ** 2),
+            }
+        )
         for index in range(output.shape[0]):
             stem = str(batch['GT_name'][index])
             generated_dhw = output[index, 0].numpy()
@@ -255,9 +403,14 @@ def run_gli(conf: DictConfig) -> None:
                 cluster_ids=cluster_np,
                 affine=affine,
                 checkpoint_git_commit=np.asarray(
-                    str(checkpoint["metadata"].get("git_commit", "unknown"))
+                    checkpoint_git_sha
                 ),
+                checkpoint_step=np.asarray(checkpoint_step, dtype=np.int64),
+                checkpoint_sha256=np.asarray(checkpoint_sha256),
                 checkpoint_weights_key=np.asarray(str(conf.checkpoint.weights_key)),
+                lesion_channel_label_values=np.asarray([1, 2, 3, 4], dtype=np.uint8),
+                lesion_channel_names=np.asarray(["NETC", "SNFH", "ET", "RC"]),
+                sample_seed=np.asarray(sample_seed, dtype=np.int64),
             )
             nib.save(nib.Nifti1Image(generated_xyz, affine), nifti_path)
             nib.save(nib.Nifti1Image(seg_xyz, affine), seg_path)
@@ -276,9 +429,11 @@ def run_gli(conf: DictConfig) -> None:
                     "output_shape_dhw": list(generated_dhw.shape),
                     "output_shape_xyz": list(generated_xyz.shape),
                     "internal_channels_shape_cdhw": list(channels[index].shape),
+                    "lesion_channel_voxels": lesion_mask_cdhw.reshape(4, -1).sum(axis=1).astype(int).tolist(),
+                    "model_calls": int(details['model_calls']),
+                    "sample_seed": sample_seed,
                 }
             )
-            all_metrics.append(metrics)
             _save_qa(
                 output_root / "qa" / f"{stem}.png",
                 input_dhw,
@@ -286,44 +441,80 @@ def run_gli(conf: DictConfig) -> None:
                 seg_dhw,
                 support_dhw,
             )
-            manifests.append(
-                {
-                    "case_id": str(batch['case_id'][index]),
-                    "source_relative_path": str(batch['relative_path'][index]),
-                    "generated_npz": str(npz_path.relative_to(output_root)),
-                    "generated_nifti": str(nifti_path.relative_to(output_root)),
-                    "conditioning_seg_nifti": str(seg_path.relative_to(output_root)),
-                    "cluster_ids": ",".join(map(str, cluster_np.tolist())),
-                    "checkpoint_git_commit": str(
-                        checkpoint["metadata"].get("git_commit", "unknown")
-                    ),
-                    "checkpoint_weights_key": str(conf.checkpoint.weights_key),
-                }
-            )
+            manifest_record = {
+                "case_id": str(batch['case_id'][index]),
+                "source_relative_path": str(batch['relative_path'][index]),
+                "generated_npz": str(npz_path.relative_to(output_root)),
+                "generated_nifti": str(nifti_path.relative_to(output_root)),
+                "conditioning_seg_nifti": str(seg_path.relative_to(output_root)),
+                "cluster_ids": ",".join(map(str, cluster_np.tolist())),
+                "checkpoint_git_sha": checkpoint_git_sha,
+                "checkpoint_step": checkpoint_step,
+                "checkpoint_weights_key": str(conf.checkpoint.weights_key),
+            }
+            progress_record = {"manifest": manifest_record, "metrics": metrics}
+            _append_progress(progress_path, progress_record)
+            progress_records.append(progress_record)
+            completed_paths.add(relative_path)
+            new_samples += 1
+    manifests = [record["manifest"] for record in progress_records]
+    all_metrics = [record["metrics"] for record in progress_records]
     if not manifests:
         raise RuntimeError("GLI inference produced no samples")
+    if max_batches is None and completed_paths != set(selected_relative_paths):
+        missing = sorted(set(selected_relative_paths).difference(completed_paths))
+        raise RuntimeError(f"GLI inference did not complete frozen shard: {missing[:3]}")
     elapsed = time.perf_counter() - started
     peak_memory_mib = th.cuda.max_memory_allocated(device) / (1024 ** 2)
     with (output_root / "manifest.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(manifests[0]))
         writer.writeheader()
         writer.writerows(manifests)
+    tolerance_mib = float(conf.output.get("memory_growth_tolerance_mib", 256.0))
+    allocated_values = [float(item["allocated_mib"]) for item in memory_trace]
+    reserved_values = [float(item["reserved_mib"]) for item in memory_trace]
+    allocated_growth = (
+        max(allocated_values[-3:]) - min(allocated_values[-3:]) if len(allocated_values) >= 3 else 0.0
+    )
+    reserved_growth = (
+        max(reserved_values[-3:]) - min(reserved_values[-3:]) if len(reserved_values) >= 3 else 0.0
+    )
+    memory_stable = allocated_growth <= tolerance_mib and reserved_growth <= tolerance_mib
+    total_model_calls = sum(int(metrics["model_calls"]) for metrics in all_metrics)
     summary = {
         "experiment_id": conf.experiment_id,
         "variant": conf.variant,
         "sample_count": len(manifests),
         "elapsed_seconds": elapsed,
+        "new_samples": new_samples,
         "peak_memory_mib": peak_memory_mib,
+        "checkpoint_load_peak_memory_mib": checkpoint_load_peak_mib,
+        "memory_trace": memory_trace,
+        "memory_growth_tolerance_mib": tolerance_mib,
+        "last_three_allocated_span_mib": allocated_growth,
+        "last_three_reserved_span_mib": reserved_growth,
+        "memory_stable": memory_stable,
         "model_calls": total_model_calls,
-        "checkpoint_git_commit": str(
-            checkpoint["metadata"].get("git_commit", "unknown")
-        ),
+        "model_calls_per_sample": int(all_metrics[0]["model_calls"]),
+        "checkpoint_schema_version": int(checkpoint.get("schema_version", -1)),
+        "checkpoint_step": checkpoint_step,
+        "checkpoint_sha256": checkpoint_sha256,
+        "checkpoint_git_sha": checkpoint_git_sha,
         "checkpoint_weights_key": str(conf.checkpoint.weights_key),
+        "cluster_sha256": sha256_file(conf.conditioning.clusters_path),
+        "selection_manifest": str(selection_path),
+        "selection_manifest_sha256": sha256_file(selection_path),
+        "selection_shard_index": int(conf.selection.shard_index),
+        "selection_shard_count": int(conf.selection.shard_count),
+        "lesion_channel_label_values": [1, 2, 3, 4],
+        "lesion_channel_names": ["NETC", "SNFH", "ET", "RC"],
         "samples": all_metrics,
     }
-    (output_root / "metrics.json").write_text(
+    temporary_metrics = output_root / ".metrics.json.tmp"
+    temporary_metrics.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
+    os.replace(temporary_metrics, output_root / "metrics.json")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
