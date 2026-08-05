@@ -15,6 +15,7 @@
 ## 配置
 
 - 第一阶段：`64×64×32`，初始 `batch=4/accumulation=1`，OOM 时允许在 preflight 后改为 `2/2` 或 `1/4`。
+- 正式首个 run 使用两张空闲 A100 80GB 的 `DataParallel`（GPU 0、1），全局 batch 4 均分为每卡 2；effective batch、LR 和训练步数不变。
 - 第二阶段对照：`80×96×80`，初始 `batch=1/accumulation=4`。
 - effective batch 均为 4，LR `1e-4`，AMP 开启，gradient clipping `1.0`。
 - validation 每 2,000 optimizer steps；latest 每 500 step；milestone 每 5,000 step并保留最近 3 个。

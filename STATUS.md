@@ -94,6 +94,7 @@ v0.5.0-gli-formal-training-gates
 - `val` split 未发现 `seg` 标签，不能直接作为监督验证集。
 - 当前 RePaint smoke 使用 `t_T=5`，生成结果呈随机纹理，只证明闭环、shape 和 mask 语义正确，不证明病灶生成质量。
 - 64 patch 的技术门禁已经通过，但正式训练尚未获单独授权；不得因 preflight 自动启动 50,000-step run。
+- 用户已授权仅启动 `64×64×32` seed `20260805` 的正式训练；运行版本 `75b187ce6664d4fa44ddad32dd328112998ff5c4` 配置为 GPU 0、1 的 DataParallel，全局 batch 4（每卡 2），不自动启动其他 seed 或 80 patch。
 - baseline 的 batch 是 preflight 初值而非硬编码：64 可从 `4/1` 调为 `2/2` 或 `1/4`；`50,000` optimizer steps 是上限，可由 early stopping 提前结束。
 - 原始 LeFusion 入口没有强制三 seed；`20260806/20260807` 是在首个 seed 通过后再决定的正式复现候选。
 
