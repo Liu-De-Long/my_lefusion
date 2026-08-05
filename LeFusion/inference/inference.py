@@ -122,6 +122,36 @@ def _append_progress(path: Path, payload: dict) -> None:
         os.fsync(handle.fileno())
 
 
+def _percentile(values: np.ndarray, q: float) -> float | None:
+    return float(np.percentile(values, q)) if values.size else None
+
+
+def _boundary_edge_jumps(
+    image_dhw: np.ndarray,
+    lesion_dhw: np.ndarray,
+    support_dhw: np.ndarray,
+) -> np.ndarray:
+    """Return absolute lesion/healthy-support jumps across 6-neighbour edges."""
+    healthy = support_dhw & ~lesion_dhw
+    values = []
+    for axis in range(3):
+        lower = [slice(None)] * 3
+        upper = [slice(None)] * 3
+        lower[axis] = slice(None, -1)
+        upper[axis] = slice(1, None)
+        lower = tuple(lower)
+        upper = tuple(upper)
+        crossing = (
+            (lesion_dhw[lower] & healthy[upper])
+            | (healthy[lower] & lesion_dhw[upper])
+        )
+        if crossing.any():
+            values.append(np.abs(image_dhw[lower] - image_dhw[upper])[crossing])
+    if not values:
+        return np.empty((0,), dtype=np.float32)
+    return np.concatenate(values).astype(np.float32, copy=False)
+
+
 def _region_metrics(
     generated_dhw: np.ndarray,
     input_dhw: np.ndarray,
@@ -139,9 +169,19 @@ def _region_metrics(
     outside_input_values = np.abs(input_dhw[outside])
     lesion_values = difference[lesion]
     shell = ndimage.binary_dilation(lesion, iterations=1) & ~lesion & support_dhw
+    shell_values = difference[shell]
+    input_boundary_jumps = _boundary_edge_jumps(input_dhw, lesion, support_dhw)
+    generated_boundary_jumps = _boundary_edge_jumps(generated_dhw, lesion, support_dhw)
+    input_boundary_p95 = _percentile(input_boundary_jumps, 95)
+    generated_boundary_p95 = _percentile(generated_boundary_jumps, 95)
     metrics = {
         "healthy_brain_mae": float(healthy_values.mean()) if healthy_values.size else None,
+        "healthy_brain_p95_abs_change": _percentile(healthy_values, 95),
         "healthy_brain_max_abs": float(healthy_values.max()) if healthy_values.size else None,
+        "healthy_brain_changed_fraction_gt_0p1": (
+            float(np.mean(healthy_values > 0.1)) if healthy_values.size else None
+        ),
+        # Retained only for exp005 hard-clamp comparison; no longer a QA gate.
         "healthy_brain_exact": bool(not healthy_values.size or np.all(healthy_values == 0)),
         "outside_mean_abs": float(outside_values.mean()) if outside_values.size else None,
         "outside_max_abs": float(outside_values.max()) if outside_values.size else None,
@@ -151,9 +191,14 @@ def _region_metrics(
         "outside_change_mae": (
             float(outside_changes.mean()) if outside_changes.size else None
         ),
+        "outside_change_p95_abs": _percentile(outside_changes, 95),
         "outside_change_max_abs": (
             float(outside_changes.max()) if outside_changes.size else None
         ),
+        "outside_changed_fraction_gt_0p1": (
+            float(np.mean(outside_changes > 0.1)) if outside_changes.size else None
+        ),
+        # Retained only for exp005 hard-clamp comparison; no longer a QA gate.
         "outside_change_exact": bool(
             not outside_changes.size or np.all(outside_changes == 0)
         ),
@@ -164,9 +209,30 @@ def _region_metrics(
             float(np.mean(outside_values > 1e-6)) if outside_values.size else None
         ),
         "lesion_change_mae": float(lesion_values.mean()) if lesion_values.size else None,
-        "boundary_outer_shell_mae": float(difference[shell].mean()) if shell.any() else None,
+        "boundary_outer_shell_mae": float(shell_values.mean()) if shell_values.size else None,
+        "boundary_outer_shell_p95_abs_change": _percentile(shell_values, 95),
         "boundary_outer_shell_max_abs": (
-            float(difference[shell].max()) if shell.any() else None
+            float(shell_values.max()) if shell_values.size else None
+        ),
+        "boundary_outer_shell_changed_fraction_gt_0p1": (
+            float(np.mean(shell_values > 0.1)) if shell_values.size else None
+        ),
+        "boundary_edge_count": int(input_boundary_jumps.size),
+        "boundary_jump_input_mean": (
+            float(input_boundary_jumps.mean()) if input_boundary_jumps.size else None
+        ),
+        "boundary_jump_input_p95": input_boundary_p95,
+        "boundary_jump_generated_mean": (
+            float(generated_boundary_jumps.mean()) if generated_boundary_jumps.size else None
+        ),
+        "boundary_jump_generated_p95": generated_boundary_p95,
+        "boundary_jump_mean_increase": (
+            float(generated_boundary_jumps.mean() - input_boundary_jumps.mean())
+            if input_boundary_jumps.size else None
+        ),
+        "boundary_jump_p95_increase": (
+            float(generated_boundary_p95 - input_boundary_p95)
+            if input_boundary_p95 is not None else None
         ),
         "support_voxels": int(np.count_nonzero(support_dhw)),
         "outside_voxels": int(np.count_nonzero(outside)),

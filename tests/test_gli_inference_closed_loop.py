@@ -243,7 +243,7 @@ class GLIInferenceClosedLoopTests(unittest.TestCase):
             array = np.arange(60).reshape(3, 4, 5)
             np.testing.assert_array_equal(xyz_to_dhw(dhw_to_xyz(array)), array)
 
-    def test_shared_background_repaint_and_terminal_composition(self) -> None:
+    def test_pre_denoiser_shared_background_uses_fresh_noise_and_composition(self) -> None:
         denoiser = _CaptureDenoiser()
         diffusion = GaussianDiffusion_Nolatent(
             denoiser,
@@ -269,8 +269,59 @@ class GLIInferenceClosedLoopTests(unittest.TestCase):
         self.assertEqual(float(composed[0, 0, 0, 0, 0]), 0.0)
         self.assertEqual(float(composed[0, 0, 1, 2, 3]), 3.0)
         self.assertEqual(float(composed[0, 0, 0, 1, 1]), 10.0)
-        sampled = diffusion.p_sample_repaint(
+        kwargs = {
+            "gt": background.expand_as(generated),
+            "gt_background": background,
+            "gt_keep_mask": scalar,
+            "lesion_mask": lesion_mask,
+        }
+        torch.manual_seed(17)
+        diffusion.p_sample_repaint(
             generated.clone(),
+            torch.tensor([1]),
+            cond=torch.zeros((1, 64)),
+            conf=SimpleNamespace(inpa_inj_sched_prev_cumnoise=False),
+            model_kwargs=kwargs,
+        )
+        first_captured = denoiser.last_x.clone()
+        diffusion.p_sample_repaint(
+            generated.clone(),
+            torch.tensor([1]),
+            cond=torch.zeros((1, 64)),
+            conf=SimpleNamespace(inpa_inj_sched_prev_cumnoise=False),
+            model_kwargs=kwargs,
+        )
+        second_captured = denoiser.last_x.clone()
+        self.assertTrue(torch.equal(first_captured[:, 0, 0, 1, 1], first_captured[:, 3, 0, 1, 1]))
+        self.assertTrue(torch.equal(second_captured[:, 0, 0, 1, 1], second_captured[:, 3, 0, 1, 1]))
+        self.assertFalse(torch.equal(first_captured[:, 0, 0, 1, 1], second_captured[:, 0, 0, 1, 1]))
+        self.assertNotIn("background_noise", kwargs)
+
+    def test_post_denoiser_state_is_not_hard_clamped(self) -> None:
+        denoiser = _CaptureDenoiser()
+        diffusion = GaussianDiffusion_Nolatent(
+            denoiser,
+            image_size=4,
+            num_frames=2,
+            spatial_shape=(2, 3, 4),
+            channels=4,
+            timesteps=4,
+            loss_type="l1",
+            data_type="gli",
+        )
+        scalar = torch.zeros((1, 1, 2, 3, 4), dtype=torch.long)
+        scalar[0, 0, 0, 0, 0] = 1
+        lesion_mask = torch.cat([(scalar == value) for value in (1, 2, 3, 4)], dim=1)
+        generated = torch.zeros((1, 4, 2, 3, 4))
+        background = torch.full((1, 1, 2, 3, 4), 10.0)
+        model_mean = torch.arange(1.0, 5.0).view(1, 4, 1, 1, 1).expand_as(generated)
+
+        def fixed_mean(**_kwargs):
+            return model_mean, torch.zeros_like(model_mean), torch.zeros_like(model_mean)
+
+        diffusion.p_mean_variance = fixed_mean
+        sampled = diffusion.p_sample_repaint(
+            generated,
             torch.tensor([0]),
             cond=torch.zeros((1, 64)),
             conf=SimpleNamespace(inpa_inj_sched_prev_cumnoise=False),
@@ -279,12 +330,10 @@ class GLIInferenceClosedLoopTests(unittest.TestCase):
                 "gt_background": background,
                 "gt_keep_mask": scalar,
                 "lesion_mask": lesion_mask,
-                "background_noise": torch.zeros_like(background),
             },
         )
-        captured = denoiser.last_x
-        self.assertTrue(torch.equal(captured[:, 0, 0, 1, 1], captured[:, 3, 0, 1, 1]))
-        self.assertTrue(torch.equal(sampled[:, :, 0, 1, 1], torch.full((1, 4), 10.0)))
+        self.assertTrue(torch.equal(sampled, model_mean))
+        self.assertFalse(torch.equal(sampled[:, :, 0, 1, 1], background.expand_as(sampled)[:, :, 0, 1, 1]))
 
     def test_versioned_checkpoint_metadata_and_hydra_configs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:
@@ -331,13 +380,19 @@ class GLIInferenceClosedLoopTests(unittest.TestCase):
             ("gli_exp005_p64_val_qa.yaml", [32, 64, 64]),
             ("gli_exp005_p64_test_subset50_shard0.yaml", [32, 64, 64]),
             ("gli_exp005_p64_test_subset50_shard1.yaml", [32, 64, 64]),
+            ("gli_exp006_p64_val_qa.yaml", [32, 64, 64]),
+            ("gli_exp006_p64_test_subset50_shard0.yaml", [32, 64, 64]),
+            ("gli_exp006_p64_test_subset50_shard1.yaml", [32, 64, 64]),
         ):
             cfg = OmegaConf.load(ROOT / "LeFusion" / "inference" / "confs" / name)
             OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
             self.assertEqual(list(cfg.model.spatial_shape_dhw), expected_shape)
-            if name.startswith("gli_exp005"):
+            if name.startswith(("gli_exp005", "gli_exp006")):
                 self.assertEqual(str(cfg.checkpoint.weights_key), "ema")
                 self.assertEqual(int(cfg.repaint.schedule_jump_params.t_T), 300)
+            if name.startswith("gli_exp006"):
+                self.assertEqual(str(cfg.repaint.background_noise), "fresh_per_reverse_call_shared_across_channels")
+                self.assertFalse(bool(cfg.repaint.post_denoiser_hard_clamp))
 
     def test_deterministic_half_selection_and_shards(self) -> None:
         records = []

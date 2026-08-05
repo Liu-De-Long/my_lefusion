@@ -211,7 +211,8 @@ training step / seed
 - 四个 mask 互斥且都在 support 内；
 - 每个反向步的 state shape 不变；
 - 没有采样后原图硬覆盖掩盖 sampler 错误；
-- `p_sample_repaint` 的 deterministic/fixed noise smoke 可复现。
+- `p_sample_repaint` 的逐样本 seed 契约可复现；背景噪声在每次反向调用重新采样，单次调用内
+  由四个通道共享，不跨 timestep 缓存。
 
 ### 8.3 采样 schedule
 
@@ -405,7 +406,10 @@ QA 只使用 val，不提前读取 test 结果。确定性选择至少 8 个 pat
 - channel 0/1/2/3 严格对应 `NETC/SNFH/ET/RC` 和 label 1/2/3/4；
 - scalar segmentation 与四通道 lesion mask 逐 voxel 一致、互斥；
 - explicit brain support 为 bool、shape/affine 正确、非空，并覆盖全部 lesion；
-- healthy brain、support 外区域及 lesion 外边界相对输入的变化均不超过 `1e-6`；
+- healthy brain、support 外区域及 lesion outer-shell 不再要求相对输入严格等于 0；分别记录
+  MAE、p95、最大变化和变化大于 0.1 的比例，并结合输入尺度与 lesion 变化判断是否足够小；
+- 记录 lesion/healthy-support 的 6 邻域边界 jump 均值与 p95，并比较 generated 相对 input
+  的增量，用于检查边界连续性；
 - 分开记录“推理新增背景变化”和“输入继承的 support 外非零”，不得把两者混为背景污染；
 - 每个样本完整 schedule 的 model calls 为 300，输出有限且 shape 正确；
 - NPZ/NIfTI、affine、DHW/XYZ 和保存回读一致；
@@ -499,3 +503,43 @@ experiments/20260805_exp005_gli_formal_training_baseline/outputs/
 按完整 val QA 的实测吞吐估算，双 GPU 半量 test 约需 `1.4–1.8` 小时；最终耗时、磁盘、
 完整性与汇总指标必须等待两个 shard 完成并执行合并审计后记录，不得把当前“已启动”表述为
 “test 已完成”。
+
+## 15. exp006 原始 LeFusion RePaint 语义对齐修订
+
+### 15.1 修订原因
+
+exp005 闭环评估实现除了在每次 denoiser 前注入真实 T1c 的前向加噪背景，还在
+`reverse_denoise` 输出后再次调用 `mix_gli_repaint_state`，将病灶外覆盖成
+`target_background`；在 `t=0` 又明确覆盖为原始输入。这使 healthy brain、outer-shell 和
+support 外变化被结构性固定为 0。该 post-denoiser hard clamp 由 GLI closed-loop 接入新增，
+不是原始 LeFusion 推理代码的处理。
+
+原始方法保留的是 denoiser 前组合：病灶外为当前 timestep 的真实背景前向加噪状态，病灶内
+为当前反向状态；组合后的完整状态送入 denoiser，其输出直接作为下一步状态。原始分支还在
+每次反向调用重新采样背景噪声，而不是把同一份噪声缓存给整条轨迹。
+
+### 15.2 exp006 冻结契约
+
+本修订归入新方法实验 `20260806_exp006_gli_official_repaint_alignment`：
+
+- 删除 denoiser 输出后的 `target_background` hard clamp；
+- 每次反向调用重新采样 `[B,1,D,H,W]` 背景噪声，并在四通道间共享；
+- 保留 denoiser 前的背景前向加噪注入；
+- 最终 lesion voxel 按 label 选择对应 NETC/SNFH/ET/RC channel，病灶外选择 channel 0；
+- 固定复用 exp005 step 46000 `best.pt/ema`，不重新训练；
+- 固定复用原 8 例 val manifest 和 519 例 test 50% subset manifest；
+- exp005 原有 hard-clamp 输出永久保留，exp006 使用独立输出目录，不覆盖旧版。
+
+训练 loss 不变：仍只在非空病灶 `(sample, channel)` 内计算并按各自 lesion voxel 数归一化。
+normalization、explicit brain support、cluster 和 checkpoint 都不重建。
+
+### 15.3 QA 解释更新
+
+exp005 的 `healthy_brain_exact` 与 `outside_change_exact` 字段继续保留，仅用于旧版对照，不再
+作为质量门禁。exp006 正式记录 healthy brain、support 外、lesion outer-shell 的 MAE、p95、
+最大变化与变化比例，并记录 lesion/healthy 边界的 6 邻域 jump mean/p95 及相对输入增量。
+
+结构硬门禁仍包括标签/四通道顺序、mask 互斥与 support 覆盖、checkpoint/EMA provenance、
+有限值、shape/affine/NIfTI round-trip、300 model calls、显存稳定以及两个 test shard 的
+无重叠无遗漏。背景质量结论必须同时结合数值分布、异常样本和 QA 图，不再由“严格为 0”
+自动判定通过。

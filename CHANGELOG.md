@@ -500,3 +500,16 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   260/259、交集为 0、并集等于冻结子集。
 - 已于 2026-08-06 03:42 CST 启动 GPU 0/1 两个独立 shard；未启动全量 test、其他 seed
   或 80 patch，也未为 inference 创建 W&B run。
+
+## 2026-08-06 — 启动 exp006 原始 LeFusion RePaint 语义对齐
+
+- 经用户确认，将 GLI inference 中额外的 post-denoiser `target_background` hard clamp 删除；
+  保留 denoiser 前的真实背景前向加噪注入。
+- 对齐原始 LeFusion 分支：背景噪声改为每次反向调用重新采样，单次调用内四个 lesion channel
+  共享，不再缓存整条轨迹的固定 noise。
+- 不重新训练，固定复用 exp005 step 46000 `best.pt/ema`、train-only cluster、8 例 val
+  manifest 和 519 例 test 50% manifest。
+- 新增 exp006 独立配置与输出目录；exp005 的 519 例 hard-clamp 输出保留作错误版本对照，
+  不删除、不覆盖。
+- QA 从“病灶外必须严格零变化”改为记录 healthy/support 外/outer-shell 的 MAE、p95、最大值、
+  变化比例和 lesion/healthy 边界 jump；exact 字段只保留用于新旧对照。

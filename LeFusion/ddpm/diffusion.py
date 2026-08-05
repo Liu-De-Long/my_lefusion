@@ -669,17 +669,17 @@ def compose_gli_repaint_output(
     generated_channels: torch.Tensor,
     lesion_mask: torch.Tensor,
 ) -> torch.Tensor:
-    """Collapse the sampler's terminal shared-background state to one channel."""
+    """Select each lesion channel and use channel zero as shared background."""
     if generated_channels.shape != lesion_mask.shape:
         raise ValueError("GLI terminal state and lesion mask must have the same shape")
     union = lesion_mask.bool().any(dim=1, keepdim=True)
     lesion_values = (
         generated_channels * lesion_mask.to(generated_channels.dtype)
     ).sum(dim=1, keepdim=True)
-    # Outside the lesion union every channel has already been replaced by the
-    # same forward-diffused background at every reverse transition.  Channel
-    # zero is therefore only a selector for that shared sampler state; this is
-    # not a post-sampling overlay of the original image.
+    # Lesion voxels select the corresponding NETC/SNFH/ET/RC channel.  Outside
+    # their union channel zero is the single, explicit background selector; the
+    # four denoiser outputs are never averaged and the original image is not
+    # overlaid after sampling.
     return torch.where(union, lesion_values, generated_channels[:, :1])
 
 
@@ -909,10 +909,11 @@ class GaussianDiffusion_Nolatent(nn.Module):
                 x.shape,
             )
             background = model_kwargs.get('gt_background', gt[:, :1])
-            background_noise = model_kwargs.get('background_noise')
-            if background_noise is None:
-                background_noise = torch.randn_like(background)
-                model_kwargs['background_noise'] = background_noise
+            # Match the original LeFusion RePaint transition: draw a fresh
+            # forward-process background noise sample at every reverse call.
+            # One [B,1,D,H,W] draw is shared by all four lesion channels for
+            # this transition, but it is not cached across timesteps.
+            background_noise = torch.randn_like(background)
             alpha_current = _extract_into_tensor(self.alphas_cumprod, t, background.shape)
             current_background = (
                 torch.sqrt(alpha_current) * background
@@ -939,23 +940,6 @@ class GaussianDiffusion_Nolatent(nn.Module):
         nonzero_mask = (1 - (t == 0).float()).reshape(b,
                                                       *((1,) * (len(x.shape) - 1)))
         generated = model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
-        if self.data_type == 'gli':
-            target_t = (t - 1).clamp(min=0)
-            alpha_target = _extract_into_tensor(
-                self.alphas_cumprod, target_t, background.shape
-            )
-            target_background = (
-                torch.sqrt(alpha_target) * background
-                + torch.sqrt(1 - alpha_target) * background_noise
-            )
-            target_background = torch.where(
-                (t == 0).reshape(b, 1, 1, 1, 1),
-                background,
-                target_background,
-            )
-            generated = mix_gli_repaint_state(
-                generated, target_background, lesion_mask
-            )
         return generated
 
 

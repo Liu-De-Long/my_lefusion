@@ -1,0 +1,37 @@
+experiment_id: 20260806_exp006_gli_official_repaint_alignment
+method_change: true
+training:
+  retrain: false
+  checkpoint: experiments/20260805_exp005_gli_formal_training_baseline/outputs/patch_64x64x32/seed_20260805/checkpoints/best.pt
+  checkpoint_sha256: 2d554fd10ce2671ffe6b62231c180e91e5809ce83c8a590f374475c563a37d69
+  weights_key: ema
+  checkpoint_step: 46000
+inference:
+  patch_size_xyz: [64, 64, 32]
+  timesteps: 300
+  seed: 20260806
+  pre_denoiser_background: forward_noised_t1c
+  background_noise: fresh_per_reverse_call_shared_across_channels
+  post_denoiser_hard_clamp: false
+  terminal_composition:
+    lesion: label_selects_corresponding_netc_snfh_et_rc_channel
+    background: channel_0
+selection:
+  reuse_frozen_val_manifest: true
+  reuse_frozen_test_subset_manifest: true
+  test_subset_count: 519
+  shard_counts: [260, 259]
+  test_subset_manifest_sha256: 295b20a01327dcd0071058efd8fe854135688a843c1888ef33242a908b6c3698
+qa:
+  exact_background_equality_is_gate: false
+  record:
+    - healthy_brain_mae_p95_max_and_changed_fraction
+    - outside_support_change_mae_p95_max_and_changed_fraction
+    - lesion_outer_shell_mae_p95_max_and_changed_fraction
+    - lesion_healthy_boundary_edge_jump_mean_and_p95
+    - finite_shape_affine_channel_support_and_memory_contracts
+comparison:
+  legacy_method: exp005_post_denoiser_hard_clamp
+  keep_legacy_outputs: true
+  legacy_outputs: experiments/20260805_exp005_gli_formal_training_baseline/outputs/patch_64x64x32/seed_20260805/test_subset_50
+  corrected_outputs: experiments/20260806_exp006_gli_official_repaint_alignment/outputs/patch_64x64x32/seed_20260805/test_subset_50

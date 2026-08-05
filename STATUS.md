@@ -8,16 +8,17 @@ v0.5.1-gli-formal-evaluation
 
 `20260805_exp005_gli_formal_training_baseline`
 
-当前正式模型入口为 `20260805_exp005_gli_formal_training_baseline` 的
+当前正式 checkpoint 入口仍为 `20260805_exp005_gli_formal_training_baseline` 的
 `64×64×32` seed `20260805`、step 46000 `best.pt/ema`。该入口已通过固定 validation、
-零更新 resume 和完整 `t_T=300` val 闭环 QA；test 仅运行冻结的 50% 子集。
+零更新 resume；但 exp005 inference 使用了额外 post-denoiser hard clamp。正在
+`20260806_exp006_gli_official_repaint_alignment` 中用同一 checkpoint、同一冻结 val/test
+子集按原始 LeFusion RePaint 语义重跑，旧版输出完整保留。
 
 ## 当前最佳结果
 
 已发布的数据资产仍为两种尺寸各 9842 个 patch。正式 `best.pt/ema` 的固定 val loss 为
-`0.0965080350`；8 个分层 val patch 的完整 RePaint QA 通过，未发现推理新增背景污染，
-推理峰值显存为 `1087.46 MiB` 且稳定。test 50% 确定性子集正在双 GPU 运行，尚无最终
-test 汇总，不得外推为全量 test 指标。
+`0.0965080350`。exp005 的精确背景不变性由额外 hard clamp 保证，不能作为目标方法的正式
+背景 QA 结论；exp006 重跑完成前，519 例旧版结果仅作方法错误对照，不冻结为正式 test 结果。
 
 ## 当前流程
 
@@ -106,8 +107,8 @@ test 汇总，不得外推为全量 test 指标。
 
 ## 下一步
 
-1. 继续监控 GPU 0/1 上正在运行的 test 50% 两个 shard；失败时只做原位 resume，不改变
-   manifest、checkpoint、cluster、schedule 或 seed。
-2. 两 shard 完成后执行互斥/并集/重复输出/有限值/shape/显存与背景 QA 的合并审计，并将
-   最终结果记录为“test 50% 确定性子集”。
-3. 不启动剩余 test、其他 seed 或 `80×96×80`；任何扩展均需新的用户授权。
+1. 完成 exp006 回归测试和 8 例完整 val QA，确认新语义闭环、背景变化、边界连续性与显存。
+2. 使用同一 519 例冻结 manifest 在 GPU 0/1 重新运行 260/259 两个独立 shard，写入 exp006
+   独立输出目录，绝不删除或覆盖 exp005 旧版。
+3. 合并审计新旧两版的无重叠/无遗漏、四通道、interior/boundary、support/背景和异常图；
+   不启动剩余 test、其他 seed 或 `80×96×80`。
