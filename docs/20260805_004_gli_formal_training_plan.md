@@ -332,12 +332,14 @@ feature/20260805-exp005-gli-formal-training
 
 ## 10. 正式训练 blockers
 
-实现后仍需解决：
+已完成的正式训练门禁：
 
-1. 新 W&B 凭据尚未以安全方式加载到远端环境并验证 online；F 盘准备完成不等于远端已可用。
-2. 64 patch batch 4 尚需显存、validation 和 resume preflight。
+1. 用户已安全配置远端新 W&B key，online preflight 已连接指定 entity/project/run。
+2. 64 patch `batch=4/accum=1` 通过零 optimizer update 的 forward/backward 显存检查，反向峰值 `23330.56 MiB`。
+3. 完整固定 validation 通过：1032 patch、73 subject、4 label 覆盖、3207 有效单元；checkpoint reload/resume 通过，临时 checkpoint 已删除。
+4. 真实边界 patch 的负 `origin_xyz` loader bug 已修复；远端全量测试 28/28 通过。
 
-Trainer validation/per-channel metrics/early stopping、完整 checkpoint/resume、分层 sampler 和 normalization audit provenance 已完成实现或修正，并通过非训练测试。
+Trainer validation/per-channel metrics/early stopping、完整 checkpoint/resume、分层 sampler、normalization audit provenance、W&B online 和 64 patch preflight 均不再是技术 blocker。剩余条件是用户对正式 50,000-step 训练的单独授权。
 
 标签语义和 normalization 不再是 blocker。
 

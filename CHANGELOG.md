@@ -422,3 +422,39 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
 ## 下一步
 
 用户安全配置远端 W&B key 后，另行授权 W&B online、显存、validation 和 resume preflight；preflight 通过后仍需再次确认才能启动首个正式 run。
+
+---
+
+## 实验 ID
+
+`20260805_exp005_gli_formal_training_baseline`
+
+## 日期
+
+2026-08-05
+
+## 目标
+
+在不启动正式训练的前提下，执行已授权的 W&B online、64 patch 显存、完整 validation 和 checkpoint resume preflight。
+
+## 方法
+
+- 新增可复用 `scripts/gli_formal_training_preflight.py`，使用独立 preflight W&B run ID。
+- 对 `64×64×32` 的 `batch=4/accum=1` 仅执行一次 fixed-batch forward/backward，不调用 optimizer/scaler step；随后运行完整固定 validation、保存/重载临时 checkpoint 并验证 resume。
+- 成功后自动删除临时 `resume_preflight.pt`，保留轻量 metrics 和日志；不生成正式 checkpoint。
+
+## 结果
+
+- 新 W&B key 已在远端安全可用，成功 run：<https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp005-p64-preflight-s20260805-r3>。
+- 0 次 optimizer update；batch `[4,4,32,64,64]`；反向峰值显存 `23330.56 MiB`；完整 validation 峰值 `5482.45 MiB`。
+- validation：1032 patch、73 subject、4 label、3207 有效单元；EMA total loss `0.959372`；NETC/SNFH/ET/RC loss `0.893387/0.904111/1.140945/0.887598`。
+- checkpoint resume 恢复成功；临时 checkpoint 已删除。
+- 首次 preflight 因本地 SSH 会话传输中断而留下未完成 online run；第二次 retry 暴露合法负 `origin_xyz` 被 loader 拒绝。已修复该 bug（`b34d867f944343f9f6ff6e4edde5abe3a0b0805b`），修复后真实 patch 根目录下远端全量测试 28/28 通过。
+
+## 结论
+
+64 patch 的所有技术门禁已通过。该 preflight 不构成正式训练；正式 50,000-step seed `20260805` 仍需用户单独授权。
+
+## 下一步
+
+等待用户决定是否启动首个正式 `64×64×32` run；不自动启动另外两个 seed 或 80 patch 对照。

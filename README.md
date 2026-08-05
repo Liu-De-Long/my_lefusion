@@ -120,6 +120,14 @@ python LeFusion/train/train.py +experiment=gli_formal_80x96x80 --cfg job --resol
 
 以上命令只解析配置，不登录 W&B、不创建 run、不启动训练。正式训练入口必须在 W&B、显存、validation 和 resume preflight 另行授权并通过后才能执行。
 
+64 patch 的可复用 preflight 入口为：
+
+```bash
+python scripts/gli_formal_training_preflight.py +experiment=gli_formal_64x64x32 preflight.run_id=<unused-preflight-run-id> preflight.run_name=<unused-preflight-run-name>
+```
+
+该命令会创建一个独立 W&B preflight run，执行零 optimizer update 的显存/梯度检查、完整 validation 和 checkpoint reload；它不执行正式训练。成功后会删除临时 preflight checkpoint。
+
 GLI inference 闭环的可复用入口为：
 
 ```bash

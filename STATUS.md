@@ -77,6 +77,9 @@ v0.5.0-gli-formal-training-gates
 - W&B 正式配置已固定 entity `jinyuanbao719-xi-an-jiaotong-university-`、run ID 和 `resume=never/must` 语义；online 初始化失败会在训练计算前退出，不回退 offline。
 - 两份正式 Hydra 配置解析通过；远端全量非训练测试 28/28 通过，包含真实发布 patch 的两种尺寸 loader 和精确数据序列 resume。
 - normalization audit 输出已将 stale 状态更新为 `completed_no_systematic_background_pollution` 和 `keep_t1c_nonzero_percentile_normalization`，JSON 回读通过。
+- 用户已安全配置远端 W&B key；64 patch online preflight 使用独立 run `exp005-p64-preflight-s20260805-r3`，完成零 optimizer update 的显存/梯度检查、完整 val、checkpoint reload 和 resume；W&B URL：<https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp005-p64-preflight-s20260805-r3>。
+- 64 preflight 的反向峰值显存为 `23330.56 MiB`，完整 validation 峰值为 `5482.45 MiB`；validation 为 1032 patch、73 subject、3207 有效单元，四个 label 全覆盖。临时 resume checkpoint 已自动删除，仅保留远端轻量 `metrics.json` 和日志。
+- 修复真实边界 patch 的负 `origin_xyz` loader 契约，代码 commit 为 `b34d867f944343f9f6ff6e4edde5abe3a0b0805b`；修复后远端全量测试 28/28 通过。
 
 ## 失败尝试
 
@@ -90,13 +93,12 @@ v0.5.0-gli-formal-training-gates
 - exp004 W&B run 仅保存在远端 offline 目录，尚无在线 run URL。用户已说明在 F 盘准备新的 W&B key，但该凭据尚未以安全方式加载到远端环境并验证 online；key 禁止写入项目文件或 Git。
 - `val` split 未发现 `seg` 标签，不能直接作为监督验证集。
 - 当前 RePaint smoke 使用 `t_T=5`，生成结果呈随机纹理，只证明闭环、shape 和 mask 语义正确，不证明病灶生成质量。
-- exp005 代码门禁虽已实现，但尚未做真实 W&B online、64 patch batch 4 显存、validation 和 checkpoint resume preflight，不能直接启动全量训练。
+- 64 patch 的技术门禁已经通过，但正式训练尚未获单独授权；不得因 preflight 自动启动 50,000-step run。
 - baseline 的 batch 是 preflight 初值而非硬编码：64 可从 `4/1` 调为 `2/2` 或 `1/4`；`50,000` optimizer steps 是上限，可由 early stopping 提前结束。
 - 原始 LeFusion 入口没有强制三 seed；`20260806/20260807` 是在首个 seed 通过后再决定的正式复现候选。
 
 ## 下一步
 
-1. 由用户将新的 W&B key 安全加载到远端环境变量或凭据缓存；不得读取、输出或写入 Git。
-2. 另行授权后执行 W&B online、64 patch 显存、validation 和 resume preflight；只汇报门禁结果，不自动启动正式训练。
-3. preflight 通过并再次确认后，先训练 `64×64×32` seed `20260805`；是否补跑另外两个 seed 根据首个 run 决定。
-4. 正式 checkpoint 可用并冻结模型选择后，再决定 `80×96×80` 对照和完整 RePaint/test 医学 QA。
+1. 等待用户单独确认是否启动 `64×64×32` seed `20260805` 的正式训练；不会自动开始。
+2. 首个正式 run 完成并复核 W&B、validation 与 resume 后，再决定是否补跑 `20260806/20260807`。
+3. 64 patch 结论冻结后，再决定是否启动 `80×96×80` 对照和完整 RePaint/test 医学 QA。
