@@ -513,3 +513,5 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   不删除、不覆盖。
 - QA 从“病灶外必须严格零变化”改为记录 healthy/support 外/outer-shell 的 MAE、p95、最大值、
   变化比例和 lesion/healthy 边界 jump；exact 字段只保留用于新旧对照。
+- 新增可复用 `scripts/gli_audit_inference_subset.py`，用于审计两个 shard 的无重叠无遗漏、
+  channel/role 分组、support 约束、异常样本和 exp005/exp006 同路径配对差异。

@@ -24,6 +24,8 @@ timestep 的真实背景前向加噪状态，反向去噪输出直接进入下�
    channel 0，不平均四个通道，也不覆盖原始图像。
 5. QA 不再把 healthy brain、outer shell 或 support 外变化严格等于 0 作为门禁；改为记录
    MAE、p95、最大变化、变化比例，以及 lesion/healthy 边界 6 邻域强度跳变相对输入的变化。
+6. 使用 `scripts/gli_audit_inference_subset.py` 对两个 shard 执行冻结子集并集/交集、provenance、
+   四通道、interior/boundary、support、异常样本以及 exp005/exp006 配对差异审计。
 
 ## 结果
 
