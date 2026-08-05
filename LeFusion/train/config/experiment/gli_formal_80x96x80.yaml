@@ -39,6 +39,7 @@ model:
   temporal_max_distance: 128
   diffusion_num_channels: 4
   cond_dim: 64
+  data_parallel: false
   batch_size: 1
   gradient_accumulate_every: 4
   num_workers: 2

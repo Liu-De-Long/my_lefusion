@@ -174,7 +174,11 @@ def run(cfg: DictConfig):
     if torch.cuda.is_available():
         torch.cuda.set_device(cfg.model.gpus)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    diffusion = build_model_and_diffusion(cfg, device)
+    diffusion = build_model_and_diffusion(
+        cfg,
+        device,
+        use_data_parallel=bool(cfg.model.get('data_parallel', True)),
+    )
 
     train_dataset, train_sampler = get_train_dataset(cfg)
     validation_dataset = get_validation_dataset(cfg)

@@ -72,6 +72,7 @@ class _TinyDataset(Dataset):
             "hist": torch.zeros(64),
             "subject_id": record["subject_id"],
             "anchor_label": label,
+            "sample_index": index,
         }
 
 
@@ -171,8 +172,10 @@ class GLIFormalTrainingTests(unittest.TestCase):
             trainer.step = 1
             trainer.train_epoch = 2
             trainer.batch_in_epoch = 3
+            trainer._reset_train_iterator(skip_batches=trainer.batch_in_epoch)
             path = Path(directory) / "latest.pt"
             trainer.save_checkpoint(path, kind="latest")
+            expected_next_indices = trainer._next_train_batch()["sample_index"].tolist()
             payload = load_training_checkpoint(path, expected_metadata=_metadata())
             self.assertEqual(payload["schema_version"], GLI_TRAINING_CHECKPOINT_SCHEMA)
 
@@ -194,6 +197,9 @@ class GLIFormalTrainingTests(unittest.TestCase):
             self.assertEqual(restored.step, 1)
             self.assertEqual(restored.train_epoch, 2)
             self.assertEqual(restored.batch_in_epoch, 3)
+            self.assertEqual(
+                restored._next_train_batch()["sample_index"].tolist(), expected_next_indices
+            )
 
     def test_formal_configs_are_complete_and_batch_is_preflight_adjustable(self):
         config_dir = str(ROOT / "LeFusion" / "train" / "config")
