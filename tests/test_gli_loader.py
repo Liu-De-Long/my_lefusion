@@ -81,7 +81,7 @@ def _write_fixture(root: Path, patch_size: tuple[int, int, int]) -> None:
                 "anchor_label": "1",
                 "anchor_name": "netc",
                 "sample_role": "interior",
-                "origin_x": "0",
+                "origin_x": "-1" if index == 0 else "0",
                 "origin_y": "0",
                 "origin_z": "0",
                 "pad_before_x": str(pad_before[0]),
@@ -121,6 +121,7 @@ class GLILoaderTests(unittest.TestCase):
             self.assertEqual(float(sample["hist"][0]), 0.0)
             self.assertEqual(float(sample["hist"][16]), 16.0)
             self.assertEqual(float(sample["hist"][48]), 48.0)
+            self.assertEqual(tuple(sample["origin_xyz"].tolist()), (-1, 0, 0))
 
             patch_voxels = np.prod(patch_size)
             valid_voxels = (patch_size[0] - 1) * (patch_size[1] - 3) * patch_size[2]

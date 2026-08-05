@@ -40,9 +40,11 @@ def _patch_dir_name(patch_size_xyz: Sequence[int]) -> str:
     return "patch_" + "x".join(str(int(value)) for value in patch_size_xyz)
 
 
-def _as_int_tuple(value: Iterable[int], field_name: str) -> tuple[int, int, int]:
+def _as_int_tuple(
+    value: Iterable[int], field_name: str, *, allow_negative: bool = False
+) -> tuple[int, int, int]:
     result = tuple(int(part) for part in value)
-    if len(result) != 3 or any(part < 0 for part in result):
+    if len(result) != 3 or (not allow_negative and any(part < 0 for part in result)):
         raise ValueError(f"invalid {field_name}: {value!r}")
     return result  # type: ignore[return-value]
 
@@ -195,7 +197,9 @@ class GLIDataset(Dataset):
             raise ValueError(f"invalid segmentation labels in {path}")
 
         origin_xyz = _as_int_tuple(
-            (record["origin_x"], record["origin_y"], record["origin_z"]), "origin_xyz"
+            (record["origin_x"], record["origin_y"], record["origin_z"]),
+            "origin_xyz",
+            allow_negative=True,
         )
         pad_before_xyz = _as_int_tuple(
             (
