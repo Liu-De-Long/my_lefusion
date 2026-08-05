@@ -472,3 +472,9 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
 - 用户授权仅启动 `64×64×32` 的正式 seed `20260805`，明确禁止自动扩展至其他 seed 或 `80×96×80` 对照。
 - 远端确认 GPU 0、1 均为空闲 A100 80GB；正式配置改为 DataParallel，保持全局 batch 4、每卡 micro-batch 2、accumulation 1、effective batch 4。
 - 运行代码版本固定为 `75b187ce6664d4fa44ddad32dd328112998ff5c4`。
+## 2026-08-05 — 启动 exp005 首个正式双 GPU 训练
+
+- 经用户授权，已启动且仅启动 `20260805_exp005_gli_formal_training_baseline` 的 `64×64×32`、seed `20260805` 正式训练；未启动其他 seed 或 `80×96×80` 对照。
+- 运行使用 GPU 0、1 的 `DataParallel`，全局 batch 为 4（每卡 2），运行时 Git HEAD 为 `ea88464f3bf51350f5bd7d33f1bfcc4d7f80b6c1`，实现/配置版本为 `75b187ce6664d4fa44ddad32dd328112998ff5c4`。
+- 已确认 W&B online run：`exp005-p64-s20260805`，链接为 https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp005-p64-s20260805 。
+- 正式输出目录为 `experiments/20260805_exp005_gli_formal_training_baseline/outputs/patch_64x64x32/seed_20260805/`；运行日志为其中的 `train.run.log`。

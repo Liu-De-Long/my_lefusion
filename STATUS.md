@@ -88,7 +88,7 @@ v0.5.0-gli-formal-training-gates
 ## 已知问题
 
 - 当前闭环实现位于 `feature/20260805-exp004-gli-inference`，验证代码 commit 为 `bcf9097a6ccbd20db6ab6d992ae72872c5ea65dd`；尚未合并到 `main`。
-- GLI 正式训练尚未启动，当前 smoke 结果不能作为最佳模型或正式指标。
+- GLI 正式训练已于 2026-08-05 启动：仅运行 `64×64×32`、seed `20260805`，使用 GPU 0、1 的 `DataParallel`；尚未产生可比较的正式模型指标，当前 smoke 结果仍不能作为最佳模型或正式指标。
 - 当前两个 checkpoint 仅由 20-step/1-step smoke 产生，不能作为正式训练 checkpoint 或医学质量模型。
 - exp004 W&B run 仅保存在远端 offline 目录，尚无在线 run URL。用户已说明在 F 盘准备新的 W&B key，但该凭据尚未以安全方式加载到远端环境并验证 online；key 禁止写入项目文件或 Git。
 - `val` split 未发现 `seg` 标签，不能直接作为监督验证集。
@@ -100,6 +100,6 @@ v0.5.0-gli-formal-training-gates
 
 ## 下一步
 
-1. 等待用户单独确认是否启动 `64×64×32` seed `20260805` 的正式训练；不会自动开始。
-2. 首个正式 run 完成并复核 W&B、validation 与 resume 后，再决定是否补跑 `20260806/20260807`。
-3. 64 patch 结论冻结后，再决定是否启动 `80×96×80` 对照和完整 RePaint/test 医学 QA。
+1. 监测当前唯一的 `64×64×32` seed `20260805` 正式 run，复核 W&B、validation、checkpoint 与 resume 结果。
+2. 首个正式 run 完成并复核后，再由用户决定是否补跑 `20260806/20260807`。
+3. 64 patch 结论冻结后，再由用户决定是否启动 `80×96×80` 对照和完整 RePaint/test 医学 QA。

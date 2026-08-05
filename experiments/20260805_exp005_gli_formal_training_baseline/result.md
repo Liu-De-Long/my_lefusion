@@ -57,4 +57,12 @@ W&B online、64 patch 显存、validation 与 resume preflight 均已通过。�
 
 ## 输出路径
 
-正式运行预留路径：`experiments/20260805_exp005_gli_formal_training_baseline/outputs/`。当前未创建训练输出。
+正式运行输出路径：`experiments/20260805_exp005_gli_formal_training_baseline/outputs/patch_64x64x32/seed_20260805/`。训练正在运行，checkpoint 将按既定规则生成。
+
+## 正式训练启动记录
+
+- 启动时间：2026-08-05；仅启动 `64×64×32`、seed `20260805`，未启动其他 seed 或 `80×96×80`。
+- 运行方式：GPU 0、1 的 `DataParallel`；全局 batch 为 4（每卡 2），gradient accumulation 为 1。
+- 运行时 Git HEAD：`ea88464f3bf51350f5bd7d33f1bfcc4d7f80b6c1`；实现和配置提交：`75b187ce6664d4fa44ddad32dd328112998ff5c4`。
+- W&B online run：[exp005-p64-s20260805](https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp005-p64-s20260805)。
+- 输出目录：`outputs/patch_64x64x32/seed_20260805/`；运行日志：`train.run.log`；checkpoint 将由既定的 latest/best/milestone 规则写入该目录。
