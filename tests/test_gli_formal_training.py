@@ -212,6 +212,9 @@ class GLIFormalTrainingTests(unittest.TestCase):
             OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
             validate_training_config(cfg)
             validate_wandb_config(cfg)
+            self.assertIn("preflight", cfg)
+            self.assertNotEqual(cfg.preflight.run_id, cfg.wandb.run_id)
+            self.assertIn("preflight", cfg.preflight.run_id)
             self.assertEqual(
                 (cfg.model.batch_size, cfg.model.gradient_accumulate_every), expected_batch
             )

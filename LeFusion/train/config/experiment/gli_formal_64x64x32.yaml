@@ -79,3 +79,8 @@ wandb:
   resume: never
   mode: online
   dir: experiments/20260805_exp005_gli_formal_training_baseline/outputs/patch_64x64x32/seed_20260805/wandb
+
+preflight:
+  run_id: exp005-p64-preflight-s20260805
+  run_name: exp005-p64-preflight-s20260805
+  output_dir: experiments/20260805_exp005_gli_formal_training_baseline/outputs/patch_64x64x32/preflight
