@@ -614,6 +614,60 @@ def prepare_training_batch(data_frame, device, data_type):
     return data, mask, hist
 
 
+def validate_gli_repaint_masks(
+    scalar_seg: torch.Tensor,
+    lesion_mask: torch.Tensor,
+    expected_shape,
+) -> torch.Tensor:
+    if scalar_seg.ndim != 5 or scalar_seg.shape[1] != 1:
+        raise ValueError(f"GLI scalar segmentation must be [B,1,D,H,W], got {scalar_seg.shape}")
+    if tuple(lesion_mask.shape) != tuple(expected_shape):
+        raise ValueError(
+            f"GLI lesion mask shape mismatch: {tuple(lesion_mask.shape)} != {tuple(expected_shape)}"
+        )
+    scalar_seg = scalar_seg.to(device=lesion_mask.device)
+    derived = torch.cat([(scalar_seg == value) for value in (1, 2, 3, 4)], dim=1)
+    supplied = lesion_mask.bool()
+    if not torch.equal(derived, supplied):
+        raise ValueError("GLI scalar segmentation and four-channel lesion mask disagree")
+    if bool((supplied.sum(dim=1) > 1).any()):
+        raise ValueError("GLI lesion channels overlap")
+    if not bool(supplied.any()):
+        raise ValueError("GLI inference patch has no lesion voxels")
+    return supplied
+
+
+def mix_gli_repaint_state(
+    generated_state: torch.Tensor,
+    background_context: torch.Tensor,
+    lesion_mask: torch.Tensor,
+) -> torch.Tensor:
+    if background_context.ndim != 5 or background_context.shape[1] != 1:
+        raise ValueError("GLI background context must be [B,1,D,H,W]")
+    if generated_state.shape != lesion_mask.shape:
+        raise ValueError("GLI generated state and lesion mask must have the same shape")
+    expanded_background = background_context.expand_as(generated_state)
+    return torch.where(lesion_mask.bool(), generated_state, expanded_background)
+
+
+def compose_gli_repaint_output(
+    generated_channels: torch.Tensor,
+    lesion_mask: torch.Tensor,
+) -> torch.Tensor:
+    """Collapse the sampler's terminal shared-background state to one channel."""
+    if generated_channels.shape != lesion_mask.shape:
+        raise ValueError("GLI terminal state and lesion mask must have the same shape")
+    union = lesion_mask.bool().any(dim=1, keepdim=True)
+    lesion_values = (
+        generated_channels * lesion_mask.to(generated_channels.dtype)
+    ).sum(dim=1, keepdim=True)
+    # Outside the lesion union every channel has already been replaced by the
+    # same forward-diffused background at every reverse transition.  Channel
+    # zero is therefore only a selector for that shared sampler state; this is
+    # not a post-sampling overlay of the original image.
+    return torch.where(union, lesion_values, generated_channels[:, :1])
+
+
 class GaussianDiffusion_Nolatent(nn.Module):
     def __init__(
         self,
@@ -768,8 +822,14 @@ class GaussianDiffusion_Nolatent(nn.Module):
                               device=None,
                               cond=None,
                               cond_scale=1.,
+                              return_details=False,
                               ):
         final = None
+        schedule = get_schedule_jump(**conf.schedule_jump_params)
+        model_calls = sum(
+            int(current < previous)
+            for previous, current in zip(schedule[:-1], schedule[1:])
+        )
         for sample in self.p_sample_loop_repaint_progressive(
                 shape,
                 noise=noise,
@@ -781,6 +841,8 @@ class GaussianDiffusion_Nolatent(nn.Module):
                 cond=cond,
         ):
             final = sample
+        if final is None:
+            raise RuntimeError("RePaint schedule produced no reverse steps")
         if self.data_type == 'emidec':
             gt_keep_mask = model_kwargs.get('gt_keep_mask')
             mask = ((gt_keep_mask == 3) | (gt_keep_mask == 4)).float()  
@@ -789,6 +851,21 @@ class GaussianDiffusion_Nolatent(nn.Module):
             mask2 = (gt_keep_mask == 4).float() 
             final1, final2 = torch.split(final, final.size(1) // 2, dim=1)
             final = final1 * mask1 + final2 * mask2 + final1 * mask
+        elif self.data_type == 'gli':
+            lesion_mask = validate_gli_repaint_masks(
+                model_kwargs['gt_keep_mask'],
+                model_kwargs['lesion_mask'],
+                final.shape,
+            )
+            scalar = compose_gli_repaint_output(final, lesion_mask)
+            if return_details:
+                return {
+                    "sample": scalar,
+                    "channels": final,
+                    "shared_background": final[:, :1],
+                    "model_calls": model_calls,
+                }
+            final = scalar
         return final 
 
     def p_sample_repaint(
@@ -810,24 +887,61 @@ class GaussianDiffusion_Nolatent(nn.Module):
             mask = (gt_keep_mask == 1).float()
         elif self.data_type == 'emidec':
             mask = ((gt_keep_mask == 3) | (gt_keep_mask == 4)).float()
-        mask = mask.eq(0) 
-        alpha_cumprod = _extract_into_tensor(
-            self.alphas_cumprod, t, x.shape)
-        if conf.inpa_inj_sched_prev_cumnoise:
-            weighed_gt = self.get_gt_noised(gt, int(t[0].item()))
+        elif self.data_type == 'gli':
+            lesion_mask = validate_gli_repaint_masks(
+                gt_keep_mask,
+                model_kwargs['lesion_mask'],
+                x.shape,
+            )
+            background = model_kwargs.get('gt_background', gt[:, :1])
+            background_noise = model_kwargs.get('background_noise')
+            if background_noise is None:
+                background_noise = torch.randn_like(background)
+                model_kwargs['background_noise'] = background_noise
+            alpha_current = _extract_into_tensor(self.alphas_cumprod, t, background.shape)
+            current_background = (
+                torch.sqrt(alpha_current) * background
+                + torch.sqrt(1 - alpha_current) * background_noise
+            )
+            x = mix_gli_repaint_state(x, current_background, lesion_mask)
         else:
-            gt_weight = torch.sqrt(alpha_cumprod)
-            gt_part = gt_weight * gt
-            noise_weight = torch.sqrt((1 - alpha_cumprod))
-            noise_part = noise_weight * torch.randn_like(x)
-            weighed_gt = gt_part + noise_part
-        x = (mask * (weighed_gt)+(~mask) * (x))
+            raise ValueError(f"unsupported RePaint data type: {self.data_type}")
+        if self.data_type != 'gli':
+            mask = mask.eq(0)
+            alpha_cumprod = _extract_into_tensor(self.alphas_cumprod, t, x.shape)
+            if conf.inpa_inj_sched_prev_cumnoise:
+                weighed_gt = self.get_gt_noised(gt, int(t[0].item()))
+            else:
+                gt_weight = torch.sqrt(alpha_cumprod)
+                gt_part = gt_weight * gt
+                noise_weight = torch.sqrt((1 - alpha_cumprod))
+                noise_part = noise_weight * torch.randn_like(x)
+                weighed_gt = gt_part + noise_part
+            x = (mask * weighed_gt) + ((~mask) * x)
         model_mean, _, model_log_variance = self.p_mean_variance(
             x=x, t=t, clip_denoised=clip_denoised, cond=cond, cond_scale=cond_scale)
         noise = torch.randn_like(x)
         nonzero_mask = (1 - (t == 0).float()).reshape(b,
                                                       *((1,) * (len(x.shape) - 1)))
-        return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise 
+        generated = model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
+        if self.data_type == 'gli':
+            target_t = (t - 1).clamp(min=0)
+            alpha_target = _extract_into_tensor(
+                self.alphas_cumprod, target_t, background.shape
+            )
+            target_background = (
+                torch.sqrt(alpha_target) * background
+                + torch.sqrt(1 - alpha_target) * background_noise
+            )
+            target_background = torch.where(
+                (t == 0).reshape(b, 1, 1, 1, 1),
+                background,
+                target_background,
+            )
+            generated = mix_gli_repaint_state(
+                generated, target_background, lesion_mask
+            )
+        return generated
 
 
     def p_sample_loop_repaint_progressive(

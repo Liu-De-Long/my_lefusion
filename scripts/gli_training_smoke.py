@@ -11,7 +11,7 @@ from pathlib import Path
 import hydra
 import numpy as np
 import torch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from torch.cuda.amp import GradScaler, autocast
 from torch.optim import Adam
 from torch.utils.data import DataLoader
@@ -27,6 +27,7 @@ from train.train import (  # noqa: E402
     initialize_wandb,
     validate_training_config,
 )
+from checkpointing import GLI_VALIDATION_CHECKPOINT_SCHEMA  # noqa: E402
 
 
 def _set_seed(seed: int) -> None:
@@ -132,6 +133,40 @@ def run(cfg: DictConfig) -> None:
             last_mean = losses[-1]
 
         peak_memory_mib = torch.cuda.max_memory_allocated(device) / (1024 ** 2)
+        checkpoint_path = None
+        if bool(cfg.smoke.get("save_checkpoint", False)):
+            checkpoint_path = Path(str(cfg.smoke.checkpoint_path)).expanduser()
+            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            git_commit = os.environ.get("GIT_COMMIT", "unknown")
+            base_dim = cfg.model.get("base_dim") or cfg.model.diffusion_img_size
+            metadata = {
+                "checkpoint_purpose": "validation-smoke-only",
+                "data_type": data_type,
+                "diffusion_num_channels": int(cfg.model.diffusion_num_channels),
+                "cond_dim": int(cfg.model.cond_dim),
+                "base_dim": int(base_dim),
+                "spatial_shape_dhw": list(spatial_shape),
+                "timesteps": int(cfg.model.timesteps),
+                "temporal_max_distance": int(cfg.model.get("temporal_max_distance", 32)),
+                "seed": seed,
+                "steps": steps,
+                "git_commit": git_commit,
+                "ema_is_model_copy": True,
+            }
+            model_state = diffusion.state_dict()
+            torch.save(
+                {
+                    "schema_version": GLI_VALIDATION_CHECKPOINT_SCHEMA,
+                    "step": steps,
+                    "model": model_state,
+                    "ema": model_state,
+                    "optimizer": optimizer.state_dict(),
+                    "scaler": scaler.state_dict(),
+                    "metadata": metadata,
+                    "resolved_config": OmegaConf.to_container(cfg, resolve=True),
+                },
+                checkpoint_path,
+            )
         summary = {
             "experiment_id": cfg.experiment_id,
             "variant": cfg.variant,
@@ -143,6 +178,7 @@ def run(cfg: DictConfig) -> None:
             "peak_memory_mib": peak_memory_mib,
             "wandb_url": run_url,
             "git_commit": os.environ.get("GIT_COMMIT", "unknown"),
+            "validation_checkpoint": None if checkpoint_path is None else str(checkpoint_path),
         }
         for key, value in summary.items():
             wandb_run.summary[key] = value
@@ -153,4 +189,3 @@ def run(cfg: DictConfig) -> None:
 
 if __name__ == "__main__":
     run()
-

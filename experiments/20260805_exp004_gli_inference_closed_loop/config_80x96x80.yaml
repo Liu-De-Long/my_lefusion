@@ -1,0 +1,8 @@
+training_config: LeFusion/train/config/experiment/gli_validation_80x96x80.yaml
+inference_config: LeFusion/inference/confs/gli_80x96x80.yaml
+patch_size_xyz: [80, 96, 80]
+spatial_shape_dhw: [80, 80, 96]
+validation_training_steps: 1
+inference_batches: 1
+conditioning: per_label_train_only_cluster
+repaint_schedule: {t_T: 5, n_sample: 1, jump_length: 1, jump_n_sample: 1}

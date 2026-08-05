@@ -9,6 +9,7 @@ losses and inference.
 from __future__ import annotations
 
 import csv
+import json
 import os
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -65,6 +66,7 @@ class GLIDataset(Dataset):
         root_dir: str | os.PathLike[str],
         patch_size_xyz: Sequence[int] | str,
         split: str | None = "train",
+        split_file: str | os.PathLike[str] | None = None,
         manifest_name: str = "manifest.csv",
         strict: bool = True,
     ) -> None:
@@ -72,6 +74,8 @@ class GLIDataset(Dataset):
         self.root_dir = Path(root_dir).expanduser()
         self.patch_size_xyz = _parse_patch_size(patch_size_xyz)
         self.split = split
+        self.split_file = Path(split_file).expanduser() if split_file else None
+        self.subject_split = self._read_subject_split()
         self.strict = strict
         self.size_root = self.root_dir / _patch_dir_name(self.patch_size_xyz)
         self.manifest_path = self.size_root / manifest_name
@@ -82,6 +86,22 @@ class GLIDataset(Dataset):
             raise RuntimeError(
                 f"no GLI patches matched split={self.split!r} in {self.manifest_path}"
             )
+
+    def _read_subject_split(self) -> dict[str, str] | None:
+        if self.split_file is None:
+            return None
+        if not self.split_file.is_file():
+            raise FileNotFoundError(f"GLI split file not found: {self.split_file}")
+        payload = json.loads(self.split_file.read_text(encoding="utf-8"))
+        mapping = payload.get("subject_split")
+        if not isinstance(mapping, dict) or not mapping:
+            raise ValueError(f"split file has no subject_split mapping: {self.split_file}")
+        allowed = {"train", "val", "test"}
+        result = {str(subject): str(value) for subject, value in mapping.items()}
+        invalid = sorted(set(result.values()).difference(allowed))
+        if invalid:
+            raise ValueError(f"invalid split names in {self.split_file}: {invalid}")
+        return result
 
     def _read_manifest(self) -> list[dict[str, str]]:
         records: list[dict[str, str]] = []
@@ -114,8 +134,18 @@ class GLIDataset(Dataset):
                 raise ValueError(f"manifest missing fields: {sorted(missing)}")
             seen: set[str] = set()
             for row in reader:
-                if self.split is not None and row["split"] != self.split:
+                effective_split = row["split"]
+                if self.subject_split is not None:
+                    subject_id = row["subject_id"]
+                    if subject_id not in self.subject_split:
+                        raise ValueError(
+                            f"subject {subject_id!r} missing from split file {self.split_file}"
+                        )
+                    effective_split = self.subject_split[subject_id]
+                if self.split is not None and effective_split != self.split:
                     continue
+                row = dict(row)
+                row["effective_split"] = effective_split
                 relative_path = row["relative_path"]
                 if relative_path in seen:
                     raise ValueError(f"duplicate manifest path: {relative_path}")
@@ -207,7 +237,7 @@ class GLIDataset(Dataset):
             "affine": torch.from_numpy(affine.astype(np.float32, copy=False)),
             "case_id": record["case_id"],
             "subject_id": record["subject_id"],
-            "split": record["split"],
+            "split": record.get("effective_split", record["split"]),
             "relative_path": relative_path,
             "patch_size_xyz": torch.tensor(self.patch_size_xyz, dtype=torch.int64),
             "anchor_label": int(record["anchor_label"]),

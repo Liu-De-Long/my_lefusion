@@ -1,0 +1,7 @@
+commit: pending_initial_implementation_commit
+branch: feature/20260805-exp004-gli-inference
+baseline_commit: 20013257e15f9b3e3149b104677bd2268861b966
+
+change:
+- 实现 GLI train checkpoint、train-only histogram cluster、逐 timestep RePaint 和四通道到单通道保存闭环。
+- 增加显式 brain support QA、normalization 审计、矩形 shape 与 NIfTI round-trip 验证。

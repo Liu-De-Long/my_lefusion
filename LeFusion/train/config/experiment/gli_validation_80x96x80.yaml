@@ -1,0 +1,42 @@
+# @package _global_
+defaults:
+  - override /dataset: gli
+  - _self_
+
+experiment_id: 20260805_exp004_gli_inference_closed_loop
+variant: validation_checkpoint_80x96x80
+
+dataset:
+  data_type: gli
+  root_dir: /workspace/LeFusion_v2/dataset/brats2024_gli_t1c_local_patches
+  patch_size_xyz: [80, 96, 80]
+  split: train
+  split_file: /workspace/LeFusion_v2/my_experiment/experiments/20260805_exp004_gli_inference_closed_loop/splits_v2.json
+
+model:
+  diffusion_img_size: 64
+  diffusion_depth_size: 80
+  spatial_shape_dhw: [80, 80, 96]
+  base_dim: 64
+  temporal_max_distance: 128
+  diffusion_num_channels: 4
+  cond_dim: 64
+  batch_size: 1
+  num_workers: 2
+  amp: true
+  results_folder: experiments/20260805_exp004_gli_inference_closed_loop/outputs/patch_80x96x80/checkpoints
+
+wandb:
+  enabled: true
+  project: lefusion-brats2024-gli
+  entity: ${oc.env:WANDB_ENTITY,null}
+  run_name: ${experiment_id}-${variant}
+  mode: online
+  dir: experiments/20260805_exp004_gli_inference_closed_loop/outputs/patch_80x96x80/wandb
+
+smoke:
+  seed: 20260805
+  steps: 1
+  fixed_timestep: 100
+  save_checkpoint: true
+  checkpoint_path: experiments/20260805_exp004_gli_inference_closed_loop/outputs/patch_80x96x80/checkpoints/validation_80x96x80.pt
