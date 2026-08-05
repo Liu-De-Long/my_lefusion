@@ -486,3 +486,4 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
 - 只有全部 val 门禁通过才自动开始 test；test 范围由全量改为确定性 50% patch 子集。
 - 半量子集按 `anchor_label × sample_role` 分层，以固定 seed `20260806` 和稳定路径 SHA-256 排序选择精确 `floor(N/2)`，冻结 subset manifest 后由 GPU 0、1 独立分片运行。
 - test 输出必须标记为“test 50% 确定性子集”，不得外推或表述为全量 test。
+- 实现提交：`9662ba1e3695191c0c368f55f3f62a7bca1a080a`；该提交只扩展正式 checkpoint 评估基础设施，不改变已完成训练的模型和 loss。

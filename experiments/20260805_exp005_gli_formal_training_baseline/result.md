@@ -74,3 +74,4 @@ W&B online、64 patch 显存、validation 与 resume preflight 均已通过。�
 - val 全部门禁通过后，自动运行 test 的确定性 50% patch 子集，不运行全量 test。
 - test 子集按 `anchor_label × sample_role` 分层，以固定 seed `20260806` 和稳定路径 SHA-256 顺序选择精确 `floor(N/2)`，冻结 subset manifest 后使用 GPU 0、1 独立分片。
 - 详细接口、验收阈值、输出目录和合并契约记录于 `docs/20260805_003_gli_inference_closed_loop.md` 第 14 节。
+- 正式闭环 QA 与半量 test 实现提交为 `9662ba1e3695191c0c368f55f3f62a7bca1a080a`；训练运行代码仍由 checkpoint metadata 固定为 `ea88464f3bf51350f5bd7d33f1bfcc4d7f80b6c1`。
