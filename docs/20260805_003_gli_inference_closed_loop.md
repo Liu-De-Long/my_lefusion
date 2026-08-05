@@ -1,42 +1,343 @@
-# GLI patch 级 inference 闭环接口
+# GLI patch 级 inference 闭环：详细分析与实施方案
 
-## 文档目的
+## 1. 文档定位
 
-本文记录可由后续训练、推理和数据增强实验复用的 GLI patch 级接口约定。单次 smoke 数值和运行产物记录在 `20260805_exp004_gli_inference_closed_loop` 的 `result.md`，不在本文重复维护。
+本文是跨实验复用的 GLI patch 级推理接口和验收方案，服务于
+`20260805_exp004_gli_inference_closed_loop` 及后续正式训练、checkpoint 验证和
+生成质量评估。本文回答“如何把 GLI 训练 checkpoint 变成可复现的 patch inference
+产物”，不把一次 smoke 的数值误认为医学有效性结论。
 
-## 数据与划分
+本方案覆盖：
 
-- scalar segmentation `[B,1,D,H,W]` 是 label 事实源，合法值为 `0,1,2,3,4`。
-- lesion mask 仅由 `lesion_mask[:,c] = segmentation == c+1` 确定性展开，shape 为 `[B,4,D,H,W]`。
-- versioned split 保留 584 个 train subject，并将原 147 个 holdout subject 确定性分为 73 个 val 和 74 个 test；两种 patch 共用同一映射。
-- validation checkpoint 和 histogram cluster 只能读取 train；闭环 inference smoke 只能读取 test。
+- test-only inference 数据读取和 subject 划分；
+- T1c、segmentation、四通道 lesion mask、histogram condition 的契约；
+- train-only histogram cluster 构建和推理选择；
+- 显式 brain support、padding 和 healthy/outside 区域约束；
+- 逐反向步 RePaint 状态融合；
+- 四通道输出合成、NPZ/NIfTI 保存和 provenance；
+- 64×64×32 与 80×96×80 两种矩形 patch 的 shape 验收。
 
-## Histogram condition
+不在本文范围内：全脑 sliding-window 拼接、医学标签语义的最终裁定、正式模型
+质量结论、正式训练授权以及尚未定义的全脑临床推理协议。
 
-四个 label 的 16-bin block 分别在 train patch 上聚类，空 block 不参与拟合。每个 `(subject,label)` 的所有 patch 权重之和为 1，避免多 patch subject 过度加权。推理时，不存在的 label 使用零 block；存在的 label 使用与 source block 最近的 train cluster center。四个 block 按 label 1 至 4 顺序拼接为 64-D condition。
+## 2. 当前问题与目标
 
-## RePaint 语义
+GLI 训练已经支持四通道输入 `[B,4,D,H,W]`、四通道 `lesion_mask` 和 64 维
+histogram condition，但训练闭环并不自动产生可验证的推理接口。若直接复用旧的
+LIDC/EMIDEC inference，会出现以下问题：
 
-四个 lesion channel 共用一条由原始单通道 T1c 和固定 noise 构造的前向扩散背景轨迹。每个反向转换的模型输入和输出状态都重新执行病灶/背景融合：各 channel 仅在自身 lesion mask 内保留生成状态，其余位置取同一个 timestep 的共享背景状态。最终单通道背景直接取 sampler 的终态共享背景，病灶区按 scalar label 选择相应生成 channel。
+1. inference 入口只接受旧数据集类型；
+2. 没有 GLI test loader 和固定 subject split；
+3. 没有四个 label 独立的 histogram condition 来源；
+4. `GaussianDiffusion_Nolatent` 的采样 shape 不能依赖正方形 `image_size`；
+5. RePaint 若只在最后一步覆盖原图，会掩盖中间状态错误；
+6. 四个生成 channel 不能直接平均或直接当作 segmentation；
+7. normalized T1c 的数值不能可靠反推出 brain mask；
+8. checkpoint、cluster、输入 patch 和输出体积可能被不同实验混用。
 
-禁止以下操作：
+目标是形成如下可追溯链路：
 
-- 采样完成后再用原始 T1c 硬覆盖健康区；
-- 对四个输出 channel 求平均；
-- 使用任一病灶 channel 的未监督区域作为独立背景预测；
-- 将 source segmentation 描述为生成 segmentation。
+```text
+训练 checkpoint
+  -> train-only split / histogram cluster / provenance
+  -> test-only GLI inference loader
+  -> 显式 brain support + padding + lesion mask
+  -> 共享背景的逐步 RePaint
+  -> 四通道 lesion-aware 输出合成
+  -> NPZ/NIfTI + metrics.json + manifest + shape/provenance 校验
+```
 
-## 空间与保存
+## 3. 数据、标签和空间契约
 
-- `patch_size_xyz=[64,64,32]` 对应模型 `DHW=[32,64,64]`。
-- `patch_size_xyz=[80,96,80]` 对应模型 `DHW=[80,80,96]`。
-- 模型内部始终使用 CDHW，NPZ/NIfTI 始终显式转换为 XYZ 并保留 patch affine。
-- checkpoint 必须携带 schema、模型结构、空间 shape、训练步数、随机种子和 Git SHA；inference 加载时不一致立即报错。
+### 3.1 segmentation 语义
 
-## 显式 brain support
+当前 loader 按数据集约定解释 scalar segmentation：
 
-`explicit_brain_support_mask` 由“四模态至少两个原始体素非零、最大 3D 连通域、孔洞填充、并入 segmentation”构成。它不是人工金标准，不参与当前 RePaint 混合，仅用于 lesion 脑内合法性、healthy brain/outside 分区指标和 normalization QA。禁止使用 `normalized_t1c != 0` 反推 brain mask。
+| 值 | 名称 | 推理用途 |
+|---:|---|---|
+| 0 | background | 非病灶，参与 outside/healthy 约束 |
+| 1 | NETC | lesion channel 0 |
+| 2 | SNFH | lesion channel 1 |
+| 3 | ET | lesion channel 2 |
+| 4 | RC | lesion channel 3 |
 
-## 验收边界
+标签语义已通过 BraTS 官方评测说明确认；patch、四通道 mask、histogram、loss、
+cluster 和 inference 均固定使用 `NETC/SNFH/ET/RC` 顺序。该确认只解决标签契约，
+不代表当前 smoke 输出已经具备医学有效性。
 
-本闭环验证 patch 级接口、shape、条件、采样和保存，不验证医学有效性，不生成新 segmentation，不覆盖全脑 sliding-window 拼接，也不构成启动正式训练的授权。
+### 3.2 输入输出 shape
+
+NPZ/NIfTI 存储顺序为 XYZ，模型内部顺序为 CDHW：
+
+| patch_size_xyz | model spatial_shape_dhw | model input | NIfTI/NPZ 输出 |
+|---|---|---|---|
+| `[64,64,32]` | `[32,64,64]` | `[B,4,32,64,64]` | `[64,64,32]` |
+| `[80,96,80]` | `[80,80,96]` | `[B,4,80,80,96]` | `[80,96,80]` |
+
+必须在 loader、diffusion、sampler、保存和回读五个位置分别校验 shape；禁止用
+单一 `image_size` 推导矩形 patch 的全部空间维度。
+
+### 3.3 split 与泄漏门禁
+
+使用版本化的 `splits_v2.json`，当前规划为 train/val/test subject 数量
+`584/73/74`，三组 subject 零交集。规则如下：
+
+- checkpoint 和 cluster 只能读取 train；
+- validation 只能用于接口调试和选择 smoke checkpoint；
+- inference smoke 和正式评估只能读取 test；
+- patch 级样本不能替代 subject 级去重；
+- 输出 manifest 必须记录 `subject_id`、`case_id`、split、patch path 和 Git SHA。
+
+## 4. inference loader 设计
+
+新增或复用 `GLIInferenceDataset`，不能直接把训练 dataset 的 `split="train"`
+逻辑复制到推理脚本。每个样本至少返回：
+
+```text
+GT / source_t1c       [1,D,H,W]  原始归一化 T1c
+conditioning_seg      [1,D,H,W]  scalar 0..4
+lesion_mask           [4,D,H,W]  seg == 1..4
+hist                  [64]       四个 16-bin block
+explicit_brain_support_mask [1,D,H,W]
+healthy_brain_mask    [1,D,H,W]
+outside_mask          [1,D,H,W]
+pad_mask              [1,D,H,W]
+affine_xyz             [4,4]
+patch_size_xyz, origin_xyz, pad_before_xyz, pad_after_xyz
+subject_id, case_id, relative_path, split
+```
+
+loader 必须拒绝：shape 不匹配、非法 seg 值、非有限数、manifest patch size 不一致、
+路径越界、test split 之外的样本，以及 metadata 与实际数组不一致的样本。
+
+## 5. normalization 与显式 brain support
+
+### 5.1 当前 normalization 的限制
+
+预处理使用原始 `T1c != 0` 计算每个病例的 0.5/99.5 percentile，再映射到
+`[-1,1]`。因此原始精确零背景不参与 percentile，但所有原始非零体素都可能参与；
+归一化后合法脑体素也可能恰好变成 0。结论是：
+
+- 不能用 `normalized_t1c != 0` 反推 brain mask；
+- 不能把 patch padding 的 0 和真实脑内 0 混为一类；
+- inference 必须显式构造并保存 support/mask；
+- 是否重新做 brain-mask normalization 另立预处理实验，不在本闭环中静默更换。
+
+### 5.2 support 构造策略
+
+`explicit_brain_support_mask` 只用于推理合法性、QA 和背景融合，不作为训练标签。
+规划的确定性构造为：
+
+1. 从原始四模态体数据构造 `nonzero_any`；
+2. 要求至少两个模态非零，降低单模态伪影影响；
+3. 保留最大 3D 连通区域并填洞；
+4. 与 `segmentation > 0` 合并，避免病灶被 support 排除；
+5. 与 `pad_mask` 求交，禁止把 patch 外填充值当成脑区；
+6. 派生 `healthy_brain_mask = support & (seg == 0)`；
+7. 派生 `outside_mask = ~support`，并单独记录 boundary outer shell。
+
+该 mask 是工程支持区域，不是人工标注的脑组织真值。每个样本应保存 support 的
+体素数量、连通域数量、padding fraction 和与 segmentation 的覆盖率，供 QA 复核。
+
+## 6. histogram condition 与 cluster 计划
+
+### 6.1 构建规则
+
+每个 label 使用独立的 16-bin histogram block。训练 patch 中缺失的 label 保持
+零 block，不参与该 label 的拟合。为避免 patch 数量多的 subject 主导聚类，
+每个 `(subject,label)` 的 patch 权重和固定为 1。
+
+cluster 资产必须包含：
+
+- schema/version；
+- patch size XYZ 与 DHW；
+- label 顺序和 histogram bins；
+- 每个 label 的 `k`、centers、membership、cluster size；
+- k-sweep、距离指标、PCA 或等价可视化摘要；
+- 数据 split、输入 manifest hash、生成时间和 Git SHA。
+
+### 6.2 推理选择规则
+
+推理时：
+
+- 当前样本存在的 label 选择对应 train cluster 中距离最近的 center；
+- 不存在的 label 使用零 block；
+- 四个 block 按 label 1→4 拼接成 64-D condition；
+- 禁止读取 val/test histogram 重新拟合 cluster；
+- 禁止用随机 histogram 替代正式 cluster，除非明确标记为独立 ablation。
+
+必须验证 condition shape `[B,64]`、有限性、block 边界和 cluster provenance。
+
+## 7. checkpoint schema 与加载
+
+GLI checkpoint 不能只保存裸 `state_dict`。至少应记录：
+
+```text
+experiment_id
+git_sha
+data_type=gli
+patch_size_xyz
+spatial_shape_dhw
+channels=4
+base_dim / model architecture
+cond_dim=64
+timesteps
+loss_type
+normalization contract
+split_file / manifest hash
+cluster asset path and hash
+training step / seed
+```
+
+加载时先校验 schema、空间尺寸、通道数、condition 维度、模型结构和 cluster 版本；
+不一致应在采样前报错，不能“尽量加载”后继续生成。
+
+## 8. RePaint 状态融合语义
+
+### 8.1 背景轨迹
+
+使用原始单通道 T1c 构造共享背景的前向扩散轨迹。每一个反向 timestep 都使用与
+当前 timestep 对应的背景状态，而不是只在采样结束后覆盖原图。
+
+### 8.2 四通道生成
+
+模型内部保持四通道状态 `[B,4,D,H,W]`。每个 channel 只在自身 lesion mask 内保留
+生成状态；非 lesion 区域与同一 timestep 的共享背景状态融合。这样可避免四通道
+分别产生不一致的健康脑背景。
+
+必须验证：
+
+- lesion mask 与 scalar segmentation 一致；
+- 四个 mask 互斥且都在 support 内；
+- 每个反向步的 state shape 不变；
+- 没有采样后原图硬覆盖掩盖 sampler 错误；
+- `p_sample_repaint` 的 deterministic/fixed noise smoke 可复现。
+
+### 8.3 采样 schedule
+
+`t_T=5` 仅用于接口 smoke，不能代表正式生成质量。正式生成需要单独配置完整
+RePaint schedule、随机种子、采样数量和 W&B 记录。所有输出必须记录 schedule，
+避免把缩减 schedule 的结果混入正式结果目录。
+
+## 9. 四通道输出合成与保存
+
+采样完成后先保留内部四通道结果，再按项目定义合成为单通道 patch：
+
+1. 对每个 voxel 根据 source scalar label 选择对应生成 channel；
+2. background voxel 取共享背景状态；
+3. 不对四个 channel 做平均；
+4. 不把生成强度直接写成 segmentation；
+5. 保存四通道 NPZ 以便调试，同时保存单通道合成结果；
+6. 逆变换 DHW→XYZ，使用原始 patch affine 写 NIfTI；
+7. 回读 NIfTI 并验证 shape、affine、有限性和 round-trip 误差。
+
+每个输出目录必须隔离 patch 尺寸、checkpoint、cluster、schedule 和 split，并生成
+`manifest.json` 或 `metrics.json`，记录输入、输出、seed、耗时、显存、cluster id、
+Git SHA 和 checkpoint hash。
+
+## 10. 代码和配置改造清单
+
+### 10.1 代码
+
+- `LeFusion/inference/inference.py`：增加 GLI 分支、配置校验、输出 manifest 和
+  shape/provenance 门禁；
+- `LeFusion/dataset/gli_hist_in.py`：实现 test-only inference adapter、support、
+  padding 和 metadata 返回；
+- `LeFusion/inference/gli_utils.py`：cluster schema、nearest-center condition、
+  XYZ/DHW 转换；
+- `LeFusion/ddpm/diffusion.py`：实现并校验 GLI `p_sample_repaint` 状态融合；
+- `scripts/gli_build_inference_assets.py`：生成 versioned split、cluster 和审核摘要；
+- `scripts/gli_brain_support_audit.py`：输出 support 与 normalization 差异 QA。
+
+### 10.2 配置
+
+为两个 patch 尺寸各提供独立 inference 配置，至少包含：
+
+```yaml
+data_type: gli
+patch_size_xyz: [64, 64, 32]  # 或 [80, 96, 80]
+spatial_shape_dhw: [32, 64, 64]  # 或 [80, 80, 96]
+channels: 4
+cond_dim: 64
+split: test
+conditioning.source: cluster
+conditioning.selection: nearest
+repaint.t_T: 5  # smoke；正式运行必须显式改为完整 schedule
+output_root: experiments/20260805_exp004_gli_inference_closed_loop/outputs/...
+```
+
+checkpoint、cluster、inference 输出和临时 Hydra 目录不能跨 patch 尺寸复用或覆盖。
+
+## 11. 分阶段实施与测试计划
+
+### 阶段 A：静态契约
+
+- 两份 Hydra 配置 `--cfg job` 无 `???`；
+- loader 返回字段、dtype、shape 和 XYZ/DHW 轴顺序正确；
+- checkpoint schema 与 cluster provenance 可读；
+- 非法 split、shape、label、cluster 和 affine 均能明确失败。
+
+### 阶段 B：纯函数与单元测试
+
+- scalar seg 到四通道 mask 的确定性展开；
+- support、healthy、outside、padding 互斥/覆盖关系；
+- histogram nearest-center 选择、缺失 label 零 block、subject 权重；
+- `mix_gli_repaint_state` 每一步保持背景和 lesion 区域约束；
+- 四通道合成不平均、不误写 segmentation；
+- DHW↔XYZ 和 affine round-trip。
+
+### 阶段 C：64×64×32 smoke
+
+- test sample 输入 `[1,4,32,64,64]`；
+- 固定 checkpoint、seed、condition、noise，使用 `t_T=5`；
+- 验证逐步模型调用、最终 `[1,1,32,64,64]`、NPZ/NIfTI 回读；
+- 记录耗时、峰值显存、healthy-brain MAE、outside residual 和 boundary 指标。
+
+### 阶段 D：80×96×80 smoke
+
+- test sample 输入 `[1,4,80,80,96]`；
+- 精确验证 `[80,80,96]` 的采样链和 XYZ `[80,96,80]` 保存；
+- batch size 1，不静默替换 attention；
+- 若 OOM，只按已有门禁依次评估 AMP、gradient accumulation 或 checkpointing，
+  并在新实验记录中说明。
+
+### 阶段 E：正式 inference 门禁
+
+- 使用正式训练 checkpoint，而不是 validation smoke checkpoint；
+- 使用在线 W&B run URL 和完整 provenance；
+- 先完成接口/数据一致性验收，再讨论生成质量或医学指标；
+- 任何标签语义变化、normalization 重做或全脑拼接均创建新的方法实验。
+
+## 12. 当前验收标准与已知限制
+
+当前闭环至少应达到：
+
+- 22/22 代码与真实数据测试通过；
+- 两种 patch 的输入、内部四通道、最终单通道和 NIfTI XYZ shape 一致；
+- train/val/test subject 无交集，cluster/checkpoint 不读取 test；
+- healthy-brain、outside 和 boundary outer-shell 不被生成状态污染；
+- 输出可由 manifest 追溯到 checkpoint、cluster、输入 patch 和 Git SHA；
+- smoke 产物与正式训练产物目录隔离。
+
+已知限制：
+
+- `t_T=5` smoke 不能证明正式采样质量；
+- 显式 brain support 是工程 QA mask，不是医学真值；
+- 当前 normalization 仍基于原始非零区域，不能从 normalized patch 反推 brain mask；
+- 四通道生成结果的医学语义仍需官方标签说明确认；
+- 尚未实现全脑 sliding-window 合并和下游临床评价。
+
+## 13. 实验管理与输出
+
+本方案对应实验 `20260805_exp004_gli_inference_closed_loop`。代码、配置、split、
+结果记录和 `code_version.txt` 进入实验目录；checkpoint、cluster、W&B cache、
+生成体积等大型或环境相关产物只保留在隔离的 `outputs/`，不进入 Git。
+
+正式实施必须：
+
+1. 在本地 feature branch 完成代码和测试；
+2. 创建 commit 并写入完整 SHA；
+3. 推送后核对远端 branch、commit、status；
+4. 远端只切换到同名 branch 验证，不形成独立提交；
+5. 将 smoke 结果、失败原因、输出路径和下一步写入对应 `result.md`、`STATUS.md`、
+   `CHANGELOG.md`。

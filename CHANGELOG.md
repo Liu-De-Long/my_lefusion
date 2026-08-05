@@ -361,3 +361,25 @@ GLI patch 级训练 checkpoint→cluster condition→RePaint→四通道合成�
 ## 下一步
 
 等待用户确认方案文档中列出的 experiment ID、branch、sampler、训练参数、复现次数和 W&B entity；确认后先实施代码与测试，不自动启动训练。
+
+---
+
+## 文档整理
+
+## 日期
+
+2026-08-05
+
+## 目标
+
+保留并同步扩写后的 GLI patch 级 inference 闭环长期接口文档。
+
+## 结果
+
+- 扩写 `docs/20260805_003_gli_inference_closed_loop.md`，补全 test-only loader、显式 brain support、histogram cluster provenance、逐 timestep RePaint、四通道输出合成、NPZ/NIfTI 保存回读和分阶段验收方案。
+- 将文档中旧的标签待确认描述更新为已经官方确认的 `0=background、1=NETC、2=SNFH、3=ET、4=RC` 契约。
+- 本次只整理并同步文档，不修改 inference 代码、不登录 W&B、不创建 run、不启动训练。
+
+## 结论
+
+该文档作为 exp005 正式 checkpoint 验证及后续生成质量评估的长期接口依据继续保留。
