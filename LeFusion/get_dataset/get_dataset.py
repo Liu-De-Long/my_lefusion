@@ -57,13 +57,13 @@ def get_train_dataset(cfg):
             split=cfg.dataset.get('split', 'train'),
             split_file=cfg.dataset.get('split_file'),
         )
-        sampler_cfg = cfg.get('sampler')
+        sampler_cfg = getattr(cfg, 'sampler', None)
         if sampler_cfg is not None and bool(sampler_cfg.get('enabled', False)):
             if sampler_cfg.get('name') != 'gli_anchor_role_subject':
                 raise ValueError(f"unsupported GLI sampler: {sampler_cfg.get('name')!r}")
             sampler = GLIStratifiedSampler(
                 train_dataset.records,
-                seed=int(sampler_cfg.get('seed', cfg.get('seed', 0))),
+                seed=int(sampler_cfg.get('seed', getattr(cfg, 'seed', 0))),
                 num_samples=int(sampler_cfg.get('samples_per_epoch', len(train_dataset))),
             )
         else:
