@@ -24,7 +24,7 @@ import sys
 
 sys.path.insert(0, str(ROOT / "LeFusion"))
 
-from ddpm import prepare_training_batch  # noqa: E402
+from ddpm import prepare_gli_spatial_condition, prepare_training_batch  # noqa: E402
 from get_dataset.get_dataset import get_train_dataset, get_validation_dataset  # noqa: E402
 from train.train import (  # noqa: E402
     build_checkpoint_metadata,
@@ -123,6 +123,7 @@ def run(cfg: DictConfig) -> None:
         trainer = _create_trainer(preflight_cfg, device)
         batch = trainer._next_train_batch()
         data, mask, hist = prepare_training_batch(batch, device, "gli")
+        spatial_condition = prepare_gli_spatial_condition(batch, device)
         expected = (int(preflight_cfg.model.batch_size), 4, *trainer.spatial_shape)
         if tuple(data.shape) != expected or tuple(mask.shape) != expected:
             raise ValueError(
@@ -131,12 +132,20 @@ def run(cfg: DictConfig) -> None:
             )
         if hist is None or tuple(hist.shape) != (expected[0], 64):
             raise ValueError(f"preflight histogram shape mismatch: {None if hist is None else tuple(hist.shape)}")
+        expected_spatial_condition = (expected[0], 5, *trainer.spatial_shape)
+        if tuple(spatial_condition.shape) != expected_spatial_condition:
+            raise ValueError(
+                "preflight spatial condition shape mismatch: "
+                f"{tuple(spatial_condition.shape)} != {expected_spatial_condition}"
+            )
 
         torch.cuda.reset_peak_memory_stats(device)
         trainer.model.train()
         trainer.opt.zero_grad(set_to_none=True)
         with autocast(enabled=bool(preflight_cfg.model.amp)):
-            loss = trainer.model(x=(data, hist), mask=mask)
+            loss = trainer.model(
+                x=(data, hist), mask=mask, spatial_condition=spatial_condition
+            )
         if not bool(torch.isfinite(loss)):
             raise RuntimeError(f"preflight loss is not finite: {float(loss.detach().cpu())}")
         trainer.scaler.scale(loss).backward()

@@ -82,6 +82,9 @@ def _gli_expected_metadata(conf: DictConfig) -> dict:
         "spatial_shape_dhw": [int(value) for value in conf.model.spatial_shape_dhw],
         "timesteps": int(conf.model.timesteps),
         "temporal_max_distance": int(conf.model.temporal_max_distance),
+        "spatial_condition_channels": int(
+            conf.model.get("spatial_condition_channels", 0)
+        ),
     }
 
 

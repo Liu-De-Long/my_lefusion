@@ -9,7 +9,7 @@ from typing import Mapping
 import torch
 from torch.utils.data import DataLoader
 
-from ddpm import prepare_training_batch
+from ddpm import prepare_gli_spatial_condition, prepare_training_batch
 
 
 CHANNEL_NAMES = ("netc", "snfh", "et", "rc")
@@ -101,6 +101,9 @@ def run_gli_validation(
         with torch.no_grad():
             for batch in loader:
                 data, mask, hist = prepare_training_batch(batch, device, "gli")
+                spatial_condition = None
+                if diffusion.spatial_condition_channels:
+                    spatial_condition = prepare_gli_spatial_condition(batch, device)
                 batch_size_actual = data.shape[0]
                 timestep = torch.randint(
                     0,
@@ -113,7 +116,12 @@ def run_gli_validation(
                     tuple(data.shape), generator=generator, dtype=torch.float32
                 ).to(device)
                 details = diffusion.gli_validation_loss_details(
-                    data, mask, hist, t=timestep, noise=noise
+                    data,
+                    mask,
+                    hist,
+                    t=timestep,
+                    noise=noise,
+                    spatial_condition=spatial_condition,
                 )
                 total_loss_sum += float(details["total_loss_sum"].detach().cpu())
                 effective_units += int(details["effective_units"].detach().cpu())

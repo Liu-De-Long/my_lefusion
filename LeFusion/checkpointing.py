@@ -23,6 +23,7 @@ MODEL_METADATA_FIELDS = (
     "spatial_shape_dhw",
     "timesteps",
     "temporal_max_distance",
+    "spatial_condition_channels",
 )
 
 
@@ -96,10 +97,10 @@ def _torch_load(path: str | Path, map_location="cpu"):
 
 def validate_checkpoint_metadata(metadata: Mapping[str, Any], expected: Mapping[str, Any]) -> None:
     for field in MODEL_METADATA_FIELDS:
-        if field not in metadata:
+        if field not in metadata and field != "spatial_condition_channels":
             raise ValueError(f"checkpoint metadata missing {field}")
-        actual = metadata[field]
-        wanted = expected[field]
+        actual = metadata.get(field, 0)
+        wanted = expected.get(field, 0)
         if field == "spatial_shape_dhw":
             actual = tuple(int(value) for value in actual)
             wanted = tuple(int(value) for value in wanted)
@@ -126,6 +127,7 @@ def _training_checkpoint_model_metadata(checkpoint: Mapping[str, Any]) -> dict[s
         "spatial_shape_dhw": model.get("spatial_shape_dhw"),
         "timesteps": model.get("timesteps"),
         "temporal_max_distance": model.get("temporal_max_distance", 32),
+        "spatial_condition_channels": model.get("spatial_condition_channels", 0),
     }
 
 

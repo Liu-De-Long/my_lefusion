@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "LeFusion"))
 
-from ddpm import prepare_training_batch  # noqa: E402
+from ddpm import prepare_gli_spatial_condition, prepare_training_batch  # noqa: E402
 from get_dataset.get_dataset import get_train_dataset  # noqa: E402
 from train.train import (  # noqa: E402
     build_model_and_diffusion,
@@ -71,6 +71,7 @@ def run(cfg: DictConfig) -> None:
         )
     )
     data, mask, hist = prepare_training_batch(batch, device, data_type)
+    spatial_condition = prepare_gli_spatial_condition(batch, device)
     expected_shape = (int(cfg.model.batch_size), 4, *spatial_shape)
     if tuple(data.shape) != expected_shape or tuple(mask.shape) != expected_shape:
         raise ValueError(
@@ -102,7 +103,13 @@ def run(cfg: DictConfig) -> None:
         for step in range(steps):
             optimizer.zero_grad(set_to_none=True)
             with autocast(enabled=bool(cfg.model.amp)):
-                loss = diffusion(x=(data, hist), mask=mask, t=timestep, noise=noise)
+                loss = diffusion(
+                    x=(data, hist),
+                    mask=mask,
+                    t=timestep,
+                    noise=noise,
+                    spatial_condition=spatial_condition,
+                )
             if not bool(torch.isfinite(loss)):
                 raise RuntimeError(f"non-finite loss at smoke step {step}: {loss.item()}")
             scaler.scale(loss).backward()
@@ -148,6 +155,9 @@ def run(cfg: DictConfig) -> None:
                 "spatial_shape_dhw": list(spatial_shape),
                 "timesteps": int(cfg.model.timesteps),
                 "temporal_max_distance": int(cfg.model.get("temporal_max_distance", 32)),
+                "spatial_condition_channels": int(
+                    cfg.model.get("spatial_condition_channels", 0)
+                ),
                 "seed": seed,
                 "steps": steps,
                 "git_commit": git_commit,

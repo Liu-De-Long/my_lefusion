@@ -16,7 +16,9 @@ from ddpm import (  # noqa: E402
     GaussianDiffusion_Nolatent,
     masked_lesion_loss,
     normalize_spatial_shape,
+    prepare_gli_spatial_condition,
     prepare_training_batch,
+    Unet3D,
 )
 from train.train import validate_training_config  # noqa: E402
 
@@ -88,11 +90,49 @@ class GLITrainingIntegrationTests(unittest.TestCase):
         self.assertEqual(moved_hist.dtype, torch.float32)
         self.assertEqual(moved_hist.device, moved_data.device)
 
+    def test_spatial_condition_contains_hole_and_four_masks(self) -> None:
+        lesion_mask = torch.zeros((1, 4, 2, 3, 4))
+        lesion_mask[:, 2, 0, 1, 2] = 1
+        context = torch.ones((1, 1, 2, 3, 4))
+        context[:, :, 0, 1, 2] = 0
+        spatial_condition = prepare_gli_spatial_condition(
+            {"masked_context": context, "lesion_mask": lesion_mask},
+            torch.device("cpu"),
+        )
+        self.assertEqual(tuple(spatial_condition.shape), (1, 5, 2, 3, 4))
+        self.assertTrue(torch.equal(spatial_condition[:, :1], context))
+        self.assertTrue(torch.equal(spatial_condition[:, 1:], lesion_mask))
+
+    def test_conditional_unet_has_nine_input_and_four_output_channels(self) -> None:
+        model = Unet3D(
+            dim=8,
+            dim_mults=(1,),
+            channels=4,
+            spatial_condition_channels=5,
+            cond_dim=64,
+            attn_heads=1,
+            attn_dim_head=8,
+            resnet_groups=1,
+        )
+        self.assertEqual(model.init_conv.in_channels, 9)
+        state = torch.zeros((1, 4, 2, 4, 4))
+        spatial_condition = torch.zeros((1, 5, 2, 4, 4))
+        output = model(
+            state,
+            torch.zeros((1,), dtype=torch.long),
+            cond=torch.zeros((1, 64)),
+            spatial_condition=spatial_condition,
+        )
+        self.assertEqual(tuple(output.shape), tuple(state.shape))
+        with self.assertRaisesRegex(ValueError, "spatial condition"):
+            model(state, torch.zeros((1,), dtype=torch.long), cond=torch.zeros((1, 64)))
+
     def test_hydra_configs_are_complete_and_shapes_are_valid(self) -> None:
         config_dir = str(ROOT / "LeFusion" / "train" / "config")
         expected = {
             "gli_64x64x32": (32, 64, 64),
             "gli_80x96x80": (80, 80, 96),
+            "gli_exp008_conditional_inpainting_64x64x32": (32, 64, 64),
         }
         for config_name, shape in expected.items():
             with self.subTest(config_name=config_name):
@@ -110,4 +150,3 @@ class GLITrainingIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

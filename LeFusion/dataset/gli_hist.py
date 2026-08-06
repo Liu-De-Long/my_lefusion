@@ -232,11 +232,17 @@ class GLIDataset(Dataset):
         lesion_mask = np.stack(
             [(seg_dhw == label_value) for label_value in LABEL_VALUES], axis=0
         ).astype(np.float32, copy=False)
+        lesion_union = lesion_mask.astype(bool, copy=False).any(axis=0, keepdims=True)
+        masked_context = image_dhw[None, ...].copy()
+        masked_context[lesion_union] = 0.0
 
         return {
             "data": torch.from_numpy(data.astype(np.float32, copy=False)),
             "label": torch.from_numpy(scalar_label.astype(np.int64, copy=False)),
             "lesion_mask": torch.from_numpy(lesion_mask),
+            "masked_context": torch.from_numpy(
+                masked_context.astype(np.float32, copy=False)
+            ),
             "hist": torch.from_numpy(hist.reshape(-1).astype(np.float32, copy=False)),
             "affine": torch.from_numpy(affine.astype(np.float32, copy=False)),
             "case_id": record["case_id"],

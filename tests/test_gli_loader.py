@@ -112,12 +112,21 @@ class GLILoaderTests(unittest.TestCase):
             self.assertEqual(tuple(sample["data"].shape), (4, 3, 4, 5))
             self.assertEqual(tuple(sample["label"].shape), (1, 3, 4, 5))
             self.assertEqual(tuple(sample["lesion_mask"].shape), (4, 3, 4, 5))
+            self.assertEqual(tuple(sample["masked_context"].shape), (1, 3, 4, 5))
             self.assertEqual(tuple(sample["hist"].shape), (64,))
             self.assertEqual(int(sample["label"][0, 0, 0, 0]), 1)
             self.assertEqual(int(sample["label"][0, 2, 3, 4]), 4)
             self.assertTrue(bool(sample["lesion_mask"][0, 0, 0, 0]))
             self.assertTrue(bool(sample["lesion_mask"][3, 2, 3, 4]))
             self.assertFalse(bool(sample["lesion_mask"][:, 1, 1, 1].any()))
+            union = sample["lesion_mask"].bool().any(dim=0, keepdim=True)
+            self.assertEqual(float(sample["masked_context"][union].abs().max()), 0.0)
+            self.assertTrue(
+                torch.equal(
+                    sample["masked_context"][~union],
+                    sample["data"][:1][~union],
+                )
+            )
             self.assertEqual(float(sample["hist"][0]), 0.0)
             self.assertEqual(float(sample["hist"][16]), 16.0)
             self.assertEqual(float(sample["hist"][48]), 48.0)
@@ -144,6 +153,7 @@ class GLILoaderTests(unittest.TestCase):
                 self.assertEqual(tuple(batch["data"].shape), (2, *shape))
                 self.assertEqual(tuple(batch["label"].shape), (2, 1, shape[1], shape[2], shape[3]))
                 self.assertEqual(tuple(batch["lesion_mask"].shape), (2, 4, shape[1], shape[2], shape[3]))
+                self.assertEqual(tuple(batch["masked_context"].shape), (2, 1, shape[1], shape[2], shape[3]))
                 self.assertEqual(tuple(batch["hist"].shape), (2, 64))
 
     def test_factory_registers_gli(self) -> None:

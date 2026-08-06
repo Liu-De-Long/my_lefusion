@@ -1,0 +1,15 @@
+experiment_id: 20260806_exp008_gli_conditional_inpainting_training
+type: method_change
+training_config: LeFusion/train/config/experiment/gli_exp008_conditional_inpainting_64x64x32.yaml
+seed: 20260805
+patch_size_xyz: [64, 64, 32]
+diffusion_target_channels: 4
+spatial_condition_channels: 5
+spatial_condition:
+  masked_t1c_channels: 1
+  lesion_mask_channels: 4
+  lesion_fill_value: 0.0
+histogram_condition_dim: 64
+formal_max_steps: 50000
+wandb_run_id: exp008-p64-s20260805
+status: implementation

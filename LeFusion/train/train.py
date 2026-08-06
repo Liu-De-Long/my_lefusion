@@ -51,6 +51,22 @@ def validate_training_config(cfg: DictConfig) -> tuple[str, tuple[int, int, int]
             raise ValueError("GLI training requires model.diffusion_num_channels=4")
         if int(cfg.model.cond_dim) != 64:
             raise ValueError("GLI training requires model.cond_dim=64")
+        spatial_condition_channels = int(
+            cfg.model.get('spatial_condition_channels', 0)
+        )
+        if spatial_condition_channels not in {0, 5}:
+            raise ValueError(
+                "GLI spatial conditioning must be disabled (0) or use "
+                "masked T1c + four masks (5 channels)"
+            )
+        inpainting_cfg = cfg.get('inpainting_training')
+        if inpainting_cfg is not None and bool(inpainting_cfg.get('enabled', False)):
+            if spatial_condition_channels != 5:
+                raise ValueError(
+                    "conditional inpainting requires model.spatial_condition_channels=5"
+                )
+            if float(inpainting_cfg.get('fill_value', 0.0)) != 0.0:
+                raise ValueError("the frozen exp008 lesion fill value must be 0.0")
         patch_xyz = tuple(int(value) for value in cfg.dataset.patch_size_xyz)
         expected_dhw = (patch_xyz[2], patch_xyz[0], patch_xyz[1])
         if spatial_shape != expected_dhw:
@@ -102,6 +118,9 @@ def build_model_and_diffusion(
             dim=int(base_dim),
             dim_mults=tuple(cfg.model.dim_mults),
             channels=int(cfg.model.diffusion_num_channels),
+            spatial_condition_channels=int(
+                cfg.model.get('spatial_condition_channels', 0)
+            ),
             cond_dim=int(cfg.model.cond_dim),
             temporal_max_distance=int(cfg.model.get('temporal_max_distance', 32)),
         )
@@ -168,6 +187,9 @@ def build_checkpoint_metadata(cfg, train_dataset, spatial_shape):
         'spatial_shape_dhw': list(spatial_shape),
         'sampler_name': str(cfg.sampler.name),
         'wandb_run_id': None if run_id is None else str(run_id),
+        'spatial_condition_channels': int(
+            cfg.model.get('spatial_condition_channels', 0)
+        ),
     }
 
 

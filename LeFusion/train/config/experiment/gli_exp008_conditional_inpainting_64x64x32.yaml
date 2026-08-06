@@ -1,0 +1,95 @@
+# @package _global_
+defaults:
+  - override /dataset: gli
+  - _self_
+
+experiment_id: 20260806_exp008_gli_conditional_inpainting_training
+variant: patch_64x64x32_seed_20260805_masked_context
+seed: 20260805
+
+formal_training:
+  enabled: true
+  effective_batch_size: 4
+  repetition_seeds: [20260805]
+  run_initial_seed_only: true
+
+inpainting_training:
+  enabled: true
+  target: original_t1c_repeated_by_lesion_channel
+  spatial_condition: masked_t1c_plus_four_channel_lesion_mask
+  fill_value: 0.0
+  histogram_condition: four_by_16_bins
+
+dataset:
+  data_type: gli
+  root_dir: /workspace/LeFusion_v2/dataset/brats2024_gli_t1c_local_patches
+  patch_size_xyz: [64, 64, 32]
+  split: train
+  split_file: /workspace/LeFusion_v2/my_experiment/experiments/20260805_exp004_gli_inference_closed_loop/splits_v2.json
+  image_channels: 1
+  lesion_channels: 4
+  hist_bins: 16
+  cond_dim: 64
+
+sampler:
+  enabled: true
+  name: gli_anchor_role_subject
+  seed: ${seed}
+  samples_per_epoch: 7772
+  drop_last: true
+
+model:
+  diffusion_img_size: 64
+  diffusion_depth_size: 32
+  spatial_shape_dhw: [32, 64, 64]
+  base_dim: 64
+  temporal_max_distance: 128
+  diffusion_num_channels: 4
+  spatial_condition_channels: 5
+  cond_dim: 64
+  data_parallel: true
+  data_parallel_device_ids: [0, 1]
+  batch_size: 4
+  gradient_accumulate_every: 1
+  num_workers: 2
+  train_lr: 1e-4
+  train_num_steps: 50000
+  amp: true
+  max_grad_norm: 1.0
+  ema_decay: 0.995
+  results_folder: experiments/20260806_exp008_gli_conditional_inpainting_training/outputs/patch_64x64x32/seed_20260805/checkpoints
+
+validation:
+  enabled: true
+  split: val
+  every_steps: 2000
+  batch_size: 4
+  num_workers: 2
+  seed: 20260850
+  metric: val/ema/total_loss
+  early_stopping:
+    warmup_steps: 10000
+    patience: 8
+    relative_min_delta: 0.005
+
+checkpoint:
+  latest_every_steps: 500
+  milestone_every_steps: 5000
+  keep_milestones: 3
+  resume_from: null
+
+wandb:
+  enabled: true
+  fail_closed: true
+  project: lefusion-brats2024-gli
+  entity: jinyuanbao719-xi-an-jiaotong-university-
+  run_name: exp008-p64-s20260805
+  run_id: exp008-p64-s20260805
+  resume: never
+  mode: online
+  dir: experiments/20260806_exp008_gli_conditional_inpainting_training/outputs/patch_64x64x32/seed_20260805/wandb
+
+preflight:
+  run_id: exp008-p64-preflight-s20260805
+  run_name: exp008-p64-preflight-s20260805
+  output_dir: experiments/20260806_exp008_gli_conditional_inpainting_training/outputs/patch_64x64x32/preflight

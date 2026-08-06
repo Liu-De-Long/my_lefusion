@@ -392,6 +392,7 @@ class Unet3D(nn.Module):
         out_dim=None,
         dim_mults=(1, 2, 4, 8),
         channels=3,
+        spatial_condition_channels=0,
         attn_heads=8,
         attn_dim_head=32,
         use_bert_text_cond=False,
@@ -402,6 +403,10 @@ class Unet3D(nn.Module):
         temporal_max_distance=32,
     ):
         super().__init__()
+        self.diffusion_channels = int(channels)
+        self.spatial_condition_channels = int(spatial_condition_channels)
+        if self.spatial_condition_channels < 0:
+            raise ValueError("spatial_condition_channels must be non-negative")
         rotary_emb = RotaryEmbedding(min(32, attn_dim_head))
         def temporal_attn(dim): return EinopsToAndFrom('b c f h w', 'b (h w) f c', Attention(
             dim, heads=attn_heads, dim_head=attn_dim_head, rotary_emb=rotary_emb))
@@ -410,7 +415,7 @@ class Unet3D(nn.Module):
         init_dim = default(init_dim, dim)
         assert is_odd(init_kernel_size)
         init_padding = init_kernel_size // 2
-        self.init_conv = nn.Conv3d(channels, init_dim, (1, init_kernel_size,
+        self.init_conv = nn.Conv3d(channels + self.spatial_condition_channels, init_dim, (1, init_kernel_size,
                                    init_kernel_size), padding=(0, init_padding, init_padding))
         self.init_temporal_attn = Residual(
             PreNorm(init_dim, temporal_attn(init_dim)))
@@ -484,10 +489,27 @@ class Unet3D(nn.Module):
         x,
         time,
         cond=None,
+        spatial_condition=None,
         null_cond_prob=0.,
         focus_present_mask=None,
         prob_focus_present=0.
     ):
+        if x.ndim != 5 or x.shape[1] != self.diffusion_channels:
+            raise ValueError(
+                "diffusion state must be [B,C,D,H,W] with "
+                f"C={self.diffusion_channels}, got {tuple(x.shape)}"
+            )
+        if self.spatial_condition_channels:
+            expected = (x.shape[0], self.spatial_condition_channels, *x.shape[2:])
+            if spatial_condition is None or tuple(spatial_condition.shape) != expected:
+                raise ValueError(
+                    f"spatial condition must have shape {expected}, got "
+                    f"{None if spatial_condition is None else tuple(spatial_condition.shape)}"
+                )
+            spatial_condition = spatial_condition.to(device=x.device, dtype=x.dtype)
+            x = torch.cat((x, spatial_condition), dim=1)
+        elif spatial_condition is not None:
+            raise ValueError("this denoiser was built without spatial conditioning")
         if cond is None:                    
             cond = torch.zeros((1, 16))
             cond[0, -1] = 1.0
@@ -629,6 +651,30 @@ def prepare_training_batch(data_frame, device, data_type):
     return data, mask, hist
 
 
+def prepare_gli_spatial_condition(data_frame, device) -> torch.Tensor:
+    """Build ``masked T1c + four lesion masks`` for conditional inpainting."""
+    if 'masked_context' not in data_frame:
+        raise KeyError("GLI training batch is missing required field: masked_context")
+    if 'lesion_mask' not in data_frame:
+        raise KeyError("GLI training batch is missing required field: lesion_mask")
+    context = data_frame['masked_context'].to(
+        device, dtype=torch.float32, non_blocking=True
+    )
+    lesion_mask = data_frame['lesion_mask'].to(
+        device, dtype=torch.float32, non_blocking=True
+    )
+    if context.ndim != 5 or context.shape[1] != 1:
+        raise ValueError(f"masked_context must be [B,1,D,H,W], got {context.shape}")
+    if lesion_mask.ndim != 5 or lesion_mask.shape[1] != 4:
+        raise ValueError(f"lesion_mask must be [B,4,D,H,W], got {lesion_mask.shape}")
+    if context.shape[0] != lesion_mask.shape[0] or context.shape[2:] != lesion_mask.shape[2:]:
+        raise ValueError("masked_context and lesion_mask spatial shapes disagree")
+    union = lesion_mask.bool().any(dim=1, keepdim=True)
+    if bool(context[union].abs().max() > 0):
+        raise ValueError("masked_context is not zero inside the lesion union")
+    return torch.cat((context, lesion_mask), dim=1)
+
+
 def validate_gli_repaint_masks(
     scalar_seg: torch.Tensor,
     lesion_mask: torch.Tensor,
@@ -703,6 +749,10 @@ class GaussianDiffusion_Nolatent(nn.Module):
         super().__init__()
         self.data_type = data_type
         self.channels = channels
+        raw_denoiser = denoise_fn.module if isinstance(denoise_fn, torch.nn.DataParallel) else denoise_fn
+        self.spatial_condition_channels = int(
+            getattr(raw_denoiser, 'spatial_condition_channels', 0)
+        )
         self.image_size = image_size
         self.num_frames = num_frames
         self.spatial_shape = normalize_spatial_shape(
@@ -783,11 +833,31 @@ class GaussianDiffusion_Nolatent(nn.Module):
             self.posterior_log_variance_clipped, t, x_t.shape)
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
-    def p_mean_variance(self, x, t, clip_denoised: bool, cond=None, cond_scale=1.):
+    def p_mean_variance(
+        self,
+        x,
+        t,
+        clip_denoised: bool,
+        cond=None,
+        cond_scale=1.,
+        spatial_condition=None,
+    ):
         if isinstance(self.denoise_fn, torch.nn.DataParallel):
-            noise = self.denoise_fn.module.forward_with_cond_scale(x, t, cond=cond, cond_scale=cond_scale)
+            noise = self.denoise_fn.module.forward_with_cond_scale(
+                x,
+                t,
+                cond=cond,
+                cond_scale=cond_scale,
+                spatial_condition=spatial_condition,
+            )
         else:
-            noise = self.denoise_fn.forward_with_cond_scale(x, t, cond=cond, cond_scale=cond_scale)
+            noise = self.denoise_fn.forward_with_cond_scale(
+                x,
+                t,
+                cond=cond,
+                cond_scale=cond_scale,
+                spatial_condition=spatial_condition,
+            )
         x_recon = self.predict_start_from_noise(
             x, t=t, noise=noise)
         if clip_denoised:
@@ -934,8 +1004,22 @@ class GaussianDiffusion_Nolatent(nn.Module):
                 noise_part = noise_weight * torch.randn_like(x)
                 weighed_gt = gt_part + noise_part
             x = (mask * weighed_gt) + ((~mask) * x)
+        spatial_condition = None
+        if self.spatial_condition_channels:
+            spatial_condition = model_kwargs.get('spatial_condition')
+            if spatial_condition is None:
+                background = model_kwargs.get('gt_background', gt[:, :1])
+                spatial_condition = torch.cat(
+                    (background.to(x.dtype), lesion_mask.to(x.dtype)), dim=1
+                )
         model_mean, _, model_log_variance = self.p_mean_variance(
-            x=x, t=t, clip_denoised=clip_denoised, cond=cond, cond_scale=cond_scale)
+            x=x,
+            t=t,
+            clip_denoised=clip_denoised,
+            cond=cond,
+            cond_scale=cond_scale,
+            spatial_condition=spatial_condition,
+        )
         noise = torch.randn_like(x)
         nonzero_mask = (1 - (t == 0).float()).reshape(b,
                                                       *((1,) * (len(x.shape) - 1)))
@@ -1079,7 +1163,9 @@ class GaussianDiffusion_Nolatent(nn.Module):
             **dict(x_start=x, t=t, mask=mask, cond=cond, noise=noise, *args, **kwargs)
         )
 
-    def gli_validation_loss_details(self, x, mask, cond, *, t, noise):
+    def gli_validation_loss_details(
+        self, x, mask, cond, *, t, noise, spatial_condition=None
+    ):
         """Compute deterministic GLI validation metrics without changing loss rules."""
         if self.data_type != "gli":
             raise ValueError("gli_validation_loss_details requires data_type='gli'")
@@ -1099,7 +1185,12 @@ class GaussianDiffusion_Nolatent(nn.Module):
         if cond is not None:
             cond = cond.to(device=x.device, dtype=torch.float32)
         x_noisy = self.q_sample(x_start=x, t=t, noise=noise)
-        prediction = self.denoise_fn(x=x_noisy, time=t, cond=cond)
+        prediction = self.denoise_fn(
+            x=x_noisy,
+            time=t,
+            cond=cond,
+            spatial_condition=spatial_condition,
+        )
         return masked_lesion_loss_details(prediction, noise, mask, self.loss_type)
 
 
@@ -1360,6 +1451,11 @@ class Trainer(object):
                 data, mask, hist = prepare_training_batch(
                     data_frame, self.device, self.model.data_type
                 )
+                model_kwargs = {}
+                if self.model.spatial_condition_channels:
+                    model_kwargs['spatial_condition'] = prepare_gli_spatial_condition(
+                        data_frame, self.device
+                    )
 
                 with autocast(enabled=self.amp):
 
@@ -1367,7 +1463,8 @@ class Trainer(object):
                         x=(data, hist),
                         mask=mask,
                         prob_focus_present=prob_focus_present,
-                        focus_present_mask=focus_present_mask)
+                        focus_present_mask=focus_present_mask,
+                        **model_kwargs)
                     )
 
                     self.scaler.scale(
