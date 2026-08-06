@@ -42,8 +42,8 @@ def build_preflight_cfg(cfg: DictConfig) -> DictConfig:
     if preflight is None:
         raise ValueError("formal preflight requires a preflight config section")
     cloned = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True))
-    if not str(preflight.run_id).startswith("exp005-") or "preflight" not in str(preflight.run_id):
-        raise ValueError("preflight.run_id must be a dedicated exp005 preflight ID")
+    if "preflight" not in str(preflight.run_id).lower():
+        raise ValueError("preflight.run_id must be a dedicated preflight ID")
     if str(preflight.run_id) == str(cfg.wandb.run_id):
         raise ValueError("preflight W&B run ID must not equal the formal training run ID")
     cloned.wandb.run_id = str(preflight.run_id)

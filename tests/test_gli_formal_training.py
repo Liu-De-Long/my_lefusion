@@ -25,6 +25,7 @@ from ddpm import GaussianDiffusion_Nolatent, Trainer  # noqa: E402
 from train.tracking import validate_wandb_config  # noqa: E402
 from train.train import validate_training_config  # noqa: E402
 from train.validation import EarlyStopping, run_gli_validation  # noqa: E402
+from scripts.gli_formal_training_preflight import build_preflight_cfg  # noqa: E402
 
 
 def _records():
@@ -240,6 +241,25 @@ class GLIFormalTrainingTests(unittest.TestCase):
             "wandb": {"resume": "must", "run_id": "same"},
         }
         self.assertEqual(canonical_config_hash(first), canonical_config_hash(second))
+
+    def test_preflight_identity_is_generic_and_separate_from_formal_run(self):
+        cfg = OmegaConf.create(
+            {
+                "wandb": {"run_id": "exp008-p64", "run_name": "exp008-p64", "dir": "x", "resume": "never"},
+                "model": {"results_folder": "formal"},
+                "preflight": {
+                    "run_id": "exp008-p64-preflight",
+                    "run_name": "exp008-p64-preflight",
+                    "output_dir": "preflight-output",
+                },
+            }
+        )
+        cloned = build_preflight_cfg(cfg)
+        self.assertEqual(cloned.wandb.run_id, "exp008-p64-preflight")
+        self.assertNotEqual(cloned.wandb.run_id, cfg.wandb.run_id)
+        cfg.preflight.run_id = "exp008-p64"
+        with self.assertRaisesRegex(ValueError, "preflight ID"):
+            build_preflight_cfg(cfg)
 
 
 if __name__ == "__main__":
