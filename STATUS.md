@@ -2,23 +2,24 @@
 
 ## 当前版本
 
-v0.5.1-gli-formal-evaluation
+v0.6.0-gli-official-repaint-evaluation
 
 ## 当前最佳实验
 
-`20260805_exp005_gli_formal_training_baseline`
+`20260806_exp006_gli_official_repaint_alignment`
 
 当前正式 checkpoint 入口仍为 `20260805_exp005_gli_formal_training_baseline` 的
 `64×64×32` seed `20260805`、step 46000 `best.pt/ema`。该入口已通过固定 validation、
-零更新 resume；但 exp005 inference 使用了额外 post-denoiser hard clamp。正在
-`20260806_exp006_gli_official_repaint_alignment` 中用同一 checkpoint、同一冻结 val/test
-子集按原始 LeFusion RePaint 语义重跑，旧版输出完整保留。
+零更新 resume。正式 inference 入口固定为 exp006 的原始 LeFusion 对齐语义：仅在 denoiser
+前注入逐反向调用 fresh-noise 的前向加噪背景，不执行 denoiser 输出后的 hard clamp。
 
 ## 当前最佳结果
 
 已发布的数据资产仍为两种尺寸各 9842 个 patch。正式 `best.pt/ema` 的固定 val loss 为
-`0.0965080350`。exp005 的精确背景不变性由额外 hard clamp 保证，不能作为目标方法的正式
-背景 QA 结论；exp006 重跑完成前，519 例旧版结果仅作方法错误对照，不冻结为正式 test 结果。
+`0.0965080350`。exp006 的 8 例完整 val QA 和 519 例 test 50% 冻结子集均通过；两个 test
+shard 为 260/259、无重叠无遗漏，healthy/support 外/outer-shell 的变化大于 0.1 比例均为 0，
+边界 jump p95 增量最差 `0.014357`，峰值显存 `1090.71 MiB` 且稳定。旧 exp005 519 例结果
+完整保留为 hard-clamp 错误版本对照。
 
 ## 当前流程
 
@@ -93,22 +94,24 @@ v0.5.1-gli-formal-evaluation
 
 ## 已知问题
 
-- 当前闭环实现位于 `feature/20260805-exp004-gli-inference`，验证代码 commit 为 `bcf9097a6ccbd20db6ab6d992ae72872c5ea65dd`；尚未合并到 `main`。
+- 当前正式闭环实现位于 `feature/20260806-exp006-gli-official-repaint`，实现 commit 为
+  `d94f8b92fa5eb3b1f1a07273484f74cd81bc0c2b`；尚未合并到 `main`。
 - GLI 正式训练已完成 50,000 step；当前只认可固定的 step 46000 `best.pt/ema` 作为
   exp005 评估入口。该 checkpoint 通过工程闭环 QA，但尚不能据此声称医学有效性。
 - exp004 的 20-step/1-step checkpoint 仍只是 smoke，不能与 exp005 正式 checkpoint 混用。
-- exp004 W&B run 仅保存在远端 offline 目录，尚无在线 run URL。用户已说明在 F 盘准备新的 W&B key，但该凭据尚未以安全方式加载到远端环境并验证 online；key 禁止写入项目文件或 Git。
+- exp004 W&B run 仍仅是历史 offline smoke；正式 exp005 训练已有 online run。W&B key 始终
+  不进入项目文件或 Git。
 - `val` split 未发现 `seg` 标签，不能直接作为监督验证集。
-- 当前 RePaint smoke 使用 `t_T=5`，生成结果呈随机纹理，只证明闭环、shape 和 mask 语义正确，不证明病灶生成质量。
-- 64 patch 的技术门禁已经通过，但正式训练尚未获单独授权；不得因 preflight 自动启动 50,000-step run。
+- `t_T=5` 仍只证明接线；本次正式结论来自 `t_T=300`。工程 QA 不能替代医学有效性、下游
+  分割增益或全量 test 结论。
 - 用户已授权仅启动 `64×64×32` seed `20260805` 的正式训练；运行版本 `75b187ce6664d4fa44ddad32dd328112998ff5c4` 配置为 GPU 0、1 的 DataParallel，全局 batch 4（每卡 2），不自动启动其他 seed 或 80 patch。
 - baseline 的 batch 是 preflight 初值而非硬编码：64 可从 `4/1` 调为 `2/2` 或 `1/4`；`50,000` optimizer steps 是上限，可由 early stopping 提前结束。
 - 原始 LeFusion 入口没有强制三 seed；`20260806/20260807` 是在首个 seed 通过后再决定的正式复现候选。
 
 ## 下一步
 
-1. 完成 exp006 回归测试和 8 例完整 val QA，确认新语义闭环、背景变化、边界连续性与显存。
-2. 使用同一 519 例冻结 manifest 在 GPU 0/1 重新运行 260/259 两个独立 shard，写入 exp006
-   独立输出目录，绝不删除或覆盖 exp005 旧版。
-3. 合并审计新旧两版的无重叠/无遗漏、四通道、interior/boundary、support/背景和异常图；
-   不启动剩余 test、其他 seed 或 `80×96×80`。
+1. 保持 exp005 `best.pt/ema` 与 exp006 inference 配置冻结；不再把 hard-clamp 旧输出用于正式
+   方法结论。
+2. 若需要推进研究结论，另立实验评估下游分割增益或医学指标；不得把当前 50% patch test
+   外推为全量 test。
+3. 不自动启动剩余 test、其他 seed 或 `80×96×80`；任何扩展均需新的用户授权。

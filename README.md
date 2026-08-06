@@ -35,11 +35,14 @@ BraTS2024 GLI 流程状态：
 2. 已计算四组 16-bin histogram，并在训练 dataset factory 中注册 GLI。
 3. 已增加 GLI lesion-aware loss、`lesion_mask` 训练传递和三维矩形 shape 支持。
 4. 已完成 `64×64×32` 固定 batch overfit smoke 和 `80×96×80` 单 batch 前向/反向 smoke。
-5. 尚未启动正式训练。
-6. 已完成 GLI inference loader、train-only histogram cluster、逐 timestep 共享背景 RePaint、四通道病灶合成和 NPZ/NIfTI 保存回读 smoke。
+5. 已完成 `64×64×32` seed `20260805` 正式训练，冻结 step 46000 `best.pt/ema`。
+6. 已完成 GLI inference loader、train-only histogram cluster、原始 LeFusion 对齐的
+   pre-denoiser 背景 RePaint、四通道病灶合成和 NPZ/NIfTI 保存回读。
 7. 已通过 BraTS 官方评测说明确认标签为 `0=background、1=NETC、2=SNFH、3=ET、4=RC`。
-8. 正式训练方案已整理；在 sampler、validation、checkpoint/resume 和 W&B online 门禁完成前仍不得启动全量训练。
-9. 已在 exp005 实现分层 sampler、正式 validation、完整 checkpoint/resume、early stopping 和 W&B online fail-closed 接入；远端非训练测试 28/28 通过，但 W&B/GPU preflight 尚未授权和执行，因此仍未启动正式训练。
+8. exp005 已完成分层 sampler、正式 validation、完整 checkpoint/resume、early stopping、
+   W&B online 和正式训练。
+9. exp006 已删除额外 post-denoiser hard clamp，并用同一 checkpoint、8 例 val 和冻结的
+   519 例 test 50% 子集完成双 GPU QA；旧版输出完整保留作错误版本对照。
 
 ## 项目结构
 

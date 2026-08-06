@@ -543,3 +543,20 @@ exp005 的 `healthy_brain_exact` 与 `outside_change_exact` 字段继续保留�
 有限值、shape/affine/NIfTI round-trip、300 model calls、显存稳定以及两个 test shard 的
 无重叠无遗漏。背景质量结论必须同时结合数值分布、异常样本和 QA 图，不再由“严格为 0”
 自动判定通过。
+
+### 15.4 2026-08-06 验收结果
+
+exp006 使用同一 step 46000 `best.pt/ema` 完成 8 例 `t_T=300` val QA；healthy、support 外和
+outer-shell MAE 均约 `0.009`，边界 jump p95 最大增量 `0.004737`，峰值显存
+`1088.71 MiB` 且稳定，代表图目检无明显背景污染。
+
+同一冻结 test 50% manifest 的 519 例随后在 GPU 0/1 完成 260/259 两个 shard。正式 audit
+确认交集 0、并集等于 manifest、519 例均与 exp005 旧版逐路径配对、每例 300 calls、四通道
+顺序与 shape 正确、所有 lesion 均位于 explicit support 内。healthy/support 外/outer-shell
+变化大于 0.1 的比例均为 0；边界 jump p95 增量 mean/p95/max 为
+`-0.001774/0.004392/0.014357`，最差图未见空间性伪影。
+
+因此 step 46000 `best.pt/ema` 与 exp006 inference 语义可冻结为 64 patch 工程 baseline；旧
+exp005 hard-clamp 的 519 例输出完整保留但不再作为目标方法正式结果。完整数值见
+`experiments/20260806_exp006_gli_official_repaint_alignment/result.md` 和远端
+`outputs/.../test_subset_50/paired_audit/audit.json`。

@@ -515,3 +515,18 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   变化比例和 lesion/healthy 边界 jump；exact 字段只保留用于新旧对照。
 - 新增可复用 `scripts/gli_audit_inference_subset.py`，用于审计两个 shard 的无重叠无遗漏、
   channel/role 分组、support 约束、异常样本和 exp005/exp006 同路径配对差异。
+
+## 2026-08-06 — exp006 完整 val 与 test 50% 子集验收通过
+
+- 远端真实发布 patch 环境全量回归 `31/31` 通过；8 例完整 `t_T=300` val QA 的 healthy、
+  support 外和 outer-shell MAE 均约 0.009，边界 jump p95 最大增量 `0.004737`，显存稳定。
+- 同一冻结 manifest 的 519 例 test 在 GPU 0/1 完成 260/259 两个 shard；交集 0、并集严格
+  等于 manifest，每例 300 calls，checkpoint/EMA/cluster/channel/shape provenance 一致。
+- test healthy/support 外/outer-shell 的变化大于 0.1 比例均为 0；边界 jump p95 增量
+  mean/p95/max 为 `-0.001774/0.004392/0.014357`，最差样本图未见明显背景污染或接缝。
+- NETC/SNFH/ET/RC 的 lesion change MAE 为
+  `0.010038/0.010379/0.010303/0.010995`；histogram L1 为
+  `0.476755/0.510642/0.439694/0.688289`。
+- exp005 旧版 519 例（5.4 GiB）未删除；exp006 新版约 6.6 GiB。step 46000
+  `best.pt/ema` 与 exp006 inference 语义冻结为 64 patch 工程 baseline，不外推为医学有效性
+  或全量 test 结论。

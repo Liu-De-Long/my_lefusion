@@ -7,7 +7,7 @@
 | `20260805_exp002_gli_loader_t1c_multilesion` | 方法实验 | 实现并注册 GLI T1c scalar label 与四通道 lesion mask loader | 已完成 |
 | `20260805_exp003_gli_lesion_aware_training` | 方法实验 | 接入 GLI 四通道 lesion-aware loss、训练传递与矩形空间 shape | 已完成 smoke 验收 |
 | `20260805_exp004_gli_inference_closed_loop` | 方法实验 | 完成 GLI checkpoint、train-only cluster、RePaint、四通道合成与保存闭环 | 已完成 smoke 验收 |
-| `20260805_exp005_gli_formal_training_baseline` | 方法实验 | 实现分层 sampler、正式 validation、checkpoint/resume 与 W&B online 门禁 | 64 patch preflight 已通过，正式训练待单独授权 |
-| `20260806_exp006_gli_official_repaint_alignment` | 方法实验 | 删除 GLI 额外 post-denoiser hard clamp，按原始 LeFusion 语义重跑冻结 val/test 子集 | 实施与重跑中 |
+| `20260805_exp005_gli_formal_training_baseline` | 方法实验 | 实现分层 sampler、正式 validation、checkpoint/resume 与 W&B online 门禁 | 64 patch seed 20260805 训练完成；checkpoint 冻结 |
+| `20260806_exp006_gli_official_repaint_alignment` | 方法实验 | 删除 GLI 额外 post-denoiser hard clamp，按原始 LeFusion 语义重跑冻结 val/test 子集 | 已完成 8 例 val 与 519 例 test-subset 验收 |
 
 实验 ID 只描述研究目的。两种 patch 大小分别记录在同一实验目录的配置文件中，使用同一份裁剪代码和患者划分。
