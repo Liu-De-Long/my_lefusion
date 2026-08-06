@@ -1,0 +1,23 @@
+experiment_id: 20260806_exp009_gli_p64_weak_supervision_classifier
+data:
+  dataset_root: /workspace/LeFusion_v2/dataset/brats2024_gli_t1c_local_patches
+  split_file: experiments/20260805_exp004_gli_inference_closed_loop/splits_v2.json
+  labeled_subset: experiments/20260806_exp009_gli_p64_weak_supervision_classifier/labeled_subset_1000.json
+model:
+  kind: c0
+  cnn_channels: 24
+training:
+  seed: 20260806
+  device: auto
+  epochs: 50
+  learning_rate: 0.001
+  min_learning_rate: 0.000001
+  weight_decay: 0.0001
+  batch_size: 4
+  lr_patience: 3
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.005
+  output_dir: experiments/20260806_exp009_gli_p64_weak_supervision_classifier/outputs/c0
+evaluation:
+  inference_voxels: 65536
+  bootstrap_samples: 1000
