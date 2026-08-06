@@ -54,3 +54,17 @@ p64 seed `20260805` 正式训练。
 ## 输出路径
 
 `experiments/20260806_exp008_gli_conditional_inpainting_training/outputs/`
+
+## 正式训练启动记录
+
+- 服务器启动时间：`2026-08-06 08:28:25 UTC`（北京时间 `16:28:25`）。
+- 仅启动 p64 seed `20260805`；未启动 p80、其他 seed 或任何 test。
+- 运行时 Git HEAD：`67a598d366b691c832125fee0f1a4f48c5df2471`；方法实现版本：
+  `6e29f355294c762cfb8928f73abcb350200c2e70`。
+- W&B 正式 run：
+  [exp008-p64-s20260805](https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp008-p64-s20260805)。
+- 启动核验时 GPU 0/1 显存约 `13383/13161 MiB`，两卡均有计算利用率。
+- W&B 本地流已写到约 optimizer step `164`；最近抽查的 `train/total_loss` 为
+  `0.376631/0.341066/0.232471/0.402093`，均为有限值，训练未在初始化或首批次失败。
+- 正式日志：`outputs/patch_64x64x32/seed_20260805/train.run.log`；checkpoint 按每 500 step
+  latest、每 5000 step milestone、每 2000 step validation/best 的冻结规则生成。

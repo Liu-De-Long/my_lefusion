@@ -18,6 +18,9 @@
   batch 前/反向、完整 validation 和 checkpoint resume，反向峰值显存 `23344.58 MiB`。
 - preflight W&B run：`exp008-p64-preflight-s20260805`；临时 checkpoint 已自动删除。
 - 首次 preflight 被旧 `exp005-` ID 硬编码在计算前拦截，已泛化门禁并补回归测试。
+- `2026-08-06 08:28:25 UTC` 启动且只启动 exp008 p64 seed `20260805` 正式训练；W&B run
+  `exp008-p64-s20260805` 已 online，同步流已记录约 164 个 optimizer step 和有限 loss。
+- 启动核验时两张 GPU 均参与计算，显存约 `13383/13161 MiB`；未启动 p80、其他 seed 或 test。
 - 已删除本地与远端一次性 `.tmp_inspect_checkpoint.py`；它仅用于只读记录停止点，不是实验资产。
 
 ## 实验 ID

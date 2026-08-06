@@ -18,7 +18,8 @@ step `11500` 由用户要求停止；`latest.pt`、`best.pt` 和 milestone 仅�
 
 exp008 的冻结契约为：四通道扩散状态 `x_t`，单通道挖空 T1c 加四通道 lesion mask 的
 五通道空间条件，64 维 histogram 全局条件，监督目标为加入 `x0` 的噪声，loss 仅在对应病灶
-mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过，下一步启动新 p64。
+mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp008 p64 seed `20260805`
+已启动并完成首批 optimizer step，W&B 与双 GPU 状态正常。
 
 ## 当前流程
 
@@ -110,7 +111,6 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过，下�
 
 ## 下一步
 
-1. 完成 exp008 远端回归、真实 patch 契约检查和独立 W&B GPU preflight。
-2. 门禁通过后只启动 exp008 p64 seed `20260805`，核验 W&B、首批 loss、显存和 checkpoint。
-3. 新 checkpoint 可用后仅先做少量冻结 QA，不运行 519 例或全量 test。
-4. 不自动启动其他 seed、p80 或额外训练；任何扩展均需新的用户授权。
+1. 监控 exp008 p64 seed `20260805` 的 W&B、latest/best/milestone 与 validation 收敛。
+2. 新 checkpoint 可用后仅先做少量冻结 QA，不运行 519 例或全量 test。
+3. 不自动启动其他 seed、p80 或额外训练；任何扩展均需新的用户授权。
