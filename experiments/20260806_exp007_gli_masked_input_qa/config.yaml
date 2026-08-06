@@ -1,0 +1,40 @@
+experiment_id: 20260806_exp007_gli_masked_input_qa
+experiment_type: method
+baseline_commit: 5b9e83f24df7be36c2dcda03c2284ad49dc28f4e
+training:
+  retrain: false
+  checkpoint: experiments/20260805_exp005_gli_formal_training_baseline/outputs/patch_64x64x32/seed_20260805/checkpoints/best.pt
+  weights_key: ema
+  checkpoint_step: 46000
+selection:
+  split: val
+  frozen_manifest: experiments/20260805_exp005_gli_formal_training_baseline/outputs/patch_64x64x32/seed_20260805/inference_qa_val/subset_manifest.json
+  sample_count: 8
+  reuse_same_samples_for_both_variants: true
+  forbid_test_subset_519: true
+inference:
+  patch_size_xyz: [64, 64, 32]
+  timesteps: 300
+  seed: 20260806
+  input_mask_fill_value: 0.0
+  post_denoiser_hard_clamp: false
+variants:
+  masked_multilabel:
+    lesion_mask: original_netc_snfh_et_rc_channels
+    condition: nearest_train_cluster_for_each_present_real_label
+  masked_anchor_union:
+    target_label: patch_anchor_label
+    lesion_mask: complete_real_lesion_union_in_target_channel
+    other_lesion_channels: zero
+    condition: nearest_train_cluster_for_target_anchor_label_only
+    other_condition_blocks: zero
+qa_panels:
+  - original_input
+  - masked_input
+  - generated_output
+  - absolute_difference_from_original
+  - conditioning_mask
+resource_isolation:
+  do_not_run_while_p80_training_is_active: true
+  do_not_run_test_subset_519: true
+  do_not_run_full_test: true

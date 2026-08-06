@@ -112,6 +112,8 @@ shard 为 260/259、无重叠无遗漏，healthy/support 外/outer-shell 的变�
 
 1. 保持 exp005 `best.pt/ema` 与 exp006 inference 配置冻结；不再把 hard-clamp 旧输出用于正式
    方法结论。
-2. 若需要推进研究结论，另立实验评估下游分割增益或医学指标；不得把当前 50% patch test
+2. exp007 仅在 p80 训练释放 GPU 后，使用同一 8 例冻结 validation QA 比较显式挖空输入的
+   原多标签和 anchor-union 单标签条件；禁止运行 519 例 test 子集或全量 test。
+3. 若需要推进研究结论，另立实验评估下游分割增益或医学指标；不得把当前 50% patch test
    外推为全量 test。
-3. 不自动启动剩余 test、其他 seed 或 `80×96×80`；任何扩展均需新的用户授权。
+4. 不自动启动剩余 test、其他 seed 或额外训练；任何扩展均需新的用户授权。

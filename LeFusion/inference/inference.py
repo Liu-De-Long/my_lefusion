@@ -14,10 +14,22 @@ from get_dataset.get_dataset import get_inference_dataloader
 from train.train import build_model_and_diffusion
 from checkpointing import load_diffusion_checkpoint, sha256_file
 if __package__:
-    from inference.gli_utils import dhw_to_xyz, load_cluster_centers, nearest_cluster_condition
+    from inference.gli_utils import (
+        anchor_union_cluster_condition,
+        dhw_to_xyz,
+        load_cluster_centers,
+        mask_input_inside_lesion,
+        nearest_cluster_condition,
+    )
     from inference.gli_selection import manifest_shard_paths
 else:
-    from gli_utils import dhw_to_xyz, load_cluster_centers, nearest_cluster_condition
+    from gli_utils import (
+        anchor_union_cluster_condition,
+        dhw_to_xyz,
+        load_cluster_centers,
+        mask_input_inside_lesion,
+        nearest_cluster_condition,
+    )
     from gli_selection import manifest_shard_paths
 import torchio as tio
 import nibabel as nib
@@ -261,10 +273,10 @@ def _region_metrics(
 
 def _save_qa(
     path: Path,
-    input_dhw: np.ndarray,
+    original_input_dhw: np.ndarray,
+    masked_input_dhw: np.ndarray,
     generated_dhw: np.ndarray,
     seg_dhw: np.ndarray,
-    support_dhw: np.ndarray,
 ) -> None:
     import matplotlib
 
@@ -272,22 +284,27 @@ def _save_qa(
     import matplotlib.pyplot as plt
 
     lesion = seg_dhw > 0
-    z = int(np.argmax(lesion.sum(axis=(1, 2)))) if lesion.any() else input_dhw.shape[0] // 2
-    fig, axes = plt.subplots(1, 4, figsize=(14, 3.6))
-    panels = (
-        (input_dhw[z], "input"),
-        (generated_dhw[z], "generated"),
-        (np.abs(generated_dhw[z] - input_dhw[z]), "absolute difference"),
-        (input_dhw[z], "seg/support overlay"),
+    z = (
+        int(np.argmax(lesion.sum(axis=(1, 2))))
+        if lesion.any()
+        else original_input_dhw.shape[0] // 2
     )
-    for axis, (image, title) in zip(axes, panels):
-        axis.imshow(image, cmap="magma" if "difference" in title else "gray", origin="lower")
+    fig, axes = plt.subplots(1, 5, figsize=(17.5, 3.6))
+    panels = (
+        (original_input_dhw[z], "original input", "gray"),
+        (masked_input_dhw[z], "masked input", "gray"),
+        (generated_dhw[z], "generated output", "gray"),
+        (
+            np.abs(generated_dhw[z] - original_input_dhw[z]),
+            "|output - original|",
+            "magma",
+        ),
+        (lesion[z].astype(np.uint8), "conditioning mask", "gray"),
+    )
+    for axis, (image, title, cmap) in zip(axes, panels):
+        axis.imshow(image, cmap=cmap, origin="lower")
         axis.set_title(title)
         axis.axis("off")
-    if lesion[z].any():
-        axes[3].contour(lesion[z], levels=[0.5], colors="red", linewidths=0.8, origin="lower")
-    if support_dhw[z].any():
-        axes[3].contour(support_dhw[z], levels=[0.5], colors="cyan", linewidths=0.5, origin="lower")
     fig.tight_layout()
     fig.savefig(path, dpi=160)
     plt.close(fig)
@@ -317,6 +334,12 @@ def run_gli(conf: DictConfig) -> None:
         raise ValueError("GLI closed-loop inference requires conditioning.selection=nearest")
     if float(conf.conditioning.get("hist_perturb_std", 0.0)) != 0.0:
         raise ValueError("histogram perturbation must be disabled for formal closed-loop inference")
+    if not bool(conf.input_policy.get("mask_inside_lesion", False)):
+        raise ValueError("exp007 QA requires input_policy.mask_inside_lesion=true")
+    lesion_mode = str(conf.input_policy.lesion_mode)
+    if lesion_mode not in {"original_multilabel", "anchor_label_union"}:
+        raise ValueError(f"unsupported exp007 lesion mode: {lesion_mode}")
+    lesion_fill_value = float(conf.input_policy.get("fill_value", 0.0))
     centers = load_cluster_centers(conf.conditioning.clusters_path, conf.dataset.patch_size_xyz)
     selection_path = Path(str(conf.selection.manifest_path)).expanduser()
     selection_payload = json.loads(selection_path.read_text(encoding="utf-8"))
@@ -370,6 +393,14 @@ def run_gli(conf: DictConfig) -> None:
         ),
         "lesion_channel_label_values": [1, 2, 3, 4],
         "lesion_channel_names": ["NETC", "SNFH", "ET", "RC"],
+        "input_policy": {
+            "mask_inside_lesion": True,
+            "fill_value": lesion_fill_value,
+            "lesion_mode": lesion_mode,
+            "single_target_label_source": (
+                "anchor_label" if lesion_mode == "anchor_label_union" else None
+            ),
+        },
     }
     contract_path = output_root / "run_contract.json"
     if contract_path.is_file():
@@ -410,14 +441,32 @@ def run_gli(conf: DictConfig) -> None:
         for key, value in list(batch.items()):
             if isinstance(value, th.Tensor):
                 batch[key] = value.to(device)
-        condition, cluster_ids = nearest_cluster_condition(
-            batch['hist'], batch['conditioning_seg'], centers
+        original_input = batch['input_t1c']
+        source_seg = batch['conditioning_seg']
+        source_lesion_mask = batch['lesion_mask']
+        masked_input = mask_input_inside_lesion(
+            original_input,
+            source_seg,
+            fill_value=lesion_fill_value,
         )
+        if lesion_mode == "original_multilabel":
+            conditioning_seg = source_seg
+            lesion_mask = source_lesion_mask
+            condition, cluster_ids = nearest_cluster_condition(
+                batch['hist'], conditioning_seg, centers
+            )
+        else:
+            conditioning_seg, lesion_mask, condition, cluster_ids = (
+                anchor_union_cluster_condition(
+                    batch['hist'], source_seg, batch['anchor_label'], centers
+                )
+            )
+        model_gt = masked_input.repeat(1, int(conf.model.diffusion_num_channels), 1, 1, 1)
         model_kwargs = {
-            "gt": batch['GT'],
-            "gt_background": batch['input_t1c'],
-            "gt_keep_mask": batch['conditioning_seg'],
-            "lesion_mask": batch['lesion_mask'],
+            "gt": model_gt,
+            "gt_background": masked_input,
+            "gt_keep_mask": conditioning_seg,
+            "lesion_mask": lesion_mask,
         }
         with th.autocast(device_type="cuda", enabled=bool(conf.model.get('amp', False))):
             details = diffusion.p_sample_loop_repaint(
@@ -443,15 +492,22 @@ def run_gli(conf: DictConfig) -> None:
         for index in range(output.shape[0]):
             stem = str(batch['GT_name'][index])
             generated_dhw = output[index, 0].numpy()
-            input_dhw = batch['input_t1c'][index, 0].float().cpu().numpy()
-            seg_dhw = batch['conditioning_seg'][index, 0].cpu().numpy().astype(np.uint8)
-            lesion_mask_cdhw = batch['lesion_mask'][index].cpu().numpy().astype(np.uint8)
+            input_dhw = original_input[index, 0].float().cpu().numpy()
+            masked_input_dhw = masked_input[index, 0].float().cpu().numpy()
+            source_seg_dhw = source_seg[index, 0].cpu().numpy().astype(np.uint8)
+            seg_dhw = conditioning_seg[index, 0].cpu().numpy().astype(np.uint8)
+            source_lesion_mask_cdhw = (
+                source_lesion_mask[index].cpu().numpy().astype(np.uint8)
+            )
+            lesion_mask_cdhw = lesion_mask[index].cpu().numpy().astype(np.uint8)
             support_dhw = batch['explicit_brain_support_mask'][index, 0].cpu().numpy().astype(bool)
             affine = batch['affine'][index].float().cpu().numpy()
             condition_np = condition[index].float().cpu().numpy()
             cluster_np = cluster_ids[index].cpu().numpy()
             generated_xyz = np.asarray(dhw_to_xyz(generated_dhw), dtype=np.float32)
             input_xyz = np.asarray(dhw_to_xyz(input_dhw), dtype=np.float32)
+            masked_input_xyz = np.asarray(dhw_to_xyz(masked_input_dhw), dtype=np.float32)
+            source_seg_xyz = np.asarray(dhw_to_xyz(source_seg_dhw), dtype=np.uint8)
             seg_xyz = np.asarray(dhw_to_xyz(seg_dhw), dtype=np.uint8)
             support_xyz = np.asarray(dhw_to_xyz(support_dhw), dtype=np.uint8)
             npz_path = output_root / "generated_npz" / f"{stem}.npz"
@@ -461,9 +517,13 @@ def run_gli(conf: DictConfig) -> None:
                 npz_path,
                 generated_t1c_xyz=generated_xyz,
                 input_t1c_xyz=input_xyz,
+                original_input_t1c_xyz=input_xyz,
+                masked_input_t1c_xyz=masked_input_xyz,
+                source_conditioning_seg_xyz=source_seg_xyz,
                 conditioning_seg_xyz=seg_xyz,
                 explicit_brain_support_mask_xyz=support_xyz,
                 generated_channels_cdhw=channels[index].numpy().astype(np.float32),
+                source_lesion_mask_cdhw=source_lesion_mask_cdhw,
                 lesion_mask_cdhw=lesion_mask_cdhw,
                 condition_hist_64=condition_np,
                 cluster_ids=cluster_np,
@@ -477,6 +537,11 @@ def run_gli(conf: DictConfig) -> None:
                 lesion_channel_label_values=np.asarray([1, 2, 3, 4], dtype=np.uint8),
                 lesion_channel_names=np.asarray(["NETC", "SNFH", "ET", "RC"]),
                 sample_seed=np.asarray(sample_seed, dtype=np.int64),
+                input_lesion_mode=np.asarray(lesion_mode),
+                lesion_fill_value=np.asarray(lesion_fill_value, dtype=np.float32),
+                target_anchor_label=np.asarray(
+                    int(batch['anchor_label'][index].item()), dtype=np.uint8
+                ),
             )
             nib.save(nib.Nifti1Image(generated_xyz, affine), nifti_path)
             nib.save(nib.Nifti1Image(seg_xyz, affine), seg_path)
@@ -496,6 +561,12 @@ def run_gli(conf: DictConfig) -> None:
                     "output_shape_xyz": list(generated_xyz.shape),
                     "internal_channels_shape_cdhw": list(channels[index].shape),
                     "lesion_channel_voxels": lesion_mask_cdhw.reshape(4, -1).sum(axis=1).astype(int).tolist(),
+                    "source_lesion_channel_voxels": source_lesion_mask_cdhw.reshape(4, -1).sum(axis=1).astype(int).tolist(),
+                    "input_lesion_mode": lesion_mode,
+                    "target_anchor_label": int(batch['anchor_label'][index].item()),
+                    "masked_input_lesion_max_abs": float(
+                        np.abs(masked_input_dhw[seg_dhw > 0]).max()
+                    ),
                     "model_calls": int(details['model_calls']),
                     "sample_seed": sample_seed,
                 }
@@ -503,9 +574,9 @@ def run_gli(conf: DictConfig) -> None:
             _save_qa(
                 output_root / "qa" / f"{stem}.png",
                 input_dhw,
+                masked_input_dhw,
                 generated_dhw,
                 seg_dhw,
-                support_dhw,
             )
             manifest_record = {
                 "case_id": str(batch['case_id'][index]),
@@ -517,6 +588,8 @@ def run_gli(conf: DictConfig) -> None:
                 "checkpoint_git_sha": checkpoint_git_sha,
                 "checkpoint_step": checkpoint_step,
                 "checkpoint_weights_key": str(conf.checkpoint.weights_key),
+                "input_lesion_mode": lesion_mode,
+                "target_anchor_label": int(batch['anchor_label'][index].item()),
             }
             progress_record = {"manifest": manifest_record, "metrics": metrics}
             _append_progress(progress_path, progress_record)
@@ -574,6 +647,7 @@ def run_gli(conf: DictConfig) -> None:
         "selection_shard_count": int(conf.selection.shard_count),
         "lesion_channel_label_values": [1, 2, 3, 4],
         "lesion_channel_names": ["NETC", "SNFH", "ET", "RC"],
+        "input_policy": run_contract["input_policy"],
         "samples": all_metrics,
     }
     temporary_metrics = output_root / ".metrics.json.tmp"

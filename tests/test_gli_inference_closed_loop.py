@@ -31,8 +31,10 @@ from ddpm import (  # noqa: E402
     validate_gli_repaint_masks,
 )
 from inference.gli_utils import (  # noqa: E402
+    anchor_union_cluster_condition,
     dhw_to_xyz,
     load_cluster_centers,
+    mask_input_inside_lesion,
     nearest_cluster_condition,
     xyz_to_dhw,
 )
@@ -243,6 +245,31 @@ class GLIInferenceClosedLoopTests(unittest.TestCase):
             array = np.arange(60).reshape(3, 4, 5)
             np.testing.assert_array_equal(xyz_to_dhw(dhw_to_xyz(array)), array)
 
+    def test_masked_input_and_anchor_union_condition(self) -> None:
+        input_t1c = torch.arange(24, dtype=torch.float32).reshape(1, 1, 2, 3, 4)
+        seg = torch.zeros((1, 1, 2, 3, 4), dtype=torch.long)
+        seg[0, 0, 0, 0, 0] = 1
+        seg[0, 0, 1, 2, 3] = 4
+        masked = mask_input_inside_lesion(input_t1c, seg, fill_value=0.0)
+        self.assertEqual(float(masked[0, 0, 0, 0, 0]), 0.0)
+        self.assertEqual(float(masked[0, 0, 1, 2, 3]), 0.0)
+        self.assertTrue(torch.equal(masked[seg == 0], input_t1c[seg == 0]))
+
+        hist = torch.zeros((1, 64), dtype=torch.float32)
+        hist[0, 48 + 5] = 1.0
+        centers = [torch.eye(16, dtype=torch.float32)[:2] for _ in range(4)]
+        centers[3] = torch.stack(
+            [torch.eye(16, dtype=torch.float32)[2], torch.eye(16, dtype=torch.float32)[5]]
+        )
+        target_seg, target_mask, condition, cluster_ids = anchor_union_cluster_condition(
+            hist, seg, torch.tensor([4]), centers
+        )
+        self.assertEqual(set(torch.unique(target_seg).tolist()), {0, 4})
+        self.assertEqual(target_mask.reshape(1, 4, -1).sum(dim=2).tolist(), [[0.0, 0.0, 0.0, 2.0]])
+        self.assertEqual(cluster_ids.tolist(), [[-1, -1, -1, 1]])
+        self.assertEqual(float(condition[:, :48].abs().sum()), 0.0)
+        self.assertEqual(float(condition[:, 48:].sum()), 1.0)
+
     def test_pre_denoiser_shared_background_uses_fresh_noise_and_composition(self) -> None:
         denoiser = _CaptureDenoiser()
         diffusion = GaussianDiffusion_Nolatent(
@@ -383,6 +410,8 @@ class GLIInferenceClosedLoopTests(unittest.TestCase):
             ("gli_exp006_p64_val_qa.yaml", [32, 64, 64]),
             ("gli_exp006_p64_test_subset50_shard0.yaml", [32, 64, 64]),
             ("gli_exp006_p64_test_subset50_shard1.yaml", [32, 64, 64]),
+            ("gli_exp007_p64_val_qa_masked_multilabel.yaml", [32, 64, 64]),
+            ("gli_exp007_p64_val_qa_masked_anchor_union.yaml", [32, 64, 64]),
         ):
             cfg = OmegaConf.load(ROOT / "LeFusion" / "inference" / "confs" / name)
             OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
@@ -393,6 +422,11 @@ class GLIInferenceClosedLoopTests(unittest.TestCase):
             if name.startswith("gli_exp006"):
                 self.assertEqual(str(cfg.repaint.background_noise), "fresh_per_reverse_call_shared_across_channels")
                 self.assertFalse(bool(cfg.repaint.post_denoiser_hard_clamp))
+            if name.startswith("gli_exp007"):
+                self.assertEqual(str(cfg.checkpoint.weights_key), "ema")
+                self.assertEqual(int(cfg.repaint.schedule_jump_params.t_T), 300)
+                self.assertTrue(bool(cfg.input_policy.mask_inside_lesion))
+                self.assertEqual(float(cfg.input_policy.fill_value), 0.0)
 
     def test_deterministic_half_selection_and_shards(self) -> None:
         records = []

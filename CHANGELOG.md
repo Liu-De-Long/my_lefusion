@@ -530,3 +530,12 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
 - exp005 旧版 519 例（5.4 GiB）未删除；exp006 新版约 6.6 GiB。step 46000
   `best.pt/ema` 与 exp006 inference 语义冻结为 64 patch 工程 baseline，不外推为医学有效性
   或全量 test 结论。
+
+## 2026-08-06 — 启动 exp007 显式挖空输入 8 例 QA
+
+- 用户授权只复用冻结的 8 例 validation QA，禁止运行 519 例 test 子集或全量 test。
+- 新建方法实验 `20260806_exp007_gli_masked_input_qa`：两个变体均将真实病灶 union 区域在送入 LeFusion 前显式置零。
+- `masked_multilabel` 保留原四通道 mask 与逐标签最近 train-only cluster；`masked_anchor_union` 将完整病灶 union 赋给 patch 的 `anchor_label` 通道，其他 mask 通道和 condition block 置零。
+- QA 固定输出原始输入、挖空输入、生成输出、绝对 difference 和 conditioning mask 五联图。
+- 新增可复用 `scripts/gli_build_qa_contact_sheet.py`，将每个变体的 8 张五联图整理为 2×4 总览图。
+- 检查时 p80 正在占用 GPU 0/1；在其结束前只实施与测试代码，不启动本实验 GPU 推理，不切换远端训练工作树。

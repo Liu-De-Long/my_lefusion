@@ -1,0 +1,41 @@
+# 20260806_exp007_gli_masked_input_qa
+
+## 目标
+
+仅使用 exp005 已冻结的 8 例 validation QA，检查显式挖空病灶输入后的生成结果，并比较原始多标签病灶条件与“全部病灶 union 统一为 anchor label”条件。禁止运行 519 例 test 子集或全量 test。
+
+## 变更
+
+- 在送入 LeFusion 前将全部真实病灶 union 区域显式置为 `0.0`，同时保留原始 T1c 只用于指标和 QA。
+- 变体一保留原 NETC/SNFH/ET/RC 四通道 mask 和逐标签最近 train-only cluster condition。
+- 变体二以 patch 的 `anchor_label` 为唯一目标类型，把完整病灶 union 放入该通道，其他三个 mask 通道及 condition block 置零；目标通道使用其原始 hist block 匹配到的最近 train-only cluster center。
+- QA 固定展示原始输入、挖空输入、生成输出、相对原始输入的绝对 difference 和最终 conditioning mask。
+
+## 配置
+
+- 基线：exp006 原始 LeFusion 对齐的 pre-denoiser RePaint，禁止 post-denoiser hard clamp。
+- checkpoint：exp005 p64 seed `20260805`、step 46000 `best.pt/ema`。
+- schedule：`t_T=300, n_sample=1, jump_length=1, jump_n_sample=1`。
+- 样本：同一份冻结 validation QA manifest，共 8 例，覆盖四标签的 interior/boundary。
+- sampling seed：`20260806`。
+- p80 训练运行期间不得启动本实验 GPU 推理。
+- QA contact sheet：`scripts/gli_build_qa_contact_sheet.py` 将每个变体的 8 张五联图整理为 2×4 总览图。
+
+## 结果
+
+待远端回归测试与 8 例两变体 QA 完成后填写。
+
+## 结论
+
+待实验完成后填写；本实验不影响 exp006 当前最佳工程 baseline。
+
+## 下一步
+
+1. 完成本地与远端非训练回归。
+2. 等待 p80 训练释放 GPU 0/1。
+3. 两个变体依次各运行同一 8 例 QA，并记录配对结果。
+
+## 输出路径
+
+- `experiments/20260806_exp007_gli_masked_input_qa/outputs/patch_64x64x32/seed_20260805/val_qa_masked_multilabel`
+- `experiments/20260806_exp007_gli_masked_input_qa/outputs/patch_64x64x32/seed_20260805/val_qa_masked_anchor_union`
