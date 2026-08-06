@@ -59,6 +59,19 @@ W&B online、64 patch 显存、validation 与 resume preflight 均已通过。�
 
 正式运行输出路径：`experiments/20260805_exp005_gli_formal_training_baseline/outputs/patch_64x64x32/seed_20260805/`。训练正在运行，checkpoint 将按既定规则生成。
 
+## 2026-08-06 训练契约失效与 p80 停止记录
+
+- QA 复核确认本实验的 denoiser 仅接收完整病灶图加噪后的 `x_t` 与 histogram；lesion mask
+  只参与 loss，没有把挖空 T1c 和四通道 mask 作为空间条件输入。
+- 该实现与原始 LeFusion 代码一致，但不满足本项目“给定挖空背景和目标 mask 生成伪病灶”的
+  研究目标。因此 p64 step 46000 checkpoint、对应 exp006/exp007 推理结果均降级为失败审计资产。
+- 用户要求立即停止 p80。服务器时间 `2026-08-06 07:59 UTC` 左右向主进程 PID `919` 及两个
+  数据加载子进程发送 SIGTERM；退出后 GPU 0/1 均为 `1 MiB`、`0%`，无残留训练进程。
+- p80 最后完整 `latest.pt` 为 step `11500`，运行代码 `ea88464f3bf51350f5bd7d33f1bfcc4d7f80b6c1`，
+  W&B run ID `exp005-p80-s20260805`，early-stopping best 为 `0.1061323869`。
+- `latest.pt`、`best.pt`、`milestone-5000.pt` 与 `milestone-10000.pt` 保留用于失败审计，不允许
+  resume 为正式实验。一次性 checkpoint 检查脚本已在读取后从本地和远端删除。
+
 ## 正式训练启动记录
 
 - 启动时间：2026-08-05；仅启动 `64×64×32`、seed `20260805`，未启动其他 seed 或 `80×96×80`。

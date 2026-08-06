@@ -2,24 +2,23 @@
 
 ## 当前版本
 
-v0.6.0-gli-official-repaint-evaluation
+v0.7.0-gli-conditional-inpainting-training
 
 ## 当前最佳实验
 
-`20260806_exp006_gli_official_repaint_alignment`
-
-当前正式 checkpoint 入口仍为 `20260805_exp005_gli_formal_training_baseline` 的
-`64×64×32` seed `20260805`、step 46000 `best.pt/ema`。该入口已通过固定 validation、
-零更新 resume。正式 inference 入口固定为 exp006 的原始 LeFusion 对齐语义：仅在 denoiser
-前注入逐反向调用 fresh-noise 的前向加噪背景，不执行 denoiser 输出后的 hard clamp。
+当前没有满足“挖空背景条件下生成伪病灶”目标的有效最佳 checkpoint。正在实施的新方法实验为
+`20260806_exp008_gli_conditional_inpainting_training`。exp005 的 p64/p80 与 exp006/exp007
+推理仅保留为错误训练契约的审计资产，不再作为当前最佳模型或医学有效性依据。
 
 ## 当前最佳结果
 
-已发布的数据资产仍为两种尺寸各 9842 个 patch。正式 `best.pt/ema` 的固定 val loss 为
-`0.0965080350`。exp006 的 8 例完整 val QA 和 519 例 test 50% 冻结子集均通过；两个 test
-shard 为 260/259、无重叠无遗漏，healthy/support 外/outer-shell 的变化大于 0.1 比例均为 0，
-边界 jump p95 增量最差 `0.014357`，峰值显存 `1090.71 MiB` 且稳定。旧 exp005 519 例结果
-完整保留为 hard-clamp 错误版本对照。
+数据资产仍为两种尺寸各 9842 个 patch。旧 exp005 p64 的低 validation noise-prediction loss
+不能证明伪病灶生成有效，因为 denoiser 未接收挖空 T1c 与 lesion mask 空间条件。p80 已在
+step `11500` 由用户要求停止；`latest.pt`、`best.pt` 和 milestone 仅保留用于失败审计。
+
+exp008 的冻结契约为：四通道扩散状态 `x_t`，单通道挖空 T1c 加四通道 lesion mask 的
+五通道空间条件，64 维 histogram 全局条件，监督目标为加入 `x0` 的噪声，loss 仅在对应病灶
+mask 内计算。正式结果待远端测试、preflight 与新 p64 训练完成。
 
 ## 当前流程
 
@@ -94,26 +93,24 @@ shard 为 260/259、无重叠无遗漏，healthy/support 外/outer-shell 的变�
 
 ## 已知问题
 
-- 当前正式闭环实现位于 `feature/20260806-exp006-gli-official-repaint`，实现 commit 为
-  `d94f8b92fa5eb3b1f1a07273484f74cd81bc0c2b`；尚未合并到 `main`。
-- GLI 正式训练已完成 50,000 step；当前只认可固定的 step 46000 `best.pt/ema` 作为
-  exp005 评估入口。该 checkpoint 通过工程闭环 QA，但尚不能据此声称医学有效性。
+- 当前条件式修复实现位于 `feature/20260806-exp008-gli-conditional-inpainting`，实现 commit 为
+  `c117bc74519c4329ff721817d31b3e2171be90b2`；尚未合并到 `main`。
+- exp005 p64 虽完成 50,000 step，但其训练契约缺少挖空 T1c 与 mask 空间条件，已失效；
+  p80 在 step 11500 停止。两者 checkpoint 均不得作为新的正式结果入口。
 - exp004 的 20-step/1-step checkpoint 仍只是 smoke，不能与 exp005 正式 checkpoint 混用。
 - exp004 W&B run 仍仅是历史 offline smoke；正式 exp005 训练已有 online run。W&B key 始终
   不进入项目文件或 Git。
 - `val` split 未发现 `seg` 标签，不能直接作为监督验证集。
 - `t_T=5` 仍只证明接线；本次正式结论来自 `t_T=300`。工程 QA 不能替代医学有效性、下游
   分割增益或全量 test 结论。
-- 用户已授权仅启动 `64×64×32` seed `20260805` 的正式训练；运行版本 `75b187ce6664d4fa44ddad32dd328112998ff5c4` 配置为 GPU 0、1 的 DataParallel，全局 batch 4（每卡 2），不自动启动其他 seed 或 80 patch。
+- 用户已授权按 exp008 新契约重新启动且只启动 `64×64×32` seed `20260805`；不得自动启动
+  其他 seed、p80 或全量 test。
 - baseline 的 batch 是 preflight 初值而非硬编码：64 可从 `4/1` 调为 `2/2` 或 `1/4`；`50,000` optimizer steps 是上限，可由 early stopping 提前结束。
 - 原始 LeFusion 入口没有强制三 seed；`20260806/20260807` 是在首个 seed 通过后再决定的正式复现候选。
 
 ## 下一步
 
-1. 保持 exp005 `best.pt/ema` 与 exp006 inference 配置冻结；不再把 hard-clamp 旧输出用于正式
-   方法结论。
-2. exp007 仅在 p80 训练释放 GPU 后，使用同一 8 例冻结 validation QA 比较显式挖空输入的
-   原多标签和 anchor-union 单标签条件；禁止运行 519 例 test 子集或全量 test。
-3. 若需要推进研究结论，另立实验评估下游分割增益或医学指标；不得把当前 50% patch test
-   外推为全量 test。
-4. 不自动启动剩余 test、其他 seed 或额外训练；任何扩展均需新的用户授权。
+1. 完成 exp008 远端回归、真实 patch 契约检查和独立 W&B GPU preflight。
+2. 门禁通过后只启动 exp008 p64 seed `20260805`，核验 W&B、首批 loss、显存和 checkpoint。
+3. 新 checkpoint 可用后仅先做少量冻结 QA，不运行 519 例或全量 test。
+4. 不自动启动其他 seed、p80 或额外训练；任何扩展均需新的用户授权。

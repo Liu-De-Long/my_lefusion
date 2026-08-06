@@ -35,14 +35,15 @@ BraTS2024 GLI 流程状态：
 2. 已计算四组 16-bin histogram，并在训练 dataset factory 中注册 GLI。
 3. 已增加 GLI lesion-aware loss、`lesion_mask` 训练传递和三维矩形 shape 支持。
 4. 已完成 `64×64×32` 固定 batch overfit smoke 和 `80×96×80` 单 batch 前向/反向 smoke。
-5. 已完成 `64×64×32` seed `20260805` 正式训练，冻结 step 46000 `best.pt/ema`。
+5. exp005 `64×64×32` seed `20260805` 已完成，但因缺少挖空 T1c 与 mask 空间条件而失效；
+   p80 已在 step 11500 停止，两者只保留失败审计。
 6. 已完成 GLI inference loader、train-only histogram cluster、原始 LeFusion 对齐的
    pre-denoiser 背景 RePaint、四通道病灶合成和 NPZ/NIfTI 保存回读。
 7. 已通过 BraTS 官方评测说明确认标签为 `0=background、1=NETC、2=SNFH、3=ET、4=RC`。
 8. exp005 已完成分层 sampler、正式 validation、完整 checkpoint/resume、early stopping、
    W&B online 和正式训练。
-9. exp006 已删除额外 post-denoiser hard clamp，并用同一 checkpoint、8 例 val 和冻结的
-   519 例 test 50% 子集完成双 GPU QA；旧版输出完整保留作错误版本对照。
+9. exp008 将训练契约改为 `x_t + masked T1c + four-channel mask + hist -> noise`，
+   loss 仍只在对应病灶区域计算；当前重新训练 p64，旧 QA 不再作为有效方法结论。
 
 ## 项目结构
 
@@ -169,7 +170,7 @@ YYYYMMDD_short_goal_vN
 2. 如果实验改变了当前最佳结果或当前流程，更新 `STATUS.md`。
 3. 不把临时路径、一次性 debug 输出、未验证猜测写入 `README.md`。
 
-## 当前最佳结果入口
+## 当前有效结果入口
 
 当前已发布 BraTS2024 GLI T1c 局部病灶 patch 数据集：
 
@@ -179,7 +180,11 @@ YYYYMMDD_short_goal_vN
 
 该数据集使用 T1c 单模态图像和标量 segmentation，后续 loader 将展开为 NETC/SNFH/ET/RC 四通道 lesion mask。两种 patch 尺寸分别为 `64×64×32` 和 `80×96×80`，每种尺寸 9842 个 patch。
 
-GLI loader 的兼容约定为：`label` 保留 scalar segmentation，`lesion_mask` 提供 NETC/SNFH/ET/RC 四通道二值 mask；T1c 按四个 lesion channel 复制为 LeFusion 的 `data` 张量，histogram 条件按四个 16-bin block 拼接为 `cond_dim=64`。
+GLI loader 的当前契约为：`label` 保留 scalar segmentation，`lesion_mask` 提供 NETC/SNFH/ET/RC
+四通道二值 mask；原始 T1c 按四个 lesion channel 复制为扩散目标 `data`，同时生成单通道
+`masked_context`，在四类病灶 union 内置 0、洞外保持原值。denoiser 每步接收四通道 `x_t`、
+单通道 `masked_context` 与四通道 lesion mask，共 9 个空间通道；histogram 条件按四个 16-bin
+block 拼接为 `cond_dim=64`。
 
 GLI loss 对 batch 中所有非空 `(sample, lesion channel)` 单元等权平均；每个单元先按自身病灶体素数归一化，空单元跳过，整个 batch 全空时直接报错。两种训练空间分别为 `[D,H,W]=[32,64,64]` 和 `[80,80,96]`。
 

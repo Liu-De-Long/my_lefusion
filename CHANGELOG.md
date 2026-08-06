@@ -1,5 +1,20 @@
 # 实验变更记录
 
+## 2026-08-06 — 停止错误训练契约并启动 exp008 条件式修复方法
+
+- QA 确认 exp005 的 denoiser 没有接收挖空 T1c 和四通道 lesion mask 空间条件；旧 p64/p80
+  checkpoint 不满足伪病灶生成目标，exp006/exp007 结果同步降级为失败审计。
+- 按用户要求停止 p80 主进程与两个数据加载子进程；最后完整 checkpoint 为 step `11500`，
+  GPU 0/1 已释放至 `1 MiB`、`0%`，未删除任何 checkpoint。
+- 新建方法实验 `20260806_exp008_gli_conditional_inpainting_training` 和分支
+  `feature/20260806-exp008-gli-conditional-inpainting`。
+- 数据 loader 新增病灶 union 内置零、洞外保持原值的单通道 `masked_context`；denoiser 空间输入
+  改为四通道 `x_t`、一通道 masked T1c 与四通道 lesion mask，输出仍为四通道噪声预测。
+- 训练、validation、preflight 与 RePaint 共用该空间条件，hist 保持四组 16-bin、loss 保持
+  仅在对应病灶 mask 内计算。
+- 实现 commit：`c117bc74519c4329ff721817d31b3e2171be90b2`。
+- 已删除本地与远端一次性 `.tmp_inspect_checkpoint.py`；它仅用于只读记录停止点，不是实验资产。
+
 ## 实验 ID
 
 20260804_init_docs_v1
