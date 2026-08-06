@@ -1,6 +1,7 @@
 experiment_id: 20260806_exp007_gli_masked_input_qa
 experiment_type: method
 baseline_commit: 5b9e83f24df7be36c2dcda03c2284ad49dc28f4e
+implementation_commit: 000e3735ea1604981a316cfee3a97eb3f17c6e5a
 training:
   retrain: false
   checkpoint: experiments/20260805_exp005_gli_formal_training_baseline/outputs/patch_64x64x32/seed_20260805/checkpoints/best.pt

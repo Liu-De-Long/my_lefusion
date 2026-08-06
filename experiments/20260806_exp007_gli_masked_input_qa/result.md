@@ -13,6 +13,7 @@
 
 ## 配置
 
+- 实现 commit：`000e3735ea1604981a316cfee3a97eb3f17c6e5a`。
 - 基线：exp006 原始 LeFusion 对齐的 pre-denoiser RePaint，禁止 post-denoiser hard clamp。
 - checkpoint：exp005 p64 seed `20260805`、step 46000 `best.pt/ema`。
 - schedule：`t_T=300, n_sample=1, jump_length=1, jump_n_sample=1`。

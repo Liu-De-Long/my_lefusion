@@ -538,4 +538,5 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
 - `masked_multilabel` 保留原四通道 mask 与逐标签最近 train-only cluster；`masked_anchor_union` 将完整病灶 union 赋给 patch 的 `anchor_label` 通道，其他 mask 通道和 condition block 置零。
 - QA 固定输出原始输入、挖空输入、生成输出、绝对 difference 和 conditioning mask 五联图。
 - 新增可复用 `scripts/gli_build_qa_contact_sheet.py`，将每个变体的 8 张五联图整理为 2×4 总览图。
+- 实现 commit：`000e3735ea1604981a316cfee3a97eb3f17c6e5a`。
 - 检查时 p80 正在占用 GPU 0/1；在其结束前只实施与测试代码，不启动本实验 GPU 推理，不切换远端训练工作树。
