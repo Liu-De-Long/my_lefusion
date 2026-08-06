@@ -41,7 +41,7 @@ def main() -> None:
         "white",
     )
     draw = ImageDraw.Draw(canvas)
-    draw.text((20, 20), f"{args.title} — {len(images)} frozen validation QA samples", fill="black")
+    draw.text((20, 20), f"{args.title} - {len(images)} frozen validation QA samples", fill="black")
     for index, image in enumerate(images):
         x = (index % args.columns) * args.cell_width
         y = title_height + (index // args.columns) * cell_height
