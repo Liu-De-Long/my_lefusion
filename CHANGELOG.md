@@ -1,5 +1,19 @@
 # 实验变更记录
 
+## 2026-08-06 — 记录 p64 少标签逐体素亚区分类方案
+
+- 新增长期方案 `docs/20260806_001_gli_p64_weak_supervision_classifier_plan.md`。
+- 将“10% 且约 1000 Case”解释为从冻结 train pool 中确定性选择 1000 个 p64 patch，
+  每个 anchor 类 250，并在类别内平衡 interior/boundary 和患者贡献；同时保留严格 984 个
+  patch 作为实施前可选口径。
+- 首个推荐模型改为无标签泄漏的空间特征 MLP，并保留单强度 MLP、局部邻域 MLP 和轻量
+  3D CNN 对照；不因模型较小而假设单体素 T1c 足以区分四类。
+- 暂定 ET 与 RC 为 T1c 下两个重点亚型，成功门禁为患者等权 focus mIoU 不低于 85%，
+  同时继续报告四类完整指标和小区域表现。
+- 明确 NPZ histogram、四通道 lesion mask、anchor label 和 per-class voxel count 不得进入
+  模型输入；剩余未标签 train patch 首阶段不参与优化。
+- 本次只修改中文方案与状态文档，没有修改代码、创建实验卡、登录 W&B、启动训练或占用 GPU。
+
 ## 2026-08-06 — 停止错误训练契约并启动 exp008 条件式修复方法
 
 - QA 确认 exp005 的 denoiser 没有接收挖空 T1c 和四通道 lesion mask 空间条件；旧 p64/p80

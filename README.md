@@ -197,6 +197,7 @@ GLI loss 对 batch 中所有非空 `(sample, lesion channel)` 单元等权平均
 - GLI lesion-aware 训练接入方案：`docs/20260805_002_gli_lesion_aware_training_integration_plan.md`
 - GLI patch 级 inference 闭环接口：`docs/20260805_003_gli_inference_closed_loop.md`
 - GLI 正式训练方案与可行性判断：`docs/20260805_004_gli_formal_training_plan.md`
+- GLI p64 少标签逐体素亚区分类方案：`docs/20260806_001_gli_p64_weak_supervision_classifier_plan.md`
 - 可复用 GLI 病灶统计脚本：`scripts/brats_gli_lesion_patch_stats.py`
 - T1c 局部 patch 实验：`experiments/20260804_exp001_t1c_local_patch_dataset/result.md`
 - GLI lesion-aware 训练接入：`experiments/20260805_exp003_gli_lesion_aware_training/result.md`
