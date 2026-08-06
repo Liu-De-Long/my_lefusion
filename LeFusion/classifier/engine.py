@@ -165,6 +165,42 @@ def _restore_checkpoint(
     return int(payload["epoch"]) + 1, float(payload["best_metric"]), int(payload["bad_epochs"])
 
 
+def validate_test_gate(
+    checkpoint_path: str | Path,
+    *,
+    config_sha256: str,
+    subset_path: str | Path,
+) -> dict[str, Any]:
+    """Fail closed unless the exact frozen best checkpoint passed every val gate."""
+
+    checkpoint_path = Path(checkpoint_path)
+    subset_path = Path(subset_path)
+    if checkpoint_path.name != "best.pt":
+        raise ValueError("test evaluation is restricted to the frozen best.pt checkpoint")
+    gate_path = checkpoint_path.parent / "best_val_metrics.json"
+    if not gate_path.is_file():
+        raise FileNotFoundError(f"test requires frozen validation gate: {gate_path}")
+    gate_payload = json.loads(gate_path.read_text(encoding="utf-8"))
+    required_gates = (
+        "focus_miou_at_least_0_85",
+        "et_iou_at_least_0_80",
+        "rc_iou_at_least_0_80",
+        "outside_nonzero_is_zero",
+        "union_dice_is_one",
+    )
+    gates = gate_payload.get("gate", {})
+    failed = [name for name in required_gates if gates.get(name) is not True]
+    if failed:
+        raise RuntimeError(f"test is sealed because validation gates failed: {failed}")
+    if gate_payload.get("checkpoint_sha256") != sha256_file(checkpoint_path):
+        raise ValueError("validation gate checkpoint hash does not match requested test checkpoint")
+    if gate_payload.get("config_sha256") != config_sha256:
+        raise ValueError("validation gate config hash mismatch")
+    if gate_payload.get("subset_sha256") != sha256_file(subset_path):
+        raise ValueError("validation gate subset hash mismatch")
+    return gate_payload
+
+
 def _sample_rows(
     rows: torch.Tensor,
     *,
@@ -523,6 +559,9 @@ def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, 
         bootstrap_samples=int(evaluation_config.get("bootstrap_samples", 1000)),
         seed=seed,
     )
+    final_metrics["checkpoint_sha256"] = sha256_file(best_path)
+    final_metrics["config_sha256"] = config["_config_sha256"]
+    final_metrics["subset_sha256"] = sha256_file(subset_path)
     (output_dir / "best_val_metrics.json").write_text(
         json.dumps(final_metrics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -546,10 +585,17 @@ def run_evaluation(
     dataset_root = Path(data_config["dataset_root"])
     split_file = Path(data_config["split_file"])
     subset_path = Path(data_config["labeled_subset"])
+    checkpoint_path = Path(checkpoint_path)
+    if split == "test":
+        validate_test_gate(
+            checkpoint_path,
+            config_sha256=config["_config_sha256"],
+            subset_path=subset_path,
+        )
     records, _ = load_manifest_records(dataset_root, split_file, split=split)
     model = _model_from_config(config).to(device)
     _restore_checkpoint(
-        Path(checkpoint_path),
+        checkpoint_path,
         model=model,
         optimizer=None,
         scheduler=None,

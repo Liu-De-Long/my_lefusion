@@ -295,10 +295,14 @@ class GLIClassifierPatchDataset(Dataset):
         with np.load(path, allow_pickle=False) as arrays:
             if set(arrays.files) != ALLOWED_NPZ_KEYS:
                 raise ValueError(f"unexpected NPZ keys in {path}: {sorted(arrays.files)}")
-            t1c_xyz = np.asarray(arrays["t1c"], dtype=np.float32)
-            seg_xyz = np.asarray(arrays["seg"], dtype=np.uint8)
+            t1c_xyz = np.asarray(arrays["t1c"])
+            seg_xyz = np.asarray(arrays["seg"])
         if t1c_xyz.shape != PATCH_SIZE_XYZ or seg_xyz.shape != PATCH_SIZE_XYZ:
             raise ValueError(f"invalid p64 shape in {path}: {t1c_xyz.shape}, {seg_xyz.shape}")
+        if t1c_xyz.dtype != np.float32 or seg_xyz.dtype != np.uint8:
+            raise ValueError(
+                f"invalid p64 dtypes in {path}: t1c={t1c_xyz.dtype}, seg={seg_xyz.dtype}"
+            )
         if not np.isfinite(t1c_xyz).all():
             raise ValueError(f"non-finite T1c values in {path}")
         labels = set(np.unique(seg_xyz).tolist())

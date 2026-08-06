@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from LeFusion.classifier.engine import validate_test_gate
 from LeFusion.classifier.data import (
     GLIClassifierPatchDataset,
     SAFE_SAMPLE_KEYS,
@@ -91,6 +93,15 @@ class TestGLIClassifierData(unittest.TestCase):
                 hist=np.zeros((4, 16), dtype=np.float32),
                 affine=np.eye(4, dtype=np.float32),
             )
+            permuted_seg = seg.copy()
+            permuted_seg[permuted_seg == 3] = 4
+            np.savez_compressed(
+                size_root / "permuted.npz",
+                t1c=t1c,
+                seg=permuted_seg,
+                hist=np.ones((4, 16), dtype=np.float32),
+                affine=np.eye(4, dtype=np.float32),
+            )
             dataset = GLIClassifierPatchDataset(
                 root,
                 [
@@ -98,16 +109,25 @@ class TestGLIClassifierData(unittest.TestCase):
                         "relative_path": "patches/sample.npz",
                         "case_id": "case",
                         "subject_id": "subject",
-                    }
+                    },
+                    {
+                        "relative_path": "patches/permuted.npz",
+                        "case_id": "case-permuted",
+                        "subject_id": "subject-permuted",
+                    },
                 ],
             )
             sample = dataset[0]
+            permuted = dataset[1]
             self.assertTrue(set(sample).issubset(SAFE_SAMPLE_KEYS))
             self.assertNotIn("hist", sample)
             self.assertNotIn("anchor_label", sample)
             self.assertEqual(tuple(sample["image"].shape), (1, 32, 64, 64))
             self.assertEqual(float(sample["image"][0, 4, 2, 3]), 0.75)
             self.assertEqual(int(sample["target"][4, 2, 3]), 3)
+            self.assertTrue(torch.equal(sample["image"], permuted["image"]))
+            self.assertTrue(torch.equal(sample["total_mask"], permuted["total_mask"]))
+            self.assertFalse(torch.equal(sample["target"], permuted["target"]))
 
 
 class TestGLIClassifierFeaturesAndModels(unittest.TestCase):
@@ -154,6 +174,47 @@ class TestGLIClassifierMetrics(unittest.TestCase):
         self.assertEqual(metrics["outside_nonzero_rate"], 0.0)
         self.assertEqual(metrics["union_dice"], 1.0)
         self.assertTrue(all(metrics["gate"].values()))
+
+    def test_test_gate_is_bound_to_exact_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            checkpoint = output / "best.pt"
+            subset = output / "subset.json"
+            checkpoint.write_bytes(b"checkpoint")
+            subset.write_text("{}", encoding="utf-8")
+            payload = {
+                "gate": {
+                    "focus_miou_at_least_0_85": True,
+                    "et_iou_at_least_0_80": True,
+                    "rc_iou_at_least_0_80": True,
+                    "outside_nonzero_is_zero": True,
+                    "union_dice_is_one": True,
+                },
+                "checkpoint_sha256": hashlib.sha256(b"checkpoint").hexdigest(),
+                "config_sha256": "config-hash",
+                "subset_sha256": hashlib.sha256(b"{}").hexdigest(),
+            }
+            (output / "best_val_metrics.json").write_text(
+                json.dumps(payload), encoding="utf-8"
+            )
+            self.assertEqual(
+                validate_test_gate(
+                    checkpoint,
+                    config_sha256="config-hash",
+                    subset_path=subset,
+                )["checkpoint_sha256"],
+                payload["checkpoint_sha256"],
+            )
+            payload["gate"]["focus_miou_at_least_0_85"] = False
+            (output / "best_val_metrics.json").write_text(
+                json.dumps(payload), encoding="utf-8"
+            )
+            with self.assertRaises(RuntimeError):
+                validate_test_gate(
+                    checkpoint,
+                    config_sha256="config-hash",
+                    subset_path=subset,
+                )
 
 
 if __name__ == "__main__":
