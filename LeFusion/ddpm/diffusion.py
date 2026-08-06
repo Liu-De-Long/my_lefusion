@@ -842,21 +842,23 @@ class GaussianDiffusion_Nolatent(nn.Module):
         cond_scale=1.,
         spatial_condition=None,
     ):
+        denoiser_kwargs = {
+            'cond': cond,
+            'cond_scale': cond_scale,
+        }
+        if spatial_condition is not None:
+            denoiser_kwargs['spatial_condition'] = spatial_condition
         if isinstance(self.denoise_fn, torch.nn.DataParallel):
             noise = self.denoise_fn.module.forward_with_cond_scale(
                 x,
                 t,
-                cond=cond,
-                cond_scale=cond_scale,
-                spatial_condition=spatial_condition,
+                **denoiser_kwargs,
             )
         else:
             noise = self.denoise_fn.forward_with_cond_scale(
                 x,
                 t,
-                cond=cond,
-                cond_scale=cond_scale,
-                spatial_condition=spatial_condition,
+                **denoiser_kwargs,
             )
         x_recon = self.predict_start_from_noise(
             x, t=t, noise=noise)
