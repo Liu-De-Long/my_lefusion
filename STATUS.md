@@ -20,6 +20,7 @@ exp008 的冻结契约为：四通道扩散状态 `x_t`，单通道挖空 T1c �
 五通道空间条件，64 维 histogram 全局条件，监督目标为加入 `x0` 的噪声，loss 仅在对应病灶
 mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp008 p64 seed `20260805`
 已启动并完成首批 optimizer step，W&B 与双 GPU 状态正常。
+首个 `latest.pt` 已按 500-step 规则写入，训练继续运行。
 
 ## 当前流程
 

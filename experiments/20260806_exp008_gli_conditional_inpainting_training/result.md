@@ -68,3 +68,5 @@ p64 seed `20260805` 正式训练。
   `0.376631/0.341066/0.232471/0.402093`，均为有限值，训练未在初始化或首批次失败。
 - 正式日志：`outputs/patch_64x64x32/seed_20260805/train.run.log`；checkpoint 按每 500 step
   latest、每 5000 step milestone、每 2000 step validation/best 的冻结规则生成。
+- 首个 `latest.pt` 已于服务器时间 `08:31:55 UTC` 写入，文件约 `580.4 MB`；写入后训练进程
+  与两张 GPU 均继续正常运行。

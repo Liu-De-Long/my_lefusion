@@ -21,6 +21,10 @@
 - `2026-08-06 08:28:25 UTC` 启动且只启动 exp008 p64 seed `20260805` 正式训练；W&B run
   `exp008-p64-s20260805` 已 online，同步流已记录约 164 个 optimizer step 和有限 loss。
 - 启动核验时两张 GPU 均参与计算，显存约 `13383/13161 MiB`；未启动 p80、其他 seed 或 test。
+- 首个约 `580.4 MB` 的 `latest.pt` 已按 500-step 规则写入，写入后双 GPU 训练继续正常。
+- 清理旧 exp007 隔离 worktree 中仅存的 `.hydra/config.yaml`、`hydra.yaml`、`overrides.yaml`
+  临时解析产物，并注销 `/workspace/LeFusion_v2/.exp007_qa_worktree`；该 worktree 无源码改动，
+  旧实验输出与 checkpoint 均未删除。
 - 已删除本地与远端一次性 `.tmp_inspect_checkpoint.py`；它仅用于只读记录停止点，不是实验资产。
 
 ## 实验 ID
