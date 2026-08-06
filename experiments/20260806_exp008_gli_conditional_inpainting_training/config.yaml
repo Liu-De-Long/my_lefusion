@@ -12,4 +12,4 @@ spatial_condition:
 histogram_condition_dim: 64
 formal_max_steps: 50000
 wandb_run_id: exp008-p64-s20260805
-status: implementation
+status: preflight_passed

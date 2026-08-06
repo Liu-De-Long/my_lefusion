@@ -24,15 +24,32 @@
 
 ## 结果
 
-待完成远端测试、preflight 和正式训练启动后补充。
+- 真实发布 patch 环境的远端全套回归 `34/34` 通过。
+- Hydra 冻结配置确认空间条件为 5 通道，正式与 preflight W&B run ID、checkpoint 输出目录相互独立。
+- online preflight 严格执行 `0` 次 optimizer update；真实 batch shape 为
+  `[4,4,32,64,64]`，loss `1.153605`，梯度范数 `13.804416`。
+- 反向峰值显存 `23344.58 MiB`，完整 validation 峰值 `5499.75 MiB`。
+- validation 覆盖 1032 patch、73 subject、4 个 anchor label、3207 个有效单元；EMA total
+  loss `1.195817`，NETC/SNFH/ET/RC loss 为
+  `0.913812/0.859972/0.876844/2.098268`。这些是未训练随机初始化模型的接线基准，不能作质量比较。
+- checkpoint 保存/重载恢复成功，临时 `resume_preflight.pt` 已自动删除。
+- W&B preflight：
+  [exp008-p64-preflight-s20260805](https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp008-p64-preflight-s20260805)。
+
+### 预检失败记录
+
+- 首次调用在模型计算和 W&B 初始化前被旧脚本的 `exp005-` run ID 硬编码拦截，没有占用 GPU、
+  没有 optimizer update、没有有效训练产物。
+- 已将门禁泛化为“run ID 必须包含 `preflight` 且不得等于正式 run ID”，并补充回归测试。
 
 ## 结论
 
-待实验运行。
+条件式训练契约、真实数据、显存、validation、W&B 与 resume 门禁均通过，可以启动且只启动
+p64 seed `20260805` 正式训练。
 
 ## 下一步
 
-通过真实 patch 回归与 GPU preflight 后，启动且只启动本实验的 p64 seed `20260805` 正式训练。
+启动且只启动本实验的 p64 seed `20260805` 正式训练，并核验首批 loss、W&B 与 GPU 状态。
 
 ## 输出路径
 

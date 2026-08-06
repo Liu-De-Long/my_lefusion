@@ -18,7 +18,7 @@ step `11500` 由用户要求停止；`latest.pt`、`best.pt` 和 milestone 仅�
 
 exp008 的冻结契约为：四通道扩散状态 `x_t`，单通道挖空 T1c 加四通道 lesion mask 的
 五通道空间条件，64 维 histogram 全局条件，监督目标为加入 `x0` 的噪声，loss 仅在对应病灶
-mask 内计算。正式结果待远端测试、preflight 与新 p64 训练完成。
+mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过，下一步启动新 p64。
 
 ## 当前流程
 
@@ -94,7 +94,7 @@ mask 内计算。正式结果待远端测试、preflight 与新 p64 训练完成
 ## 已知问题
 
 - 当前条件式修复实现位于 `feature/20260806-exp008-gli-conditional-inpainting`，实现 commit 为
-  `c117bc74519c4329ff721817d31b3e2171be90b2`；尚未合并到 `main`。
+  `6e29f355294c762cfb8928f73abcb350200c2e70`；尚未合并到 `main`。
 - exp005 p64 虽完成 50,000 step，但其训练契约缺少挖空 T1c 与 mask 空间条件，已失效；
   p80 在 step 11500 停止。两者 checkpoint 均不得作为新的正式结果入口。
 - exp004 的 20-step/1-step checkpoint 仍只是 smoke，不能与 exp005 正式 checkpoint 混用。

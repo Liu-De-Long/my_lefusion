@@ -13,6 +13,11 @@
 - 训练、validation、preflight 与 RePaint 共用该空间条件，hist 保持四组 16-bin、loss 保持
   仅在对应病灶 mask 内计算。
 - 实现 commit：`c117bc74519c4329ff721817d31b3e2171be90b2`。
+- 兼容与 preflight 门禁修复后的运行版本：`6e29f355294c762cfb8928f73abcb350200c2e70`。
+- 远端真实 patch 全套回归 `34/34` 通过；online preflight 完成 0 次 optimizer update 的真实
+  batch 前/反向、完整 validation 和 checkpoint resume，反向峰值显存 `23344.58 MiB`。
+- preflight W&B run：`exp008-p64-preflight-s20260805`；临时 checkpoint 已自动删除。
+- 首次 preflight 被旧 `exp005-` ID 硬编码在计算前拦截，已泛化门禁并补回归测试。
 - 已删除本地与远端一次性 `.tmp_inspect_checkpoint.py`；它仅用于只读记录停止点，不是实验资产。
 
 ## 实验 ID
