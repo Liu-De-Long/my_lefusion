@@ -19,6 +19,10 @@ exp010 同样通过全部门槛，并以平均 lesion MAE `0.138066` 获得三�
 exp011 因 union histogram counterfactual 仅 `5/8` 未入选。exp008、exp005 p64/p80 与 exp006/exp007 继续
 仅保留为失败审计。
 
+后续研究执行顺序已由用户调整：优先对 exp010 做 50k 双 GPU 全量训练，exp012 仅作为之后的
+同规模对照。该决策优先利用 exp010 的 paired 重建优势，不改写 exp016 中 exp012 的 5k
+histogram/GLCM 条件响应更强这一历史统计。
+
 ## 当前最佳结果
 
 数据资产仍为两种尺寸各 9842 个 patch。本轮 exp010–exp012 均只运行同一 seed 的 5000 step，

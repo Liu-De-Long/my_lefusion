@@ -59,6 +59,8 @@ BraTS2024 GLI 流程状态：
     exp010/exp012 的 histogram Top-1 为 `18/32、21/32`，GLCM-LOCO 为 `21/32、26/32`；
     后续条件生成优先使用 exp012，exp010 保留为 paired 重建对照。该结果仍不证明医学亚型语义，
     也不能将差异单独归因于 soft-histogram loss。
+13. 后续执行顺序已改为先运行 exp010 的完整 train split、50k、双 GPU 正式训练；exp012
+    保留为之后同规模对照。本次 exp010 从随机初始化开始，使用独立 W&B run 和输出目录。
 
 ## 项目结构
 
