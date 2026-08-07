@@ -55,6 +55,10 @@ BraTS2024 GLI 流程状态：
     counterfactual QA，共 32 个结果。四类 histogram Top-1 为 `21/32`，其中 NETC/SNFH 仅
     `3/8`、`2/8`；目检仅稳定看到 ET 高亮及整体亮暗变化，没有证据证明四类视觉或医学语义
     控制成立，因此暂不调整 `λhist`，也不选定最终生成模型。
+12. exp016 已为 exp010 补齐完全相同的 8×4 四类别 QA，并与 exp012 做 32 对逐数组配对比较。
+    exp010/exp012 的 histogram Top-1 为 `18/32、21/32`，GLCM-LOCO 为 `21/32、26/32`；
+    后续条件生成优先使用 exp012，exp010 保留为 paired 重建对照。该结果仍不证明医学亚型语义，
+    也不能将差异单独归因于 soft-histogram loss。
 
 ## 项目结构
 

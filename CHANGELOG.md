@@ -1,5 +1,26 @@
 # 实验变更记录
 
+## 2026-08-08 — exp016 完成 exp010/exp012 同病例四类别配对比较
+
+- 仅为 exp010 step 5000 EMA 补充与 exp014 完全相同的冻结 8 例 × NETC/SNFH/ET/RC，共 32 个
+  结果；复用 exp014 的 exp012 输出，没有重新训练、运行 exp011、p80、其他 seed、519 例或全量 test。
+- 远端 focused tests `2/2` 与 Hydra 契约解析通过；1 例 smoke 验证 300 次模型调用、洞内输入严格为
+  `0`、mask 外误差 `0` 和峰值显存约 `1089 MiB`。
+- 经用户授权在 GPU1 使用四个输出互斥 worker，PID 为 `30308/30312/30316/30304`；观察显存约
+  `7.0 GiB`、利用率最高 100%，四类最终均为 `8/8`。首次 detached 启动因 login shell 误用基础
+  Python、缺少 `blobfile` 而在采样前退出；未产生病例结果，保留失败日志后以明确 conda 解释器完成。
+- 32 对原图、挖空输入、source/target mask、四通道 mask、条件 hist 与 sample seed 逐数组一致；
+  exp010/exp012 的 mask 外最大误差均为 `0`。
+- exp010/exp012 的 histogram Top-1 为 `18/32、21/32`，均值 rank 为 `1.625/1.34375`，平均
+  margin 为 `0.100785/0.329680`；exp012 在 8/8 病例的四类平均 histogram margin 上均胜。
+- GLCM-LOCO 为 `21/32` 对 `26/32`；exp012 主要改善 SNFH（`4/8 -> 8/8`），ET 两者均 `8/8`，
+  RC 两者均 `4/8`。texture margin 逐对胜负为 exp010/exp012 `15/17`，病例级为 `4/4`。
+- 目检确认 exp012 的亮暗/局部纹理条件响应整体更强，因此选为后续条件生成主干；exp010 继续作为
+  paired 重建最佳对照。NETC/SNFH/RC 仍明显重叠，四类医学语义未验证，且两方法不只差 `λhist`，
+  不能把增益单独归因于 soft-histogram loss。
+- 新增 exp010 四类别配置、通用四类分析参数和严格配对比较脚本；输出包括两模型 confusion matrix、
+  逐对/逐病例 margin、8 张双模型横向图与总览图，保存在 exp016 `outputs/`。
+
 ## 2026-08-08 — exp014 完成同病例四类别 counterfactual QA
 
 - 新建 `20260808_exp014_gli_four_class_counterfactual_qa`，只扩展推理条件编排：新增

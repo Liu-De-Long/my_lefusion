@@ -2,16 +2,18 @@
 
 ## 当前版本
 
-v0.10.0-gli-four-class-qa-complete
+v0.11.0-gli-paired-four-class-comparison-complete
 
 ## 当前最佳实验
 
-当前没有已证实能够生成视觉统一、类别明确病灶的最终最佳模型。最强 histogram 条件响应
-候选为 `20260807_exp012_gli_lesion_only_x0_hist` 的 p64、seed `20260805`、step `5000`
+当前没有已证实能够生成视觉统一、类别明确病灶的最终最佳模型。严格配对 QA 后，条件生成
+主干优先候选为 `20260807_exp012_gli_lesion_only_x0_hist` 的 p64、seed `20260805`、step `5000`
 checkpoint。它使用 lesion-only 扩散状态、直接 x0 预测和 soft-histogram loss，在冻结 8 例
 五种 QA 中达到 lesion `8/8`、hist counterfactual `8/8`、union histogram counterfactual
 `8/8`、mask 外最大误差 `0`。这里的 union 指标只比较 mask 内 16-bin 强度 histogram 与
-请求/交换请求的距离，不能证明病灶亚型的视觉或语义一致性，也不能据此选定最终模型。
+请求/交换请求的距离，不能证明病灶亚型的视觉或语义一致性。exp016 的同病例四类别比较显示
+exp012 的 histogram/GLCM Top-1 为 `21/32、26/32`，高于 exp010 的 `18/32、21/32`；因此在
+exp010/exp012 之间选择 exp012 作为后续条件控制主干，但仍不能称为医学语义最终模型。
 
 exp010 同样通过全部门槛，并以平均 lesion MAE `0.138066` 获得三方法最佳 paired 重建；
 exp011 因 union histogram counterfactual 仅 `5/8` 未入选。exp008、exp005 p64/p80 与 exp006/exp007 继续
@@ -44,6 +46,12 @@ exp014 已完成上述同病例四类别 QA：固定同一 8 例、挖空输入�
 目检显示 ET 在全部病例中稳定显著高亮，NETC/RC 多为较暗结构、SNFH 居中；NETC、SNFH、RC
 之间仍大量重叠，局部形态继续由病例背景和 union 形状主导。由此确认 exp012 学会了明显的
 亮暗/histogram 控制，但四类视觉统一性和医学亚型控制仍未通过；当前继续没有最终最佳模型。
+
+exp016 已为 exp010 补齐完全相同的 8 例 × 4 类冻结 QA，并逐数组确认两模型的原图、挖空输入、
+union/目标 mask、条件 hist 和 sample seed 一致。exp010/exp012 的平均 histogram margin 为
+`0.100785/0.329680`，exp012 在 8/8 病例的四类平均 margin 上均胜；GLCM texture margin 的
+病例级胜负为 4:4，但 Top-1 为 `21/32` 对 `26/32`。两者背景最大误差均为 `0`。这支持优先继续
+exp012，但不能把差异单独归因于 `λhist`，因为两模型的扩散状态与预测目标也不同。
 
 ## 当前流程
 
@@ -123,6 +131,8 @@ exp014 已完成上述同病例四类别 QA：固定同一 8 例、挖空输入�
   使用 GPU1 四个输出互斥 worker 生成 32 个结果；未运行训练、p80、其他 seed、519 例或全量 test。
 - exp014 保留 `summary.json`、`case_metrics.csv`、`texture_features.csv`、8 张逐病例横向图和
   `four_class_contact_sheet.png`；四类输入/mask/seed 合同、32 个 NPZ 和背景严格保持均已审计。
+- 已完成 exp016：只为 exp010 新增与 exp014 完全相同的冻结 32 个四类别结果，并复用 exp012
+  输出做 32 对比较；保留两模型 confusion matrix、逐对/逐病例 margin 与双模型横向图。
 
 ## 失败尝试
 
@@ -137,6 +147,8 @@ exp014 已完成上述同病例四类别 QA：固定同一 8 例、挖空输入�
 - exp014 解除类别与病例绑定后，NETC/SNFH 的四类 histogram Top-1 仅 `3/8、2/8`；ET 的高亮
   响应最明显，但 NETC/SNFH/RC 未形成稳定可辨外观。生成样本 GLCM-LOCO `26/32` 不能替代
   真实 held-out T1c 上的无标签泄漏类别可分性上限验证。
+- exp016 表明 exp012 在配对条件下优于 exp010，但不是只改变 `λhist` 的单因素消融；若要声明
+  soft-histogram loss 的独立增益，仍需保持 lesion-only x0 契约不变并补做 `λhist=0` 对照。
 - exp008 的训练 loss 与 validation loss 正常下降，但完整反向采样在病灶区退化到接近 `0`；
   下一步必须先区分 teacher-forced 噪声预测、逐步 `x0` 重建和自由采样之间的失配，不能直接扩展数据规模。
 - exp005 p64 虽完成 50,000 step，但其训练契约缺少挖空 T1c 与 mask 空间条件，已失效；
