@@ -14,6 +14,10 @@
   门禁，并记录每卡峰值显存；历史配置默认仍保持单 GPU preflight。
 - 启动前远端两张 A100 80GB 均为空闲，W&B 本机凭据可用；正式训练须在双 GPU preflight、
   配置解析、focused tests 和文档同步全部通过后才启动。
+- 远端 focused tests `2/2`、完整 Hydra 解析和双 GPU online preflight 均通过；preflight 未执行
+  optimizer update，loss/grad norm 为 `1.069795/16.795513`，GPU0/1 反向峰值显存为
+  `11855.53/11693.59 MiB`，完整 validation loss 为 `0.996759`，覆盖 1032 patch、73 subject
+  和全部四类，checkpoint 恢复成功。W&B preflight run 已 finished 并同步。
 
 ## 2026-08-08 — exp016 完成 exp010/exp012 同病例四类别配对比较
 

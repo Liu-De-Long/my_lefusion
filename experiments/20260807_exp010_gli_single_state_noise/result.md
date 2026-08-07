@@ -73,7 +73,12 @@ exp010 已证明单一完整 T1c 状态能在 5k 内学习挖空区域的非平�
 
 ### 结果
 
-等待双 GPU preflight 与正式启动。
+- 双 GPU online preflight 已通过，optimizer update 为 `0`；W&B：
+  [exp010-p64-full50k-2gpu-preflight-s20260805-r1](https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp010-p64-full50k-2gpu-preflight-s20260805-r1)。
+- 真实 batch shape 为 `[4,1,32,64,64]`，loss `1.069795`，梯度范数 `16.795513`。
+- GPU0/1 反向峰值显存为 `11855.53/11693.59 MiB`；双卡均有实际计算与参数副本。
+- 完整 validation 覆盖 1032 patch、73 subject、3207 个有效类单元和全部四类，EMA total loss
+  `0.996759`；checkpoint 保存/恢复和下一 batch 读取通过，临时 checkpoint 已自动删除。
 
 ### 结论
 
@@ -81,7 +86,7 @@ exp010 已证明单一完整 T1c 状态能在 5k 内学习挖空区域的非平�
 
 ### 下一步
 
-先完成双 GPU 零 optimizer update preflight；通过后只启动这一份 exp010 正式训练并监控 W&B。
+只启动这一份 exp010 正式训练并监控 W&B；exp012 保持未启动。
 
 ### 输出路径
 
