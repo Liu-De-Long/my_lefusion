@@ -1604,6 +1604,148 @@ def run_cpu_preflight(
     return result
 
 
+def run_gpu_preflight(
+    config_path: str | Path,
+    *,
+    output_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Exercise the configured full-p64 training graph without an optimizer step."""
+
+    config = load_config(config_path)
+    data_config = config["data"]
+    training_config = config["training"]
+    seed = int(training_config["seed"])
+    seed_everything(seed)
+    device = resolve_device(training_config.get("device", "auto"))
+    if device.type != "cuda":
+        raise RuntimeError("GPU preflight requires a CUDA device")
+    dataset_root = Path(data_config["dataset_root"])
+    split_file = Path(data_config["split_file"])
+    subset_path = Path(data_config["labeled_subset"])
+    labeled_records, subset_payload = load_labeled_subset(
+        subset_path, dataset_root, split_file
+    )
+    kind = str(config["model"]["kind"]).lower()
+    if kind not in SPATIAL_MODEL_KINDS:
+        raise ValueError("GPU full-p64 preflight is only defined for spatial models")
+    batch_size = int(training_config.get("batch_size", 1))
+    model = _model_from_config(config).to(device).train()
+    class_weights = class_weights_from_subset(subset_payload)
+    settings = _loss_settings(training_config, device)
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats(device)
+    started = time.monotonic()
+
+    image, mask, target = _load_spatial_batch(
+        dataset_root, labeled_records[:batch_size], load_targets=True
+    )
+    if target is None:
+        raise AssertionError("GPU preflight labeled batch has no target")
+    image = image.to(device)
+    mask = mask.to(device)
+    target = target.to(device)
+    inputs = torch.cat((image, mask[:, None].to(image.dtype)), dim=1)
+    logits = model(inputs)
+    supervised_loss, _ = _masked_supervised_loss(
+        logits,
+        target,
+        mask,
+        class_weights=class_weights,
+        settings=settings,
+    )
+    loss = supervised_loss
+    semi_result: dict[str, Any] = {}
+    if str(training_config.get("mode", "supervised")) == "mean_teacher":
+        train_pool, _ = load_manifest_records(dataset_root, split_file, split="train")
+        labeled_paths = {str(record["relative_path"]) for record in labeled_records}
+        unlabeled_pool = [
+            record
+            for record in _input_only_records(train_pool)
+            if str(record["relative_path"]) not in labeled_paths
+        ]
+        unlabeled_batch_size = int(training_config.get("unlabeled_batch_size", 1))
+        unlabeled_image, unlabeled_mask, unlabeled_target = _load_spatial_batch(
+            dataset_root,
+            unlabeled_pool[:unlabeled_batch_size],
+            load_targets=False,
+        )
+        if unlabeled_target is not None:
+            raise AssertionError("GPU preflight unlabeled batch leaked a target")
+        unlabeled_inputs = torch.cat(
+            (
+                unlabeled_image,
+                unlabeled_mask[:, None].to(unlabeled_image.dtype),
+            ),
+            dim=1,
+        ).to(device)
+        unlabeled_mask = unlabeled_mask.to(device)
+        teacher = deepcopy(model).eval()
+        for parameter in teacher.parameters():
+            parameter.requires_grad_(False)
+        with torch.no_grad():
+            teacher_logits = teacher(unlabeled_inputs)
+        student_logits = model(unlabeled_inputs)
+        consistency_loss, pseudo_stats = _pseudo_consistency_loss(
+            student_logits,
+            teacher_logits,
+            unlabeled_mask,
+            threshold=0.0,
+            max_per_class=int(
+                training_config.get("semi_supervised", {}).get(
+                    "max_pseudo_voxels_per_class", 8192
+                )
+            ),
+            class_weights=class_weights,
+        )
+        loss = loss + float(
+            training_config.get("semi_supervised", {}).get("weight", 0.5)
+        ) * consistency_loss
+        semi_result = {
+            "unlabeled_batch_size": unlabeled_batch_size,
+            "unlabeled_target_present": False,
+            "pseudo_selected_voxels": int(pseudo_stats["selected_voxels"]),
+        }
+    if not torch.isfinite(loss):
+        raise RuntimeError(f"non-finite GPU preflight loss: {loss}")
+    loss.backward()
+    gradient_norm = torch.sqrt(
+        sum(
+            parameter.grad.detach().square().sum()
+            for parameter in model.parameters()
+            if parameter.grad is not None
+        )
+    )
+    if not torch.isfinite(gradient_norm) or float(gradient_norm) <= 0:
+        raise RuntimeError(f"invalid GPU preflight gradient norm: {gradient_norm}")
+    result = {
+        "schema_version": 1,
+        "experiment_id": config["experiment_id"],
+        "training_mode": str(training_config.get("mode", "supervised")),
+        "model_kind": kind,
+        "device": str(device),
+        "optimizer_steps": 0,
+        "parameter_count": count_parameters(model),
+        "batch_size": batch_size,
+        "input_shape": list(inputs.shape),
+        "output_shape": list(logits.shape),
+        "loss": float(loss.detach().cpu()),
+        "gradient_norm": float(gradient_norm.detach().cpu()),
+        "peak_allocated_mib": torch.cuda.max_memory_allocated(device) / (1024**2),
+        "peak_reserved_mib": torch.cuda.max_memory_reserved(device) / (1024**2),
+        "subset_sha256": sha256_file(subset_path),
+        "config_sha256": config["_config_sha256"],
+        "elapsed_seconds": time.monotonic() - started,
+        **semi_result,
+    }
+    if output_path is not None:
+        output = Path(output_path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    return result
+
+
 def run_evaluation(
     config_path: str | Path,
     checkpoint_path: str | Path,
