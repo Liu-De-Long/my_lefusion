@@ -1,6 +1,7 @@
 experiment_id: 20260808_exp014_gli_four_class_counterfactual_qa
 type: qa_method_extension
 source_experiment: 20260807_exp012_gli_lesion_only_x0_hist
+code_commit: 8c093ad26a692b5ecb641c5cd9f1194c3393dc7a
 checkpoint_step: 5000
 checkpoint_weights: ema
 checkpoint_seed: 20260805
