@@ -49,6 +49,8 @@ BraTS2024 GLI 流程状态：
 11. exp013 在不改变输入白名单和冻结 1000 patch 的前提下，完成多尺度残差 3D U-Net 与
     mean-teacher 一致性训练。监督/半监督患者等权 ET/RC focus mIoU 分别为 `0.5730/0.5727`，
     均未通过 `0.85` 门禁；冻结 test 未运行。
+12. exp014 从 exp013 监督 best warm-start，向同一 U-Net 加入 18 通道 T1c/总 mask 无泄漏
+    几何输入，并用 Lovász 与类间边界监督继续优化验证 IoU；仍固定同一 1000 patch。
 
 ## 项目结构
 
@@ -203,6 +205,7 @@ GLI loss 对 batch 中所有非空 `(sample, lesion channel)` 单元等权平均
 - GLI patch 级 inference 闭环接口：`docs/20260805_003_gli_inference_closed_loop.md`
 - GLI 正式训练方案与可行性判断：`docs/20260805_004_gli_formal_training_plan.md`
 - GLI p64 少标签逐体素亚区分类方案：`docs/20260806_001_gli_p64_weak_supervision_classifier_plan.md`
+- GLI p64 几何与边界 IoU 优化方案：`docs/20260807_002_gli_p64_geometry_boundary_classifier.md`
 - 可复用 GLI 病灶统计脚本：`scripts/brats_gli_lesion_patch_stats.py`
 - T1c 局部 patch 实验：`experiments/20260804_exp001_t1c_local_patch_dataset/result.md`
 - GLI lesion-aware 训练接入：`experiments/20260805_exp003_gli_lesion_aware_training/result.md`

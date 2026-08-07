@@ -640,3 +640,14 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   `exp013-unet-mt-s20260807`。最终 classifier 单测 12/12 通过。
 - 三项性能门禁均失败，空间门禁通过；未生成任何 test 指标。下一方法实验将验证仅由 T1c 与
   总 mask 推导的显式几何通道和小区域边界监督。
+
+## 2026-08-07 — 启动 exp014 几何通道与边界 IoU 优化
+
+- 经用户明确授权，在独立分支/worktree 实现 `geometry_unet3d`：输入为 17 个 M1 leak-safe
+  dense feature 与总 mask，共 18 通道；不使用真实四分类标签派生输入。
+- 新增 exp013 监督 best 的严格 warm-start：共享参数完全复用，新增输入通道权重置 0；
+  checkpoint model kind、subset SHA 与全部参数 shape 不匹配时 fail closed。
+- 新增 mask 内 Lovász-Softmax 和类间边界加权监督；现有 `unet3d` 配置默认权重为 0，保持
+  原路径计算兼容。
+- 本地静态编译通过；远端 `lefusion` 环境 focused tests 15/15 通过。下一步为 CPU/GPU0
+  零 optimizer-step preflight；验证门禁通过前不运行冻结 test。

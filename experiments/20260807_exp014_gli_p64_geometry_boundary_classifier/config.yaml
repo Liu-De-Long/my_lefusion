@@ -1,0 +1,48 @@
+experiment_id: 20260807_exp014_gli_p64_geometry_boundary_classifier
+data:
+  dataset_root: /workspace/LeFusion_v2/dataset/brats2024_gli_t1c_local_patches
+  split_file: experiments/20260805_exp004_gli_inference_closed_loop/splits_v2.json
+  labeled_subset: experiments/20260806_exp009_gli_p64_weak_supervision_classifier/labeled_subset_1000.json
+model:
+  kind: geometry_unet3d
+  unet_base_channels: 32
+training:
+  mode: supervised
+  initial_checkpoint: /workspace/LeFusion_v2/my_experiment_exp013/experiments/20260807_exp013_gli_p64_multiscale_semisupervised_classifier/outputs/supervised/best.pt
+  seed: 20260807
+  device: auto
+  epochs: 50
+  learning_rate: 0.0002
+  min_learning_rate: 0.000001
+  weight_decay: 0.0001
+  batch_size: 8
+  lr_patience: 4
+  early_stopping_patience: 12
+  early_stopping_min_delta: 0.003
+  output_dir: experiments/20260807_exp014_gli_p64_geometry_boundary_classifier/outputs/geometry_boundary
+  loss:
+    ce_weight: 0.25
+    focal_weight: 0.10
+    dice_weight: 0.25
+    lovasz_weight: 0.40
+    focal_gamma: 2.0
+    focus_class_multiplier: 1.25
+    boundary_multiplier: 1.5
+  augmentation:
+    enabled: true
+    scale_range: 0.05
+    shift_range: 0.05
+    noise_std: 0.015
+evaluation:
+  inference_voxels: 65536
+  batch_size: 8
+  bootstrap_samples: 1000
+wandb:
+  enabled: true
+  fail_closed: true
+  mode: online
+  entity: jinyuanbao719-xi-an-jiaotong-university-
+  project: lefusion-brats2024-gli
+  run_id: exp014-geometry-boundary-s20260807
+  run_name: exp014-geometry-boundary-s20260807
+  dir: experiments/20260807_exp014_gli_p64_geometry_boundary_classifier/outputs/geometry_boundary/wandb
