@@ -1,7 +1,7 @@
 variant: patch_64x64x32_seed_20260805_full_50k_2gpu
 hydra_config: LeFusion/train/config/experiment/gli_exp010_single_state_noise_64x64x32_full.yaml
 status: preflight_pending
-code_commit: pending
+code_commit: dcea75a784a2af087010fead7fd71d307a76fd49
 seed: 20260805
 initialization: random
 source_short_checkpoint_used: false
