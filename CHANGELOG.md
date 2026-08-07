@@ -651,3 +651,12 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   原路径计算兼容。
 - 本地静态编译通过；远端 `lefusion` 环境 focused tests 15/15 通过。下一步为 CPU/GPU0
   零 optimizer-step preflight；验证门禁通过前不运行冻结 test。
+
+## 2026-08-07 — exp014 CPU/GPU0 preflight 通过
+
+- CPU preflight 完成八个 `anchor×role` 层覆盖与真实 exp013 best warm-start；loss/梯度有限，
+  optimizer steps 为 0。
+- GPU0 完整 p64、batch 8 输入/输出为 `[8,18,32,64,64] -> [8,4,32,64,64]`，峰值
+  allocated/reserved 显存为 `2829/3958 MiB`，optimizer steps 为 0。
+- subset SHA、config SHA 与 initial checkpoint SHA 均已写入两份 preflight 产物。同步文档后
+  只启动一个 W&B online 正式 run；冻结 test 继续封存。

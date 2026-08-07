@@ -47,3 +47,12 @@ train/val/test 患者隔离保持不变。正式训练必须 W&B online fail-clo
 
 验证门禁保持：focus mIoU ≥0.85、ET IoU ≥0.80、RC IoU ≥0.80、mask 外非零率为 0、
 union Dice 为 1。五项全部通过前不得运行冻结 test；通过后也只允许一次 test。
+
+## 6. Preflight 结果
+
+- 远端 focused tests 15/15 通过。
+- CPU 零步 preflight 覆盖八个 `anchor×role` 层，真实 exp013 checkpoint warm-start 成功。
+- GPU0 完整 p64、batch 8 零步 preflight 输入/输出为
+  `[8,18,32,64,64] -> [8,4,32,64,64]`；loss 与梯度有限，峰值 allocated/reserved 为
+  `2829/3958 MiB`。
+- 两次 preflight 的 optimizer steps 均为 0，subset 与 initial checkpoint SHA 完全一致。

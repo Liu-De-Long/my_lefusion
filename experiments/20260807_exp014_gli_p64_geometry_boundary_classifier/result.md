@@ -27,17 +27,24 @@ ET/RC 患者等权 focus mIoU 从 exp013 的 `0.573000` 提升至至少 `0.85`�
 ## 结果
 
 - 本地静态编译通过；远端 focused tests 15/15 通过。
-- 正式 CPU/GPU preflight 与训练尚未运行。
+- CPU 零 optimizer-step preflight 通过：输入/输出为 `[1,18,8,16,16] -> [1,4,8,16,16]`，
+  loss `0.463277`，gradient norm `11.4095`，八个 `anchor×role` 层全部覆盖。
+- GPU0 完整 p64 零 optimizer-step preflight 通过：batch 8，输入/输出为
+  `[8,18,32,64,64] -> [8,4,32,64,64]`，loss `0.258514`，gradient norm `1.84317`，
+  峰值 allocated/reserved 显存为 `2829/3958 MiB`。
+- 两次 preflight 的初始 checkpoint SHA-256 均为
+  `de3636a2b169373c1b2e0bfb678dec07c7f7136a0cb1465c69ac6c2f6646b37a`，冻结 subset SHA
+  均为 `aa7cd9844550c826f17ebe4cb43718d5c8ff61759c3b0ae81b7935c79886fa3a`。
+- 正式训练尚未运行。
 - 冻结 test 未运行。
 
 ## 结论
 
-等待 preflight 与验证集证据；不得从设计意图推断性能提升。
+真实 warm-start、18 通道完整图、loss/梯度与显存门禁已通过；尚无验证集性能证据。
 
 ## 下一步
 
-先执行 CPU 和 GPU0 零 optimizer-step preflight，验证真实 exp013 checkpoint warm-start、完整
-p64 shape、loss/梯度、显存与输入泄漏边界。全部通过并同步文档后，才启动 GPU0 正式训练。
+同步 preflight 文档后，启动且只启动 GPU0 正式 W&B run；仅按完整患者级 val 选择。
 
 ## 输出路径
 

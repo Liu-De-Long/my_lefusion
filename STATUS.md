@@ -98,7 +98,8 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
   W&B online run 与 checkpoint/config/subset SHA 均已保留。
 - 已创建 `20260807_exp014_gli_p64_geometry_boundary_classifier`：从 exp013 监督 best 严格
   warm-start，新增 18 通道 T1c/总 mask 几何输入、Lovász 与类间边界监督；本地静态编译及
-  远端 focused tests 15/15 通过，待 CPU/GPU0 零步 preflight，冻结 test 继续封存。
+  远端 focused tests 15/15 通过。CPU 与 GPU0 完整 p64 零 optimizer-step preflight 均通过；
+  GPU batch 8 峰值 allocated/reserved 为 `2829/3958 MiB`，冻结 test 继续封存。
 
 ## 失败尝试
 
@@ -139,5 +140,5 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
    改善监督；不重复已证实无增益的当前 mean-teacher 配方。
 6. 任何新训练仍须 W&B online fail-closed、GPU 零步 preflight、本地/远端 HEAD 一致，并仅按
    完整 p64 患者等权 val 选模；五项门禁通过前不运行冻结 test。
-7. exp014 先验证真实 warm-start SHA、18 通道完整 p64 loss/梯度和 GPU0 显存；通过后只启动
-   `exp014-geometry-boundary-s20260807`，不并行扩展其他 config。
+7. exp014 preflight 已通过；同步文档后只启动 `exp014-geometry-boundary-s20260807`，不并行
+   扩展其他 config，并仅依据完整患者级 val 决定是否晋级。
