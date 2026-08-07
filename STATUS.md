@@ -103,10 +103,12 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
 - exp014 的 `>1000` 体素 ET/RC patch Dice 为 `0.877092/0.808596`，`1–100` 体素仅
   `0.124810/0.196575`，小区域与患者等权聚合是当前主瓶颈。mask 外非零率 `0`、union Dice
   `1`；冻结 test 未运行。W&B 同一 run 已补记最终 val 与 early-stop 原因并正常结束。
-- 已建立本地独立方法实验 `20260807_exp015_gli_p64_patient_component_balanced_classifier` 草稿：
+- 已建立独立方法实验 `20260807_exp015_gli_p64_patient_component_balanced_classifier`：
   新增每患者等量 patch 轮换、样本类别/组件等权 CE/Focal、偏召回 sample-wise Tversky 和
-  top-32 patch presence；标签派生量仅进入 sampler/loss，18 通道输入不变。本地静态编译通过；
-  远端 SSH 当前超时，尚未同步或执行 focused tests/CPU preflight，也未使用 GPU。
+  top-32 patch presence；标签派生量仅进入 sampler/loss，18 通道输入不变。分支已推送并同步到
+  远端独立 worktree；focused tests 20/20、CPU 与物理 GPU0 零 optimizer-step preflight 均通过。
+  GPU0 完整 p64 batch 8 峰值 allocated/reserved 显存为 `2865.985/3946 MiB`；GPU1 未被干扰。
+  尚未启动正式训练，冻结 test 未运行。
 
 ## 失败尝试
 
@@ -150,5 +152,5 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
 7. 下一方法实验优先处理小区域/患者等权目标：患者或 patch 等权重采样/loss、component-aware
    或 hierarchical head，以及 val-only 小组件后处理审计；任何新训练使用新实验 ID。
 8. exp014 三项性能门禁失败，冻结 test 继续封存；不得因 pooled IoU 较高而绕过患者等权门禁。
-9. exp015 待 SSH 恢复后先同步同一 commit 并运行 focused tests/CPU 零步 preflight；获得新的
-   GPU 授权前不得执行 GPU preflight 或正式训练，test 继续封存。
+9. exp015 已获得 GPU0 与 val-only 正式训练授权，focused tests/CPU/GPU0 零步 preflight 已通过；
+   同步训练前文档并核验 W&B online、GPU0、HEAD 与输出目录后，只启动一个正式 run。test 继续封存。

@@ -54,8 +54,9 @@ BraTS2024 GLI 流程状态：
     大区域 ET/RC Dice 已达 `0.8771/0.8086`，但 1–100 体素小区域仅 `0.1248/0.1966`；
     因性能门禁失败已方法级 early stop，冻结 test 未运行。
 13. exp015 针对上述目标失配，将训练改为患者等权 patch 轮换、样本类别/连通组件等权 reduction、
-    偏召回 Tversky 与 patch presence 辅助；模型输入白名单和冻结 test 门禁保持不变。当前仅完成
-    本地实现草稿与静态编译，尚未获得新 GPU 授权或产生性能结果。
+    偏召回 Tversky 与 patch presence 辅助；模型输入白名单和冻结 test 门禁保持不变。远端
+    focused tests 20/20、CPU 与物理 GPU0 零步 preflight 已通过，待同步文档后启动唯一一个
+    W&B online、val-only 正式 run；尚无性能结果，test 继续封存。
 
 ## 项目结构
 

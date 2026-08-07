@@ -700,3 +700,17 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
 - 长期设计记录于 `docs/20260807_003_gli_p64_patient_component_balanced_classifier.md`；恢复远端后
   必须先同步同一 commit 并完成 focused tests/CPU 零步 preflight。新的 GPU preflight 和正式
   run 仍需用户授权。
+
+## 2026-08-08 — exp015 远端恢复与训练前验收
+
+- 用户授权推送 exp015，并允许远端恢复后执行 focused tests、CPU/GPU0 preflight 与 val-only
+  正式训练；冻结 test 五项门禁保持不变。
+- 分支已推送，并在 `/workspace/LeFusion_v2/my_experiment_exp015` 建立独立 worktree；未触碰远端
+  主 worktree 的既存 ahead commit、`.hydra/` 或 GPU1 进程。
+- focused tests 首次 19/20；唯一失败是测试样例只有单组件，无法验证组件内归一后的权重放大。
+  在同一样本同一类别加入大小两个分离组件后，提交 `4bd5f8e5a1d0c4102c403e21d5fa470833385bdb`
+  的完整 focused tests 为 20/20。
+- CPU preflight 通过，optimizer steps 为 0；物理 GPU0 完整 p64 batch 8 preflight 通过，optimizer
+  steps 为 0，峰值 allocated/reserved 显存为 `2865.985/3946 MiB`。GPU1 既存进程未被干扰。
+- subset/config/initial checkpoint SHA-256 与冻结契约一致；截至本记录尚未初始化正式 W&B run、
+  未执行正式 optimizer step、未读取或运行 test。

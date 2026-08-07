@@ -44,3 +44,22 @@ presence 使用 mask 内每类 top-32 概率均值做二元辅助，显式区分
 3. 获得新 GPU 授权后再做 GPU0 零步 preflight；
 4. 只运行一个 W&B online 正式 run，仅按完整患者级 val 选模；
 5. focus mIoU、ET IoU、RC IoU 与两项空间门禁全部通过后，才允许一次冻结 test。
+
+## 6. 2026-08-08 训练前验收
+
+- 用户已授权推送 exp015，并在远端恢复后执行 focused tests、CPU/GPU0 preflight 和 val-only
+  正式训练；冻结 test 的五项门禁没有变化。
+- 分支已推送，并在 `/workspace/LeFusion_v2/my_experiment_exp015` 创建独立 worktree。本地、
+  origin 与远端训练代码提交为 `4bd5f8e5a1d0c4102c403e21d5fa470833385bdb`。
+- focused tests 首次为 19/20；唯一失败来自测试样例每个样本类别只有一个组件，无法触发归一化后
+  大于 1 的小组件权重。补充同类大小两个分离组件后，完整 focused tests 为 20/20。
+- CPU preflight 为零 optimizer step，覆盖 8 个 `类别×boundary/interior` 分层；输入/输出为
+  `[1,18,8,16,16] -> [1,4,8,16,16]`，loss `0.748481`，gradient norm `23.960320`。
+- GPU preflight 只暴露物理 GPU0，完整 p64 batch 8 输入/输出为
+  `[8,18,32,64,64] -> [8,4,32,64,64]`；loss `0.462901`，gradient norm `4.351939`，
+  峰值 allocated/reserved 显存 `2865.985/3946 MiB`，optimizer steps 为 0。GPU1 既存进程未被干扰。
+- 两份 preflight 的冻结 subset SHA-256 均为
+  `aa7cd9844550c826f17ebe4cb43718d5c8ff61759c3b0ae81b7935c79886fa3a`，config SHA-256 均为
+  `66569653115af42e26667e3b3abe01120951704edfa87d0588c4dbfdcd259abd`，exp014 initial checkpoint
+  SHA-256 均为 `b293e5d35b078f6a290a24695f0081e0ce0599154513bf6bcbf7372a007898c2`。
+- 截至本记录，尚未初始化 exp015 正式 W&B run、未执行 optimizer step、未读取或运行 test。
