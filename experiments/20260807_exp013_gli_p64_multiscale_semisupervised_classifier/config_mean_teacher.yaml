@@ -1,0 +1,56 @@
+experiment_id: 20260807_exp013_gli_p64_multiscale_semisupervised_classifier
+data:
+  dataset_root: /workspace/LeFusion_v2/dataset/brats2024_gli_t1c_local_patches
+  split_file: experiments/20260805_exp004_gli_inference_closed_loop/splits_v2.json
+  labeled_subset: experiments/20260806_exp009_gli_p64_weak_supervision_classifier/labeled_subset_1000.json
+model:
+  kind: unet3d
+  unet_base_channels: 24
+training:
+  mode: mean_teacher
+  initial_checkpoint: experiments/20260807_exp013_gli_p64_multiscale_semisupervised_classifier/outputs/supervised/best.pt
+  seed: 20260807
+  device: auto
+  epochs: 24
+  learning_rate: 0.0001
+  min_learning_rate: 0.000001
+  weight_decay: 0.0001
+  batch_size: 1
+  unlabeled_batch_size: 1
+  unlabeled_patches_per_epoch: 1000
+  lr_patience: 3
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.005
+  output_dir: experiments/20260807_exp013_gli_p64_multiscale_semisupervised_classifier/outputs/mean_teacher
+  loss:
+    ce_weight: 0.4
+    focal_weight: 0.2
+    dice_weight: 0.4
+    focal_gamma: 2.0
+    focus_class_multiplier: 1.25
+  augmentation:
+    enabled: true
+    scale_range: 0.1
+    shift_range: 0.1
+    noise_std: 0.03
+    strong_scale_range: 0.2
+    strong_shift_range: 0.15
+    strong_noise_std: 0.06
+  semi_supervised:
+    ema_decay: 0.99
+    confidence_threshold: 0.9
+    max_pseudo_voxels_per_class: 8192
+    weight: 0.5
+    ramp_epochs: 5
+evaluation:
+  inference_voxels: 65536
+  bootstrap_samples: 1000
+wandb:
+  enabled: true
+  fail_closed: true
+  mode: online
+  entity: jinyuanbao719-xi-an-jiaotong-university-
+  project: lefusion-brats2024-gli
+  run_id: exp013-unet-mt-s20260807
+  run_name: exp013-unet-mean-teacher-s20260807
+  dir: experiments/20260807_exp013_gli_p64_multiscale_semisupervised_classifier/outputs/mean_teacher/wandb

@@ -10,7 +10,13 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from LeFusion.classifier.engine import _feature_rows_and_target, validate_test_gate
+from LeFusion.classifier.engine import (
+    _cyclic_epoch_records,
+    _feature_rows_and_target,
+    _select_balanced_pseudo_voxels,
+    update_selection_state,
+    validate_test_gate,
+)
 from LeFusion.classifier.data import (
     GLIClassifierPatchDataset,
     SAFE_SAMPLE_KEYS,
@@ -19,6 +25,7 @@ from LeFusion.classifier.data import (
 from LeFusion.classifier.features import FEATURE_CHANNELS, build_feature_volume
 from LeFusion.classifier.metrics import PatientMetricAccumulator, reconstruct_prediction
 from LeFusion.classifier.models import build_classifier, count_parameters
+from LeFusion.classifier.tracking import validate_classifier_wandb_config
 
 
 MANIFEST_FIELDS = [
@@ -128,6 +135,18 @@ class TestGLIClassifierData(unittest.TestCase):
             self.assertTrue(torch.equal(sample["image"], permuted["image"]))
             self.assertTrue(torch.equal(sample["total_mask"], permuted["total_mask"]))
             self.assertFalse(torch.equal(sample["target"], permuted["target"]))
+            unlabeled_dataset = GLIClassifierPatchDataset(
+                root,
+                [
+                    {
+                        "relative_path": "patches/sample.npz",
+                        "case_id": "case",
+                        "subject_id": "subject",
+                    }
+                ],
+                load_targets=False,
+            )
+            self.assertNotIn("target", unlabeled_dataset[0])
 
 
 class TestGLIClassifierFeaturesAndModels(unittest.TestCase):
@@ -151,6 +170,10 @@ class TestGLIClassifierFeaturesAndModels(unittest.TestCase):
         output = cnn(torch.zeros(1, 2, 4, 8, 8))
         self.assertEqual(tuple(output.shape), (1, 4, 4, 8, 8))
         self.assertLess(count_parameters(cnn), 400_000)
+        unet = build_classifier("unet3d", unet_base_channels=8)
+        output = unet(torch.zeros(1, 2, 8, 16, 16))
+        self.assertEqual(tuple(output.shape), (1, 4, 8, 16, 16))
+        self.assertLess(count_parameters(unet), 2_000_000)
 
     def test_feature_row_cache_keeps_targets_separate_and_reuses_rows(self) -> None:
         image = torch.linspace(-1, 1, 4 * 5 * 6).reshape(1, 4, 5, 6)
@@ -180,6 +203,89 @@ class TestGLIClassifierFeaturesAndModels(unittest.TestCase):
 
 
 class TestGLIClassifierMetrics(unittest.TestCase):
+    def test_unlabeled_epoch_sampler_covers_pool_without_label_metadata(self) -> None:
+        records = [
+            {
+                "relative_path": f"patch-{index}.npz",
+                "case_id": f"case-{index}",
+                "subject_id": f"subject-{index}",
+            }
+            for index in range(7)
+        ]
+        covered = set()
+        for epoch in range(3):
+            sampled = _cyclic_epoch_records(records, count=3, seed=11, epoch=epoch)
+            covered.update(item["relative_path"] for item in sampled)
+        self.assertEqual(covered, {item["relative_path"] for item in records})
+
+    def test_pseudo_voxel_selection_is_confident_and_class_balanced(self) -> None:
+        confidence = torch.tensor([[[0.99, 0.98, 0.97, 0.96, 0.95, 0.70]]])
+        pseudo = torch.tensor([[[0, 0, 0, 1, 1, 2]]])
+        mask = torch.ones_like(pseudo, dtype=torch.bool)
+        selected = _select_balanced_pseudo_voxels(
+            confidence,
+            pseudo,
+            mask,
+            threshold=0.9,
+            max_per_class=2,
+        )
+        self.assertEqual(int(selected.sum()), 4)
+        self.assertTrue(torch.all(confidence[selected] >= 0.9))
+        self.assertEqual(int((pseudo[selected] == 0).sum()), 2)
+        self.assertEqual(int((pseudo[selected] == 1).sum()), 2)
+
+    def test_formal_wandb_config_is_online_and_fail_closed(self) -> None:
+        config = {
+            "wandb": {
+                "enabled": True,
+                "fail_closed": True,
+                "mode": "online",
+                "entity": "entity",
+                "project": "project",
+                "run_id": "run-id",
+                "run_name": "run-name",
+                "dir": "outputs/wandb",
+            }
+        }
+        self.assertEqual(
+            validate_classifier_wandb_config(config, resume=False)["resume"], "never"
+        )
+        self.assertEqual(
+            validate_classifier_wandb_config(config, resume=True)["resume"], "must"
+        )
+        config["wandb"]["mode"] = "offline"
+        with self.assertRaises(ValueError):
+            validate_classifier_wandb_config(config, resume=False)
+
+    def test_absolute_best_is_independent_from_early_stopping_delta(self) -> None:
+        state = update_selection_state(
+            0.5436,
+            best_metric=0.5436,
+            patience_metric=0.5436,
+            bad_epochs=2,
+            min_delta=0.005,
+        )
+        best, patience_reference, bad_epochs, is_best, is_significant = state
+        self.assertEqual(best, 0.5436)
+        self.assertEqual(patience_reference, 0.5436)
+        self.assertEqual(bad_epochs, 3)
+        self.assertFalse(is_best)
+        self.assertFalse(is_significant)
+
+        state = update_selection_state(
+            0.5482,
+            best_metric=best,
+            patience_metric=patience_reference,
+            bad_epochs=bad_epochs,
+            min_delta=0.005,
+        )
+        best, patience_reference, bad_epochs, is_best, is_significant = state
+        self.assertEqual(best, 0.5482)
+        self.assertEqual(patience_reference, 0.5436)
+        self.assertEqual(bad_epochs, 4)
+        self.assertTrue(is_best)
+        self.assertFalse(is_significant)
+
     def test_reconstruction_forces_background_and_patient_metrics(self) -> None:
         mask = torch.zeros((2, 2, 2), dtype=torch.bool)
         mask.flatten()[:4] = True

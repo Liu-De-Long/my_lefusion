@@ -46,6 +46,9 @@ BraTS2024 GLI 流程状态：
    loss 仍只在对应病灶区域计算；当前重新训练 p64，旧 QA 不再作为有效方法结论。
 10. exp009 已在冻结的 1000 个 p64 train patch 上完成 M0/M1/M2/C0 验证；完整 p64 轻量
     3D CNN 最佳患者等权 ET/RC focus mIoU 为 `0.5436`，未达到 `0.85`，冻结 test 未运行。
+11. exp013 在不改变输入白名单和冻结 1000 patch 的前提下，升级多尺度残差 3D U-Net；随后
+    允许剩余 train patch 仅以无标签方式进入 mean-teacher 一致性训练。两阶段均只看 val，
+    通过五项门禁后才允许一次冻结 test。
 
 ## 项目结构
 

@@ -603,3 +603,17 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   checkpoint 的 `0.5436`；确认根因是 `early_stopping_min_delta` 被错误复用于 best 保存判断。
   由于该值仍远低于 0.85，冻结 test 继续封存；本地 `.tmp_c0_history.jsonl` 临时副本在汇总结论
   后删除，远端正式 history 未删除。
+
+## 2026-08-07 — 启动 exp013 多尺度残差与半监督分类方法
+
+- 用户授权保持 exp009 同一冻结 1000 patch，升级多尺度残差 3D U-Net，并允许剩余 train
+  patch 进入半监督一致性/伪标签训练。
+- exp010–exp012 已被另一个隔离任务占用，因此创建
+  `20260807_exp013_gli_p64_multiscale_semisupervised_classifier` 与独立分支/worktree，避免冲突。
+- 修复“`early_stopping_min_delta` 同时控制 best 保存”的缺陷：任何绝对 val 新高都保存，
+  min delta 只控制 patience 重置。
+- 新增两级残差 3D U-Net、dilation 1/2/4 多尺度 bottleneck、focus-weighted CE/focal/Dice、
+  T1c/空间增强、W&B online fail-closed 和 mean-teacher 训练框架。
+- mean-teacher 未标签 loader 不返回 target，也不使用 anchor/per-class hist/类别体素量；高置信
+  伪标签在总 mask 内按类限额，teacher 以 EMA 更新。
+- 当前只进入实现与测试阶段；尚未启动 GPU 训练，冻结 test 未运行。

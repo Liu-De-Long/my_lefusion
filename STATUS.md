@@ -92,6 +92,9 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
   依次训练 M0/M1/M2/C0；验证最佳为 C0，ET/RC focus mIoU `0.5436`，95% CI
   `[0.5000,0.5862]`，未过 0.85 门禁，冻结 test 未运行。长期方案与结论记录于
   `docs/20260806_001_gli_p64_weak_supervision_classifier_plan.md`。
+- 已创建 `20260807_exp013_gli_p64_multiscale_semisupervised_classifier`：监督阶段使用多尺度残差
+  3D U-Net，半监督阶段使用剩余 train patch 的 EMA teacher 一致性与高置信伪标签；长期方案为
+  `docs/20260807_001_gli_p64_multiscale_semisupervised_classifier.md`，当前实现与验证中，test 封存。
 
 ## 失败尝试
 
@@ -125,5 +128,7 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
 1. 监控 exp008 p64 seed `20260805` 的 W&B、latest/best/milestone 与 validation 收敛。
 2. 新 checkpoint 可用后仅先做少量冻结 QA，不运行 519 例或全量 test。
 3. 不自动启动其他 seed、p80 或额外训练；任何扩展均需新的用户授权。
-4. 若继续追求分类 focus mIoU 0.85，先补 W&B fail-closed，再由用户确认采用更强多尺度 3D
-   网络，还是允许剩余 train patch 进入半监督一致性/伪标签实验；验证门禁通过前不运行 test。
+4. exp013 先补 W&B fail-closed 与严格 best 保存，完成监督 U-Net 后再从其最佳 val checkpoint
+   启动 mean-teacher；验证门禁通过前不运行 test。
+5. 用户已同时授权监督多尺度与半监督两条路线；exp013 应先完成监督 U-Net，再从其最佳 val checkpoint 启动
+   mean-teacher，最终只按 val 选择一次候选，五项门禁通过后才运行冻结 test。

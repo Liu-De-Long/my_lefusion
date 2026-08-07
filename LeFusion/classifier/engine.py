@@ -10,6 +10,7 @@ import random
 import subprocess
 import sys
 import time
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -31,9 +32,11 @@ from .data import (
 from .features import FEATURE_CHANNELS, build_feature_volume, masked_feature_rows
 from .metrics import PatientMetricAccumulator, reconstruct_prediction
 from .models import build_classifier, count_parameters
+from .tracking import classifier_wandb_run
 
 
 FeatureRowCache = dict[str, tuple[torch.Tensor, torch.Tensor]]
+SPATIAL_MODEL_KINDS = {"c0", "unet3d"}
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -123,6 +126,36 @@ def _model_from_config(config: Mapping[str, Any]) -> nn.Module:
         hidden_dims=tuple(model_config.get("hidden_dims", [128, 64])),
         dropout=float(model_config.get("dropout", 0.1)),
         cnn_channels=int(model_config.get("cnn_channels", 24)),
+        unet_base_channels=int(model_config.get("unet_base_channels", 24)),
+    )
+
+
+def update_selection_state(
+    metric: float,
+    *,
+    best_metric: float,
+    patience_metric: float,
+    bad_epochs: int,
+    min_delta: float,
+) -> tuple[float, float, int, bool, bool]:
+    """Track the absolute best checkpoint independently from early stopping."""
+
+    metric = float(metric)
+    is_absolute_best = metric > float(best_metric)
+    if is_absolute_best:
+        best_metric = metric
+    is_significant_improvement = metric > float(patience_metric) + float(min_delta)
+    if is_significant_improvement:
+        patience_metric = metric
+        bad_epochs = 0
+    else:
+        bad_epochs = int(bad_epochs) + 1
+    return (
+        float(best_metric),
+        float(patience_metric),
+        int(bad_epochs),
+        bool(is_absolute_best),
+        bool(is_significant_improvement),
     )
 
 
@@ -142,10 +175,11 @@ def _checkpoint_payload(
     subset_path: Path,
     epoch: int,
     best_metric: float,
+    patience_metric: float,
     bad_epochs: int,
 ) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "experiment_id": config["experiment_id"],
         "model_kind": config["model"]["kind"],
         "model": model.state_dict(),
@@ -153,11 +187,13 @@ def _checkpoint_payload(
         "scheduler": scheduler.state_dict(),
         "epoch": int(epoch),
         "best_metric": float(best_metric),
+        "patience_metric": float(patience_metric),
         "bad_epochs": int(bad_epochs),
         "config_sha256": config["_config_sha256"],
         "subset_sha256": sha256_file(subset_path),
         "git_head": config["_git_head"],
         "git_branch": config["_git_branch"],
+        "wandb_run_id": str(config["wandb"]["run_id"]),
         "torch_rng_state": torch.get_rng_state(),
         "numpy_rng_state": np.random.get_state(),
         "python_rng_state": random.getstate(),
@@ -174,9 +210,9 @@ def _restore_checkpoint(
     config: Mapping[str, Any],
     subset_path: Path,
     device: torch.device,
-) -> tuple[int, float, int]:
+) -> tuple[int, float, float, int]:
     payload = torch.load(path, map_location=device)
-    if payload.get("schema_version") != 1:
+    if payload.get("schema_version") not in {1, 2}:
         raise ValueError("unsupported classifier checkpoint schema")
     if payload.get("experiment_id") != config["experiment_id"]:
         raise ValueError("checkpoint experiment ID mismatch")
@@ -186,6 +222,10 @@ def _restore_checkpoint(
         raise ValueError("checkpoint config hash mismatch")
     if payload.get("subset_sha256") != sha256_file(subset_path):
         raise ValueError("checkpoint subset hash mismatch")
+    if payload.get("schema_version") == 2 and payload.get("wandb_run_id") != str(
+        config["wandb"]["run_id"]
+    ):
+        raise ValueError("checkpoint W&B run ID mismatch")
     model.load_state_dict(payload["model"])
     if optimizer is not None:
         optimizer.load_state_dict(payload["optimizer"])
@@ -198,7 +238,14 @@ def _restore_checkpoint(
         torch.cuda.set_rng_state_all(
             [state.cpu() for state in payload["cuda_rng_state_all"]]
         )
-    return int(payload["epoch"]) + 1, float(payload["best_metric"]), int(payload["bad_epochs"])
+    best_metric = float(payload["best_metric"])
+    patience_metric = float(payload.get("patience_metric", best_metric))
+    return (
+        int(payload["epoch"]) + 1,
+        best_metric,
+        patience_metric,
+        int(payload["bad_epochs"]),
+    )
 
 
 def validate_test_gate(
@@ -319,7 +366,12 @@ def build_balanced_voxel_batch(
     return features[permutation], target[permutation]
 
 
-def _soft_dice_loss(logits: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+def _soft_dice_loss(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    mask: torch.Tensor,
+    class_multipliers: torch.Tensor | None = None,
+) -> torch.Tensor:
     probabilities = logits.softmax(dim=1)
     safe_target = target.clamp(0, 3)
     one_hot = F.one_hot(safe_target, 4).permute(0, 4, 1, 2, 3).to(probabilities.dtype)
@@ -330,7 +382,95 @@ def _soft_dice_loss(logits: torch.Tensor, target: torch.Tensor, mask: torch.Tens
     numerator = 2.0 * (probabilities * one_hot).sum(dim=reduction_dims)
     denominator = probabilities.sum(dim=reduction_dims) + one_hot.sum(dim=reduction_dims)
     valid = denominator > 0
-    return 1.0 - ((numerator[valid] + 1e-6) / (denominator[valid] + 1e-6)).mean()
+    dice = (numerator[valid] + 1e-6) / (denominator[valid] + 1e-6)
+    if class_multipliers is None:
+        return 1.0 - dice.mean()
+    weights = class_multipliers.to(dice.device, dice.dtype)[valid]
+    return 1.0 - (dice * weights).sum() / weights.sum().clamp_min(1e-6)
+
+
+def _loss_settings(training_config: Mapping[str, Any], device: torch.device) -> dict[str, Any]:
+    loss_config = training_config.get("loss", {})
+    focus_multiplier = float(loss_config.get("focus_class_multiplier", 1.0))
+    return {
+        "ce_weight": float(loss_config.get("ce_weight", 0.7)),
+        "focal_weight": float(loss_config.get("focal_weight", 0.0)),
+        "dice_weight": float(loss_config.get("dice_weight", 0.3)),
+        "focal_gamma": float(loss_config.get("focal_gamma", 2.0)),
+        "class_multipliers": torch.tensor(
+            [1.0, 1.0, focus_multiplier, focus_multiplier], device=device
+        ),
+    }
+
+
+def _masked_supervised_loss(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    mask: torch.Tensor,
+    *,
+    class_weights: torch.Tensor,
+    settings: Mapping[str, Any],
+) -> tuple[torch.Tensor, dict[str, float]]:
+    safe_target = target.clamp(0, 3)
+    effective_class_weights = class_weights.to(logits.device) * settings["class_multipliers"]
+    ce_map = F.cross_entropy(
+        logits,
+        safe_target,
+        weight=effective_class_weights,
+        reduction="none",
+    )
+    denominator = mask.sum().clamp_min(1)
+    cross_entropy = (ce_map * mask).sum() / denominator
+    target_probability = logits.softmax(dim=1).gather(1, safe_target[:, None]).squeeze(1)
+    focal = (((1.0 - target_probability) ** float(settings["focal_gamma"])) * ce_map * mask).sum()
+    focal = focal / denominator
+    dice = _soft_dice_loss(
+        logits,
+        target,
+        mask,
+        class_multipliers=settings["class_multipliers"],
+    )
+    loss = (
+        float(settings["ce_weight"]) * cross_entropy
+        + float(settings["focal_weight"]) * focal
+        + float(settings["dice_weight"]) * dice
+    )
+    return loss, {
+        "cross_entropy": float(cross_entropy.detach().cpu()),
+        "focal": float(focal.detach().cpu()),
+        "dice_loss": float(dice.detach().cpu()),
+    }
+
+
+def _augment_spatial_batch(
+    image: torch.Tensor,
+    mask: torch.Tensor,
+    target: torch.Tensor | None,
+    *,
+    generator: torch.Generator,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+    for image_axis, spatial_axis in ((2, 1), (3, 2), (4, 3)):
+        if float(torch.rand((), generator=generator)) < 0.5:
+            image = torch.flip(image, dims=(image_axis,))
+            mask = torch.flip(mask, dims=(spatial_axis,))
+            if target is not None:
+                target = torch.flip(target, dims=(spatial_axis,))
+    return image, mask, target
+
+
+def _augment_intensity(
+    image: torch.Tensor,
+    *,
+    generator: torch.Generator,
+    scale_range: float,
+    shift_range: float,
+    noise_std: float,
+) -> torch.Tensor:
+    batch = image.shape[0]
+    scale = 1.0 + (torch.rand((batch, 1, 1, 1, 1), generator=generator) * 2.0 - 1.0) * scale_range
+    shift = (torch.rand((batch, 1, 1, 1, 1), generator=generator) * 2.0 - 1.0) * shift_range
+    noise = torch.randn(image.shape, generator=generator, dtype=image.dtype) * noise_std
+    return image * scale.to(image.dtype) + shift.to(image.dtype) + noise
 
 
 def _train_mlp_epoch(
@@ -385,36 +525,325 @@ def _train_cnn_epoch(
     batch_size: int,
     class_weights: torch.Tensor,
     device: torch.device,
+    training_config: Mapping[str, Any],
 ) -> float:
     model.train()
     generator = torch.Generator().manual_seed(seed + 10_000_019 * epoch)
     order = torch.randperm(len(records), generator=generator).tolist()
     losses: list[float] = []
+    settings = _loss_settings(training_config, device)
+    augmentation = training_config.get("augmentation", {})
+    use_augmentation = bool(augmentation.get("enabled", False))
     for start in range(0, len(order), batch_size):
         batch_records = [_safe_records([records[index]])[0] for index in order[start : start + batch_size]]
         dataset = GLIClassifierPatchDataset(dataset_root, batch_records, load_targets=True)
         samples = [dataset[index] for index in range(len(dataset))]
-        image = torch.stack([sample["image"] for sample in samples]).to(device)  # type: ignore[list-item]
-        mask = torch.stack([sample["total_mask"][0] for sample in samples]).to(device)  # type: ignore[index]
-        target = torch.stack([sample["target"] for sample in samples]).to(device) - 1  # type: ignore[list-item,operator]
+        image = torch.stack([sample["image"] for sample in samples])  # type: ignore[list-item]
+        mask = torch.stack([sample["total_mask"][0] for sample in samples])  # type: ignore[index]
+        target = torch.stack([sample["target"] for sample in samples]) - 1  # type: ignore[list-item,operator]
+        if use_augmentation:
+            image, mask, target_augmented = _augment_spatial_batch(
+                image, mask, target, generator=generator
+            )
+            image = _augment_intensity(
+                image,
+                generator=generator,
+                scale_range=float(augmentation.get("scale_range", 0.1)),
+                shift_range=float(augmentation.get("shift_range", 0.1)),
+                noise_std=float(augmentation.get("noise_std", 0.03)),
+            )
+            if target_augmented is None:
+                raise AssertionError("labeled augmentation lost its target")
+            target = target_augmented
+        image = image.to(device)
+        mask = mask.to(device)
+        target = target.to(device)
         inputs = torch.cat((image, mask[:, None].to(image.dtype)), dim=1)
         optimizer.zero_grad(set_to_none=True)
         logits = model(inputs)
-        safe_target = target.clamp(0, 3)
-        loss_map = F.cross_entropy(
+        loss, _ = _masked_supervised_loss(
             logits,
-            safe_target,
-            weight=class_weights.to(device),
-            reduction="none",
+            target,
+            mask,
+            class_weights=class_weights,
+            settings=settings,
         )
-        cross_entropy = (loss_map * mask).sum() / mask.sum().clamp_min(1)
-        dice = _soft_dice_loss(logits, target, mask)
-        loss = 0.7 * cross_entropy + 0.3 * dice
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
         optimizer.step()
         losses.append(float(loss.detach().cpu()))
     return float(np.mean(losses))
+
+
+def _input_only_records(records: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
+    return [
+        {
+            "relative_path": str(record["relative_path"]),
+            "case_id": str(record["case_id"]),
+            "subject_id": str(record["subject_id"]),
+        }
+        for record in records
+    ]
+
+
+def _load_spatial_batch(
+    dataset_root: str | Path,
+    records: Sequence[Mapping[str, Any]],
+    *,
+    load_targets: bool,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+    dataset = GLIClassifierPatchDataset(
+        dataset_root, _input_only_records(records), load_targets=load_targets
+    )
+    samples = [dataset[index] for index in range(len(dataset))]
+    image = torch.stack([sample["image"] for sample in samples])  # type: ignore[list-item]
+    mask = torch.stack([sample["total_mask"][0] for sample in samples])  # type: ignore[index]
+    if not load_targets:
+        if any("target" in sample for sample in samples):
+            raise AssertionError("unlabeled classifier batch unexpectedly contains targets")
+        return image, mask, None
+    target = torch.stack([sample["target"] for sample in samples]) - 1  # type: ignore[list-item,operator]
+    return image, mask, target
+
+
+def _cyclic_epoch_records(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    count: int,
+    seed: int,
+    epoch: int,
+) -> list[dict[str, Any]]:
+    if not records:
+        raise ValueError("cannot sample an empty record pool")
+    count = min(int(count), len(records))
+    generator = torch.Generator().manual_seed(int(seed))
+    order = torch.randperm(len(records), generator=generator).tolist()
+    offset = (int(epoch) * count) % len(records)
+    indices = [order[(offset + index) % len(order)] for index in range(count)]
+    return [dict(records[index]) for index in indices]
+
+
+def _select_balanced_pseudo_voxels(
+    confidence: torch.Tensor,
+    pseudo_target: torch.Tensor,
+    mask: torch.Tensor,
+    *,
+    threshold: float,
+    max_per_class: int,
+) -> torch.Tensor:
+    selected = mask.to(torch.bool) & (confidence >= float(threshold))
+    balanced = torch.zeros_like(selected)
+    flat_confidence = confidence.flatten()
+    flat_target = pseudo_target.flatten()
+    flat_selected = selected.flatten()
+    flat_balanced = balanced.flatten()
+    for class_index in range(4):
+        indices = torch.nonzero(
+            flat_selected & (flat_target == class_index), as_tuple=False
+        ).flatten()
+        if indices.numel() > int(max_per_class):
+            top = torch.topk(flat_confidence[indices], int(max_per_class)).indices
+            indices = indices[top]
+        flat_balanced[indices] = True
+    return balanced
+
+
+def _pseudo_consistency_loss(
+    student_logits: torch.Tensor,
+    teacher_logits: torch.Tensor,
+    mask: torch.Tensor,
+    *,
+    threshold: float,
+    max_per_class: int,
+    class_weights: torch.Tensor,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    teacher_probabilities = teacher_logits.softmax(dim=1)
+    confidence, pseudo_target = teacher_probabilities.max(dim=1)
+    selected = _select_balanced_pseudo_voxels(
+        confidence,
+        pseudo_target,
+        mask,
+        threshold=threshold,
+        max_per_class=max_per_class,
+    )
+    selected_count = int(selected.sum())
+    lesion_count = int(mask.sum())
+    if selected_count == 0:
+        return student_logits.sum() * 0.0, {
+            "selected_voxels": 0.0,
+            "selected_fraction": 0.0,
+            "mean_confidence": 0.0,
+        }
+    ce_map = F.cross_entropy(
+        student_logits,
+        pseudo_target,
+        weight=class_weights.to(student_logits.device),
+        reduction="none",
+    )
+    pseudo_ce = (ce_map * selected).sum() / selected.sum()
+    student_probabilities = student_logits.softmax(dim=1)
+    consistency_map = (student_probabilities - teacher_probabilities).square().mean(dim=1)
+    probability_consistency = (consistency_map * selected).sum() / selected.sum()
+    loss = 0.8 * pseudo_ce + 0.2 * probability_consistency
+    return loss, {
+        "selected_voxels": float(selected_count),
+        "selected_fraction": float(selected_count / max(1, lesion_count)),
+        "mean_confidence": float(confidence[selected].mean().detach().cpu()),
+    }
+
+
+@torch.no_grad()
+def _ema_update(teacher: nn.Module, student: nn.Module, decay: float) -> None:
+    for teacher_parameter, student_parameter in zip(
+        teacher.parameters(), student.parameters(), strict=True
+    ):
+        teacher_parameter.mul_(float(decay)).add_(student_parameter, alpha=1.0 - float(decay))
+    for teacher_buffer, student_buffer in zip(
+        teacher.buffers(), student.buffers(), strict=True
+    ):
+        teacher_buffer.copy_(student_buffer)
+
+
+def _train_mean_teacher_epoch(
+    *,
+    student: nn.Module,
+    teacher: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    dataset_root: str | Path,
+    labeled_records: Sequence[Mapping[str, Any]],
+    unlabeled_records: Sequence[Mapping[str, Any]],
+    epoch: int,
+    seed: int,
+    training_config: Mapping[str, Any],
+    class_weights: torch.Tensor,
+    device: torch.device,
+) -> dict[str, float]:
+    student.train()
+    teacher.eval()
+    generator = torch.Generator().manual_seed(seed + 10_000_019 * epoch)
+    batch_size = int(training_config.get("batch_size", 1))
+    unlabeled_batch_size = int(training_config.get("unlabeled_batch_size", batch_size))
+    labeled_order = torch.randperm(len(labeled_records), generator=generator).tolist()
+    unlabeled_epoch_records = _cyclic_epoch_records(
+        unlabeled_records,
+        count=int(training_config.get("unlabeled_patches_per_epoch", len(labeled_records))),
+        seed=seed + 91_003,
+        epoch=epoch,
+    )
+    steps = max(
+        math.ceil(len(labeled_order) / batch_size),
+        math.ceil(len(unlabeled_epoch_records) / unlabeled_batch_size),
+    )
+    settings = _loss_settings(training_config, device)
+    augmentation = training_config.get("augmentation", {})
+    semi = training_config.get("semi_supervised", {})
+    ramp_epochs = max(1, int(semi.get("ramp_epochs", 5)))
+    unsupervised_weight = float(semi.get("weight", 1.0)) * min(1.0, (epoch + 1) / ramp_epochs)
+    threshold = float(semi.get("confidence_threshold", 0.9))
+    max_per_class = int(semi.get("max_pseudo_voxels_per_class", 8192))
+    ema_decay = float(semi.get("ema_decay", 0.99))
+    supervised_losses: list[float] = []
+    unsupervised_losses: list[float] = []
+    selected_fractions: list[float] = []
+    mean_confidences: list[float] = []
+
+    for step in range(steps):
+        labeled_indices = [
+            labeled_order[(step * batch_size + offset) % len(labeled_order)]
+            for offset in range(batch_size)
+        ]
+        unlabeled_indices = [
+            (step * unlabeled_batch_size + offset) % len(unlabeled_epoch_records)
+            for offset in range(unlabeled_batch_size)
+        ]
+        labeled_batch = [labeled_records[index] for index in labeled_indices]
+        unlabeled_batch = [unlabeled_epoch_records[index] for index in unlabeled_indices]
+
+        image, mask, target = _load_spatial_batch(
+            dataset_root, labeled_batch, load_targets=True
+        )
+        if target is None:
+            raise AssertionError("labeled mean-teacher batch has no target")
+        image, mask, target = _augment_spatial_batch(
+            image, mask, target, generator=generator
+        )
+        image = _augment_intensity(
+            image,
+            generator=generator,
+            scale_range=float(augmentation.get("scale_range", 0.1)),
+            shift_range=float(augmentation.get("shift_range", 0.1)),
+            noise_std=float(augmentation.get("noise_std", 0.03)),
+        )
+        image = image.to(device)
+        mask = mask.to(device)
+        target = target.to(device)
+
+        optimizer.zero_grad(set_to_none=True)
+        supervised_logits = student(
+            torch.cat((image, mask[:, None].to(image.dtype)), dim=1)
+        )
+        supervised_loss, _ = _masked_supervised_loss(
+            supervised_logits,
+            target,
+            mask,
+            class_weights=class_weights,
+            settings=settings,
+        )
+        supervised_loss.backward()
+
+        unlabeled_image, unlabeled_mask, unlabeled_target = _load_spatial_batch(
+            dataset_root, unlabeled_batch, load_targets=False
+        )
+        if unlabeled_target is not None:
+            raise AssertionError("unlabeled mean-teacher batch leaked a target")
+        weak_image, unlabeled_mask, _ = _augment_spatial_batch(
+            unlabeled_image, unlabeled_mask, None, generator=generator
+        )
+        strong_image = _augment_intensity(
+            weak_image,
+            generator=generator,
+            scale_range=float(augmentation.get("strong_scale_range", 0.2)),
+            shift_range=float(augmentation.get("strong_shift_range", 0.15)),
+            noise_std=float(augmentation.get("strong_noise_std", 0.06)),
+        )
+        weak_inputs = torch.cat(
+            (weak_image, unlabeled_mask[:, None].to(weak_image.dtype)), dim=1
+        ).to(device)
+        strong_inputs = torch.cat(
+            (strong_image, unlabeled_mask[:, None].to(strong_image.dtype)), dim=1
+        ).to(device)
+        unlabeled_mask = unlabeled_mask.to(device)
+        with torch.no_grad():
+            teacher_logits = teacher(weak_inputs)
+        student_logits = student(strong_inputs)
+        unsupervised_loss, pseudo_stats = _pseudo_consistency_loss(
+            student_logits,
+            teacher_logits,
+            unlabeled_mask,
+            threshold=threshold,
+            max_per_class=max_per_class,
+            class_weights=class_weights,
+        )
+        (unsupervised_weight * unsupervised_loss).backward()
+        torch.nn.utils.clip_grad_norm_(student.parameters(), 5.0)
+        optimizer.step()
+        _ema_update(teacher, student, ema_decay)
+
+        supervised_losses.append(float(supervised_loss.detach().cpu()))
+        unsupervised_losses.append(float(unsupervised_loss.detach().cpu()))
+        selected_fractions.append(pseudo_stats["selected_fraction"])
+        mean_confidences.append(pseudo_stats["mean_confidence"])
+
+    return {
+        "train_loss": float(np.mean(supervised_losses))
+        + unsupervised_weight * float(np.mean(unsupervised_losses)),
+        "supervised_loss": float(np.mean(supervised_losses)),
+        "unsupervised_loss": float(np.mean(unsupervised_losses)),
+        "unsupervised_weight": unsupervised_weight,
+        "pseudo_selected_fraction": float(np.mean(selected_fractions)),
+        "pseudo_mean_confidence": float(np.mean(mean_confidences)),
+        "unlabeled_patches": float(len(unlabeled_epoch_records)),
+    }
 
 
 @torch.no_grad()
@@ -438,7 +867,7 @@ def evaluate_model(
         image = sample["image"]  # type: ignore[assignment]
         mask = sample["total_mask"]  # type: ignore[assignment]
         target = sample["target"]  # type: ignore[assignment]
-        if kind == "c0":
+        if kind in SPATIAL_MODEL_KINDS:
             inputs = torch.cat((image, mask.to(image.dtype)), dim=0)[None].to(device)
             logits = model(inputs)[0]
             inside_indices = logits[:, mask[0].to(device)].argmax(dim=0).cpu()
@@ -466,11 +895,13 @@ def evaluate_model(
     return metrics
 
 
-def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, Any]:
-    config = load_config(config_path)
-    git_provenance = clean_git_provenance(config)
-    config["_git_head"] = git_provenance["git_head"]
-    config["_git_branch"] = git_provenance["git_branch"]
+def _run_training_impl(
+    config: dict[str, Any],
+    *,
+    resume: bool,
+    git_provenance: Mapping[str, str],
+    wandb_run: Any,
+) -> dict[str, Any]:
     data_config = config["data"]
     training_config = config["training"]
     evaluation_config = config["evaluation"]
@@ -505,11 +936,11 @@ def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, 
     latest_path = output_dir / "latest.pt"
     best_path = output_dir / "best.pt"
     history_path = output_dir / "history.jsonl"
-    start_epoch, best_metric, bad_epochs = 0, -math.inf, 0
+    start_epoch, best_metric, patience_metric, bad_epochs = 0, -math.inf, -math.inf, 0
     if resume:
         if not latest_path.is_file():
             raise FileNotFoundError(f"resume checkpoint not found: {latest_path}")
-        start_epoch, best_metric, bad_epochs = _restore_checkpoint(
+        start_epoch, best_metric, patience_metric, bad_epochs = _restore_checkpoint(
             latest_path,
             model=model,
             optimizer=optimizer,
@@ -537,6 +968,8 @@ def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, 
         "val_patches": len(val_records),
         "val_subjects": len({record["subject_id"] for record in val_records}),
         "feature_cache": "masked_rows_memory" if kind in FEATURE_CHANNELS else "none",
+        "wandb_run_id": str(wandb_run.id),
+        "wandb_url": getattr(wandb_run, "url", None),
         **git_provenance,
         "python_version": sys.version,
         "torch_version": torch.__version__,
@@ -564,7 +997,7 @@ def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, 
                 device=device,
                 feature_cache=train_feature_cache,
             )
-        elif kind == "c0":
+        elif kind in SPATIAL_MODEL_KINDS:
             train_loss = _train_cnn_epoch(
                 model=model,
                 optimizer=optimizer,
@@ -575,6 +1008,7 @@ def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, 
                 batch_size=int(training_config.get("batch_size", 4)),
                 class_weights=class_weights,
                 device=device,
+                training_config=training_config,
             )
         else:
             raise ValueError(f"unsupported training kind: {kind}")
@@ -592,12 +1026,19 @@ def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, 
         )
         focus_miou = float(metrics["focus_miou"])
         scheduler.step(focus_miou)
-        improved = focus_miou > best_metric + min_delta
-        if improved:
-            best_metric = focus_miou
-            bad_epochs = 0
-        else:
-            bad_epochs += 1
+        (
+            best_metric,
+            patience_metric,
+            bad_epochs,
+            is_absolute_best,
+            is_significant_improvement,
+        ) = update_selection_state(
+            focus_miou,
+            best_metric=best_metric,
+            patience_metric=patience_metric,
+            bad_epochs=bad_epochs,
+            min_delta=min_delta,
+        )
         checkpoint = _checkpoint_payload(
             model=model,
             optimizer=optimizer,
@@ -606,21 +1047,44 @@ def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, 
             subset_path=subset_path,
             epoch=epoch,
             best_metric=best_metric,
+            patience_metric=patience_metric,
             bad_epochs=bad_epochs,
         )
         _atomic_torch_save(checkpoint, latest_path)
-        if improved:
+        if is_absolute_best:
             _atomic_torch_save(checkpoint, best_path)
         record = {
             "epoch": epoch,
             "train_loss": train_loss,
             "learning_rate": optimizer.param_groups[0]["lr"],
             "best_focus_miou": best_metric,
+            "early_stopping_reference": patience_metric,
             "bad_epochs": bad_epochs,
+            "is_absolute_best": is_absolute_best,
+            "is_significant_improvement": is_significant_improvement,
             "val": metrics,
         }
         with history_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        wandb_run.log(
+            {
+                "epoch": epoch,
+                "train/loss": train_loss,
+                "train/learning_rate": optimizer.param_groups[0]["lr"],
+                "val/focus_miou": focus_miou,
+                "val/macro_iou": float(metrics["macro_iou"]),
+                "val/macro_dice": float(metrics["macro_dice"]),
+                "val/balanced_accuracy": float(metrics["balanced_accuracy"]),
+                "val/mask_inside_error_rate": float(metrics["mask_inside_error_rate"]),
+                **{
+                    f"val/{label.lower()}_iou": float(metrics["classes"][label]["iou"])
+                    for label in ("NETC", "SNFH", "ET", "RC")
+                },
+                "selection/is_absolute_best": int(is_absolute_best),
+                "selection/bad_epochs": bad_epochs,
+            },
+            step=epoch,
+        )
         print(json.dumps(record, ensure_ascii=False), flush=True)
         if bad_epochs >= patience:
             break
@@ -653,7 +1117,310 @@ def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, 
     (output_dir / "best_val_metrics.json").write_text(
         json.dumps(final_metrics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
+    wandb_run.summary["best/focus_miou"] = float(final_metrics["focus_miou"])
+    wandb_run.summary["best/et_iou"] = float(final_metrics["classes"]["ET"]["iou"])
+    wandb_run.summary["best/rc_iou"] = float(final_metrics["classes"]["RC"]["iou"])
+    wandb_run.summary["best/checkpoint_sha256"] = final_metrics["checkpoint_sha256"]
+    wandb_run.summary["gate/all_passed"] = bool(all(final_metrics["gate"].values()))
     return {**metadata, "best_val": final_metrics, "best_checkpoint": str(best_path)}
+
+
+def _records_sha256(records: Sequence[Mapping[str, Any]]) -> str:
+    payload = json.dumps(
+        sorted(str(record["relative_path"]) for record in records),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _load_initial_model(
+    model: nn.Module,
+    checkpoint_path: Path,
+    *,
+    config: Mapping[str, Any],
+    subset_path: Path,
+    device: torch.device,
+) -> str:
+    payload = torch.load(checkpoint_path, map_location=device)
+    if payload.get("experiment_id") != config["experiment_id"]:
+        raise ValueError("initial checkpoint experiment ID mismatch")
+    if payload.get("model_kind") != config["model"]["kind"]:
+        raise ValueError("initial checkpoint model kind mismatch")
+    if payload.get("subset_sha256") != sha256_file(subset_path):
+        raise ValueError("initial checkpoint labeled subset mismatch")
+    model.load_state_dict(payload["model"])
+    return sha256_file(checkpoint_path)
+
+
+def _run_mean_teacher_training_impl(
+    config: dict[str, Any],
+    *,
+    resume: bool,
+    git_provenance: Mapping[str, str],
+    wandb_run: Any,
+) -> dict[str, Any]:
+    data_config = config["data"]
+    training_config = config["training"]
+    evaluation_config = config["evaluation"]
+    if str(config["model"]["kind"]).lower() != "unet3d":
+        raise ValueError("mean-teacher training currently requires model.kind=unet3d")
+    seed = int(training_config["seed"])
+    seed_everything(seed)
+    device = resolve_device(training_config.get("device", "auto"))
+    dataset_root = Path(data_config["dataset_root"])
+    split_file = Path(data_config["split_file"])
+    subset_path = Path(data_config["labeled_subset"])
+    labeled_records, subset_payload = load_labeled_subset(
+        subset_path, dataset_root, split_file
+    )
+    train_records, _ = load_manifest_records(dataset_root, split_file, split="train")
+    labeled_paths = {str(record["relative_path"]) for record in labeled_records}
+    unlabeled_records = [
+        record
+        for record in _input_only_records(train_records)
+        if str(record["relative_path"]) not in labeled_paths
+    ]
+    if len(unlabeled_records) != len(train_records) - len(labeled_paths):
+        raise RuntimeError("unexpected labeled/unlabeled train pool overlap")
+    if not unlabeled_records:
+        raise RuntimeError("mean-teacher training has no remaining unlabeled train patches")
+    val_records, _ = load_manifest_records(dataset_root, split_file, split="val")
+
+    student = _model_from_config(config).to(device)
+    initial_checkpoint = Path(str(training_config["initial_checkpoint"]))
+    teacher = deepcopy(student).to(device)
+    optimizer = torch.optim.AdamW(
+        student.parameters(),
+        lr=float(training_config["learning_rate"]),
+        weight_decay=float(training_config.get("weight_decay", 1e-4)),
+    )
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="max",
+        factor=0.5,
+        patience=int(training_config.get("lr_patience", 3)),
+        min_lr=float(training_config.get("min_learning_rate", 1e-6)),
+    )
+    output_dir = Path(training_config["output_dir"])
+    output_dir.mkdir(parents=True, exist_ok=True)
+    latest_path = output_dir / "latest.pt"
+    best_path = output_dir / "best.pt"
+    history_path = output_dir / "history.jsonl"
+    start_epoch, best_metric, patience_metric, bad_epochs = 0, -math.inf, -math.inf, 0
+    if resume:
+        if not latest_path.is_file():
+            raise FileNotFoundError(f"resume checkpoint not found: {latest_path}")
+        start_epoch, best_metric, patience_metric, bad_epochs = _restore_checkpoint(
+            latest_path,
+            model=teacher,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            config=config,
+            subset_path=subset_path,
+            device=device,
+        )
+        resume_payload = torch.load(latest_path, map_location=device)
+        if "student_model" not in resume_payload:
+            raise ValueError("mean-teacher resume checkpoint has no student_model")
+        student.load_state_dict(resume_payload["student_model"])
+        initial_checkpoint_sha256 = str(resume_payload["initial_checkpoint_sha256"])
+        if initial_checkpoint_sha256 != sha256_file(initial_checkpoint):
+            raise ValueError("mean-teacher initial checkpoint changed during resume")
+    else:
+        initial_checkpoint_sha256 = _load_initial_model(
+            student,
+            initial_checkpoint,
+            config=config,
+            subset_path=subset_path,
+            device=device,
+        )
+        teacher.load_state_dict(student.state_dict())
+    for parameter in teacher.parameters():
+        parameter.requires_grad_(False)
+
+    class_weights = class_weights_from_subset(subset_payload)
+    unlabeled_pool_sha256 = _records_sha256(unlabeled_records)
+    metadata = {
+        "experiment_id": config["experiment_id"],
+        "config_sha256": config["_config_sha256"],
+        "subset_sha256": sha256_file(subset_path),
+        "model_kind": "unet3d",
+        "training_mode": "mean_teacher",
+        "parameter_count": count_parameters(student),
+        "device": str(device),
+        "train_patches": len(labeled_records),
+        "unlabeled_train_patches": len(unlabeled_records),
+        "unlabeled_pool_sha256": unlabeled_pool_sha256,
+        "val_patches": len(val_records),
+        "val_subjects": len({record["subject_id"] for record in val_records}),
+        "initial_checkpoint": str(initial_checkpoint),
+        "initial_checkpoint_sha256": initial_checkpoint_sha256,
+        "wandb_run_id": str(wandb_run.id),
+        "wandb_url": getattr(wandb_run, "url", None),
+        **git_provenance,
+        "python_version": sys.version,
+        "torch_version": torch.__version__,
+        "cuda_version": torch.version.cuda,
+    }
+    (output_dir / "run_metadata.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    patience = int(training_config.get("early_stopping_patience", 8))
+    min_delta = float(training_config.get("early_stopping_min_delta", 0.005))
+    max_epochs = int(training_config["epochs"])
+    for epoch in range(start_epoch, max_epochs):
+        train_metrics = _train_mean_teacher_epoch(
+            student=student,
+            teacher=teacher,
+            optimizer=optimizer,
+            dataset_root=dataset_root,
+            labeled_records=labeled_records,
+            unlabeled_records=unlabeled_records,
+            epoch=epoch,
+            seed=seed,
+            training_config=training_config,
+            class_weights=class_weights,
+            device=device,
+        )
+        metrics = evaluate_model(
+            teacher,
+            kind="unet3d",
+            dataset_root=dataset_root,
+            records=val_records,
+            device=device,
+            inference_voxels=int(evaluation_config.get("inference_voxels", 65536)),
+            bootstrap_samples=0,
+            seed=seed,
+        )
+        focus_miou = float(metrics["focus_miou"])
+        scheduler.step(focus_miou)
+        (
+            best_metric,
+            patience_metric,
+            bad_epochs,
+            is_absolute_best,
+            is_significant_improvement,
+        ) = update_selection_state(
+            focus_miou,
+            best_metric=best_metric,
+            patience_metric=patience_metric,
+            bad_epochs=bad_epochs,
+            min_delta=min_delta,
+        )
+        checkpoint = _checkpoint_payload(
+            model=teacher,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            config=config,
+            subset_path=subset_path,
+            epoch=epoch,
+            best_metric=best_metric,
+            patience_metric=patience_metric,
+            bad_epochs=bad_epochs,
+        )
+        checkpoint["student_model"] = student.state_dict()
+        checkpoint["initial_checkpoint_sha256"] = initial_checkpoint_sha256
+        checkpoint["unlabeled_pool_sha256"] = unlabeled_pool_sha256
+        _atomic_torch_save(checkpoint, latest_path)
+        if is_absolute_best:
+            _atomic_torch_save(checkpoint, best_path)
+        record = {
+            "epoch": epoch,
+            **train_metrics,
+            "learning_rate": optimizer.param_groups[0]["lr"],
+            "best_focus_miou": best_metric,
+            "early_stopping_reference": patience_metric,
+            "bad_epochs": bad_epochs,
+            "is_absolute_best": is_absolute_best,
+            "is_significant_improvement": is_significant_improvement,
+            "val": metrics,
+        }
+        with history_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        wandb_run.log(
+            {
+                "epoch": epoch,
+                "train/loss": train_metrics["train_loss"],
+                "train/supervised_loss": train_metrics["supervised_loss"],
+                "train/unsupervised_loss": train_metrics["unsupervised_loss"],
+                "train/unsupervised_weight": train_metrics["unsupervised_weight"],
+                "train/pseudo_selected_fraction": train_metrics["pseudo_selected_fraction"],
+                "train/pseudo_mean_confidence": train_metrics["pseudo_mean_confidence"],
+                "train/learning_rate": optimizer.param_groups[0]["lr"],
+                "val/focus_miou": focus_miou,
+                "val/macro_iou": float(metrics["macro_iou"]),
+                "val/macro_dice": float(metrics["macro_dice"]),
+                **{
+                    f"val/{label.lower()}_iou": float(metrics["classes"][label]["iou"])
+                    for label in ("NETC", "SNFH", "ET", "RC")
+                },
+                "selection/is_absolute_best": int(is_absolute_best),
+                "selection/bad_epochs": bad_epochs,
+            },
+            step=epoch,
+        )
+        print(json.dumps(record, ensure_ascii=False), flush=True)
+        if bad_epochs >= patience:
+            break
+
+    if not best_path.is_file():
+        raise RuntimeError("mean-teacher training did not produce a best checkpoint")
+    _restore_checkpoint(
+        best_path,
+        model=teacher,
+        optimizer=None,
+        scheduler=None,
+        config=config,
+        subset_path=subset_path,
+        device=device,
+    )
+    final_metrics = evaluate_model(
+        teacher,
+        kind="unet3d",
+        dataset_root=dataset_root,
+        records=val_records,
+        device=device,
+        inference_voxels=int(evaluation_config.get("inference_voxels", 65536)),
+        bootstrap_samples=int(evaluation_config.get("bootstrap_samples", 1000)),
+        seed=seed,
+    )
+    final_metrics["checkpoint_sha256"] = sha256_file(best_path)
+    final_metrics["config_sha256"] = config["_config_sha256"]
+    final_metrics["subset_sha256"] = sha256_file(subset_path)
+    final_metrics["initial_checkpoint_sha256"] = initial_checkpoint_sha256
+    final_metrics["unlabeled_pool_sha256"] = unlabeled_pool_sha256
+    (output_dir / "best_val_metrics.json").write_text(
+        json.dumps(final_metrics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    wandb_run.summary["best/focus_miou"] = float(final_metrics["focus_miou"])
+    wandb_run.summary["best/et_iou"] = float(final_metrics["classes"]["ET"]["iou"])
+    wandb_run.summary["best/rc_iou"] = float(final_metrics["classes"]["RC"]["iou"])
+    wandb_run.summary["best/checkpoint_sha256"] = final_metrics["checkpoint_sha256"]
+    wandb_run.summary["gate/all_passed"] = bool(all(final_metrics["gate"].values()))
+    return {**metadata, "best_val": final_metrics, "best_checkpoint": str(best_path)}
+
+
+def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, Any]:
+    config = load_config(config_path)
+    git_provenance = clean_git_provenance(config)
+    config["_git_head"] = git_provenance["git_head"]
+    config["_git_branch"] = git_provenance["git_branch"]
+    with classifier_wandb_run(config, resume=resume) as wandb_run:
+        if str(config["training"].get("mode", "supervised")) == "mean_teacher":
+            return _run_mean_teacher_training_impl(
+                config,
+                resume=resume,
+                git_provenance=git_provenance,
+                wandb_run=wandb_run,
+            )
+        return _run_training_impl(
+            config,
+            resume=resume,
+            git_provenance=git_provenance,
+            wandb_run=wandb_run,
+        )
 
 
 def _lesion_center_crop(
@@ -729,7 +1496,7 @@ def run_cpu_preflight(
         loss = F.cross_entropy(logits, target)
         output_shape = list(logits.shape)
         input_shape = list(features.shape)
-    elif kind == "c0":
+    elif kind in SPATIAL_MODEL_KINDS:
         dataset = GLIClassifierPatchDataset(
             dataset_root, _safe_records([selected[0]]), load_targets=True
         )
@@ -740,11 +1507,14 @@ def run_cpu_preflight(
         inputs = torch.cat((image, mask.to(image.dtype)), dim=0)[None]
         target = target_original[None] - 1
         logits = model(inputs)
-        safe_target = target.clamp(0, 3)
-        loss_map = F.cross_entropy(logits, safe_target, reduction="none")
         mask_3d = mask[0][None]
-        cross_entropy = (loss_map * mask_3d).sum() / mask_3d.sum().clamp_min(1)
-        loss = 0.7 * cross_entropy + 0.3 * _soft_dice_loss(logits, target, mask_3d)
+        loss, _ = _masked_supervised_loss(
+            logits,
+            target,
+            mask_3d,
+            class_weights=class_weights_from_subset(subset_payload),
+            settings=_loss_settings(training_config, device),
+        )
         output_shape = list(logits.shape)
         input_shape = list(inputs.shape)
     else:
