@@ -188,11 +188,13 @@ def _restore_checkpoint(
         optimizer.load_state_dict(payload["optimizer"])
     if scheduler is not None:
         scheduler.load_state_dict(payload["scheduler"])
-    torch.set_rng_state(payload["torch_rng_state"])
+    torch.set_rng_state(payload["torch_rng_state"].cpu())
     np.random.set_state(payload["numpy_rng_state"])
     random.setstate(payload["python_rng_state"])
     if torch.cuda.is_available() and payload.get("cuda_rng_state_all") is not None:
-        torch.cuda.set_rng_state_all(payload["cuda_rng_state_all"])
+        torch.cuda.set_rng_state_all(
+            [state.cpu() for state in payload["cuda_rng_state_all"]]
+        )
     return int(payload["epoch"]) + 1, float(payload["best_metric"]), int(payload["bad_epochs"])
 
 
