@@ -32,12 +32,13 @@
 - 五种冻结 8 例 QA 均完成 `8/8`，NPZ、metrics、contract 与 contact sheet 齐全；没有运行 test split、519 例或全量 test。
 - `qa_original_real` 平均 lesion MAE 为 `0.164752`，相对零填洞基线 `0.323883` 平均改善
   `45.6%`；lesion 生成门槛通过 `7/8`。
-- histogram counterfactual 为 `7/8`，但 union-as-single counterfactual 仅 `5/8`，未达到 `6/8`；mask 外最大绝对误差为 `0`。
-- 目检可见非零、与 mask 对齐的病灶结构，但 union first/last 的纹理响应较弱且不稳定。
+- histogram counterfactual 为 `7/8`，但 union histogram counterfactual 仅 `5/8`，未达到 `6/8`；mask 外最大绝对误差为 `0`。
+- counterfactual 只比较 mask 内 16-bin 强度 histogram，不衡量空间纹理、形态或医学类别语义。
+- 目检可见非零、与 mask 对齐的病灶结构，但 union first/last 的亮暗分布响应较弱且不稳定。
 
 ## 结论
 
-exp011 能学习病灶生成并保持洞外背景，但未通过 union-as-single 门槛，因此不作为当前优胜方法。单纯把扩散状态改为 lesion-only 噪声预测没有稳定优于完整 T1c 状态。
+exp011 能学习病灶生成并保持洞外背景，但未通过 union histogram counterfactual 门槛，因此不作为当前优胜方法。单纯把扩散状态改为 lesion-only 噪声预测没有稳定优于完整 T1c 状态。
 
 ## 下一步
 

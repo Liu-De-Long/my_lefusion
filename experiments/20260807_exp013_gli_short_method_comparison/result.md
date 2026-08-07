@@ -3,7 +3,14 @@
 ## 目标
 
 在相同 seed、训练/验证划分、5000 optimizer step 和冻结 8 例 validation QA 下，统一比较
-exp010、exp011、exp012 的病灶生成、histogram 控制、union-as-single 控制与背景保持能力。
+exp010、exp011、exp012 的病灶生成、histogram counterfactual、union histogram
+counterfactual 与背景保持能力。
+
+## 变更
+
+- 使用统一脚本比较三种方法的五种冻结 QA，不修改训练模型或 checkpoint。
+- 2026-08-08 修订指标解释：union 结果只衡量 16-bin 边际强度 histogram 的 own-vs-swapped
+  配对，不能解释为同类病灶视觉/语义一致性。
 
 ## 配置
 
@@ -19,23 +26,34 @@ exp010、exp011、exp012 的病灶生成、histogram 控制、union-as-single �
 
 ## 结果
 
-| 方法 | lesion | hist | union | lesion MAE | 相对零填洞改善 | 背景最大误差 |
+| 方法 | lesion | hist CF | union hist CF | lesion MAE | 相对零填洞改善 | 背景最大误差 |
 |---|---:|---:|---:|---:|---:|---:|
 | exp010 | 8/8 | 7/8 | 7/8 | 0.138066 | 55.1% | 0 |
 | exp011 | 7/8 | 7/8 | 5/8 | 0.164752 | 45.6% | 0 |
 | exp012 | 8/8 | 8/8 | 8/8 | 0.163218 | 47.5% | 0 |
 
-exp010 的 paired 重建最好。exp012 的 histogram 与 union-as-single 控制最稳定：请求 hist
-相对交换 hist 的平均优势为 `0.18891`，union 平均优势为 `0.60547`，且 8 例最小优势均为正。
-exp011 未通过 union 6/8 门槛。
+exp010 的 paired 重建最好；8/8 病例 MAE 都低于 exp012。以 exp010 为参照，exp012 的
+lesion MAE 高 `18.2%`，绝对增加 `0.025152`。
 
-目检确认三种方法都在 mask 内生成非零、非平坦结构；exp012 的条件响应最明显，但个别病例
-仍存在偏黑或偏亮团块。背景误差为 0 主要由最终 mask 内粘贴契约保证。
+exp012 的 histogram 配对最稳定：请求 hist 相对交换 hist 的平均 margin 为 `0.18891`，
+union hist 平均 margin 为 `0.60547`，且 8 例最小 margin 均为正。该指标只衡量 mask 内
+16-bin 强度 histogram，不衡量空间纹理、形态、边界或医学类别。exp011 未通过 union hist
+counterfactual 6/8 门槛。
+
+目检确认三种方法都在 mask 内生成非零、非平坦结构；exp012 的 first/last 亮暗分布响应最明显，
+但 union-as-single 结果没有呈现明确的跨病例同类外观，且个别病例仍存在偏黑或偏亮团块。
+背景误差为 0 主要由最终 mask 内粘贴契约保证。
 
 ## 结论
 
-exp012 是本轮当前最佳可控候选，exp010 是 paired 重建质量对照，exp011 作为 union 门槛失败
-对照保留。结论仅限固定 8 例 validation QA 和单 seed，不外推到医学有效性或全量泛化。
+exp012 是当前最强 histogram 条件响应候选，exp010 是 paired 重建质量最佳方法。现有 QA
+不能证明 exp012 能生成视觉统一、类别明确的同一种病灶，因此不再把 union 8/8 表述为医学
+亚型控制通过。结论仅限固定 8 例 validation QA 和单 seed。
+
+## 下一步
+
+先在相同输入、相同 union mask 和相同噪声下分别生成 NETC/SNFH/ET/RC，验证类内一致性与
+类间可分性；在此之前不依据当前 union 8/8 调整 `λhist` 或决定最终生成模型。
 
 完整设定、指标解释、QA 目录和后续建议见：
 `docs/20260807_001_gli_short_method_comparison.md`。

@@ -33,12 +33,13 @@
   `run_contract.json` 与 contact sheet 齐全；没有运行 519 例、test split 或全量 test。
 - `qa_original_real` 的平均 lesion MAE 为 `0.138066`，相对零填洞基线 `0.323883` 平均改善
   `55.1%`；8/8 病例达到“改善至少 20% 且非零、非平坦”的门槛。
-- histogram counterfactual 为 `7/8`，union-as-single counterfactual 为 `7/8`，mask 外最大绝对误差为 `0`；四项定量门槛全部通过。
-- 目检显示病灶生成与 mask 对齐、洞外严格不变，paired 重建在三方法中最好；但 first/last cluster 的视觉纹理差异弱于 exp012。
+- histogram counterfactual 为 `7/8`，union histogram counterfactual 为 `7/8`，mask 外最大绝对误差为 `0`；按原定四项定量门槛全部通过。
+- counterfactual 只比较 mask 内 16-bin 强度 histogram，不衡量空间纹理、形态或医学类别语义。
+- 目检显示病灶生成与 mask 对齐、洞外严格不变，paired 重建在三方法中最好；但 first/last cluster 的亮暗分布响应弱于 exp012。
 
 ## 结论
 
-exp010 已证明单一完整 T1c 状态能在 5k 内学习挖空区域的非平坦病灶生成，并通过全部短程门槛。它是 paired 重建质量最好的次优方案，但 histogram/union 控制一致性略弱于 exp012，因此不作为当前首选可控生成方法。
+exp010 已证明单一完整 T1c 状态能在 5k 内学习挖空区域的非平坦病灶生成，并通过原定短程门槛。它是 paired 重建质量最好的方法；histogram 配对响应弱于 exp012，但现有 QA 不能据此判断两者的医学亚型控制能力。
 
 ## 下一步
 

@@ -32,16 +32,17 @@
 - 五种冻结 8 例 QA 均完成 `8/8`，NPZ、metrics、contract 与 contact sheet 齐全；没有运行 test split、519 例或全量 test。
 - `qa_original_real` 平均 lesion MAE 为 `0.163218`，相对零填洞基线 `0.323883` 平均改善
   `47.5%`；8/8 病例通过 lesion 生成门槛。
-- histogram counterfactual 为 `8/8`，union-as-single counterfactual 为 `8/8`，mask 外最大绝对误差为 `0`；四项定量门槛全部通过，控制一致性为三方法最佳。
-- 目检显示 first/last cluster 会产生清楚且一致的强度/纹理变化，union mask 内也能响应单一目标类别；个别 5k 样本仍出现偏黑或偏亮团块，视觉真实性尚不稳定。
+- histogram counterfactual 为 `8/8`，union histogram counterfactual 为 `8/8`，mask 外最大绝对误差为 `0`；histogram 配对一致性为三方法最佳。
+- 该 counterfactual 只比较 mask 内 16-bin 强度 histogram 与请求/交换请求的 L1 距离，不衡量空间纹理、形态或医学类别语义。
+- 目检显示 first/last cluster 会产生清楚的亮暗分布变化，但 union mask 内没有呈现明确的跨病例同类外观；个别 5k 样本仍出现偏黑或偏亮团块。
 
 ## 结论
 
-exp012 是本轮当前最佳可控伪病灶候选：四项门槛全部以 `8/8` 或严格零背景误差通过，histogram 与 union-as-single 控制明显强于 exp010/exp011。该结论仅限固定 8 例 validation QA，不代表医学有效性、其他 seed 或全量 test 表现。
+exp012 是本轮当前最强 histogram 条件响应候选，但现有 union 8/8 不能证明它能生成视觉统一、类别明确的同一种病灶。该结论仅限固定 8 例 validation QA，不代表医学有效性、其他 seed 或全量 test 表现。
 
 ## 下一步
 
-以 exp012 为后续方法起点，优先针对偏黑/偏亮团块设计小规模视觉真实性改进，并用 exp010 作为 paired 重建对照。任何新增训练、seed 或扩大测试范围均需另行授权。
+先用相同病例、相同 union mask 和相同噪声分别生成四个目标类别，验证类内一致性与类间可分性；确认后再决定是否以 exp012 为后续方法起点。exp010 继续作为 paired 重建对照。任何新增训练、seed 或扩大测试范围均需另行授权。
 
 ## 输出路径
 

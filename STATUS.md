@@ -6,14 +6,14 @@ v0.9.0-gli-short-comparison-complete
 
 ## 当前最佳实验
 
-当前最佳可控伪病灶候选为 `20260807_exp012_gli_lesion_only_x0_hist` 的 p64、seed
+当前最强 histogram 条件响应候选为 `20260807_exp012_gli_lesion_only_x0_hist` 的 p64、seed
 `20260805`、step `5000` checkpoint。它使用 lesion-only 扩散状态、直接 x0 预测和
 soft-histogram loss，在冻结 8 例五种 QA 中达到 lesion `8/8`、hist counterfactual `8/8`、
-union-as-single `8/8`、mask 外最大误差 `0`。该选择仅表示短程工程与条件控制门槛最佳，
-不构成医学有效性、其他 seed 或全量 test 结论。
+union histogram counterfactual `8/8`、mask 外最大误差 `0`。这里的 union 指标只比较
+mask 内 16-bin 强度 histogram 与请求/交换请求的距离，不能证明病灶亚型的视觉或语义一致性。
 
 exp010 同样通过全部门槛，并以平均 lesion MAE `0.138066` 获得三方法最佳 paired 重建；
-exp011 因 union-as-single 仅 `5/8` 未入选。exp008、exp005 p64/p80 与 exp006/exp007 继续
+exp011 因 union histogram counterfactual 仅 `5/8` 未入选。exp008、exp005 p64/p80 与 exp006/exp007 继续
 仅保留为失败审计。
 
 ## 当前最佳结果
@@ -23,15 +23,16 @@ W&B 已 finished，`milestone-500/1000/2500/5000.pt`、`latest.pt` 与最终 val
 step 5000 EMA validation total loss 分别为 `0.135519 / 0.136704 / 0.144356`；exp012 的
 base/hist loss 为 `0.111711 / 0.326442`。
 
-统一冻结 8 例 QA 结果：exp010 为 lesion/hist/union `8/7/7`，exp011 为 `7/7/5`，exp012
+统一冻结 8 例 QA 结果：exp010 为 lesion/hist-CF/union-hist-CF `8/7/7`，exp011 为 `7/7/5`，exp012
 为 `8/8/8`；三者 mask 外最大绝对误差均为 `0`。原始真实 hist 模式的平均 lesion MAE 分别为
 `0.138066 / 0.164752 / 0.163218`，零填洞基线为 `0.323883`。统一指标、摘要和横向图保存在
 `experiments/20260807_exp013_gli_short_method_comparison/outputs/`。完整比较设定、结论和 QA
 目录说明见 `docs/20260807_001_gli_short_method_comparison.md`。
 
-目检确认三者均生成非零、非平坦且与 mask 对齐的结构；exp012 对 first/last cluster 的强度与
-纹理响应最明显，但个别样本仍有偏黑/偏亮团块。没有运行 p80、其他 seed、519 例、test split
-或全量 test。
+目检确认三者均生成非零、非平坦且与 mask 对齐的结构；exp012 对 first/last cluster 的亮暗
+分布响应最明显，但 union-as-single 没有呈现明确的跨病例同类外观，个别样本仍有偏黑/偏亮
+团块。下一步应先做同一病例四类别 counterfactual QA，再决定最终模型或调整 `λhist`。没有运行
+p80、其他 seed、519 例、test split 或全量 test。
 
 ## 当前流程
 

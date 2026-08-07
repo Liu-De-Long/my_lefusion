@@ -7,7 +7,8 @@ exp008 在固定 8 例 validation QA 中退化为接近零填洞，说明仅加�
 训练步数和 QA 样本上比较三种单通道扩散契约，目标是在不运行 519 例或全量 test 的前提下，
 判断模型能否在 5000 optimizer step 内学习非零病灶，并响应 histogram 与 union-as-single 条件。
 
-本轮只回答短程工程可行性和条件控制能力，不回答医学真实性、跨 seed 稳定性或全量泛化能力。
+本轮只回答短程工程可行性、paired 重建和全局强度 histogram 响应，不回答医学真实性、
+病灶亚型的视觉/语义一致性、跨 seed 稳定性或全量泛化能力。
 
 ## 2. 共同训练契约
 
@@ -66,12 +67,12 @@ exp012 的 histogram loss 权重在前 500 step 从 0 线性升至 `0.1`。
 
 1. 至少 6/8 病例相对零填洞基线的 lesion MAE 改善至少 20%，且输出非零、非平坦并与 mask 对齐。
 2. 至少 6/8 病例的输出 histogram 更接近请求 histogram，而不是交换后的 histogram。
-3. union-as-single 至少 6/8 病例对目标类别呈现一致的 histogram/纹理响应。
+3. union-as-single 至少 6/8 病例的输出 histogram 更接近本次请求，而不是交换后的请求。
 4. 最终合成结果的 mask 外最大绝对误差不超过 `1e-5`。
 
 ## 5. 结果
 
-| 方法 | lesion 通过 | hist 控制 | union 单病灶 | 原始真实 hist lesion MAE | 相对零填洞改善 | 背景最大误差 |
+| 方法 | lesion 通过 | 四类 hist counterfactual | union hist counterfactual | 原始真实 hist lesion MAE | 相对零填洞改善 | 背景最大误差 |
 |---|---:|---:|---:|---:|---:|---:|
 | exp010：完整 T1c + ε | 8/8 | 7/8 | 7/8 | 0.138066 | 55.1% | 0 |
 | exp011：lesion-only + ε | 7/8 | 7/8 | 5/8 | 0.164752 | 45.6% | 0 |
@@ -79,24 +80,76 @@ exp012 的 histogram loss 权重在前 500 step 从 0 线性升至 `0.1`。
 
 三种方法的零填洞基线平均 lesion MAE 均为 `0.323883`。
 
-更换 histogram 后，exp012 的“交换 hist 距离减去请求 hist 距离”平均优势为 `0.18891`，
-最小优势仍为正值 `0.09967`；union-as-single 的平均优势为 `0.60547`，最小优势为
-`0.09521`。相比之下，exp010 对应均值为 `0.07063/0.18622`，且最小值为负；exp011
-对应均值为 `0.05400/0.18843`，union 只通过 5/8。由此可见，exp012 对 histogram 条件的
-依赖最稳定，不只是偶然生成纹理。
+### 5.1 Histogram counterfactual 指标的准确含义
+
+对同一个病例分别使用 first-cluster 和 last-cluster histogram 生成 `G_first` 与 `G_last`，
+对应请求为 `H_first` 与 `H_last`。比较脚本只在 conditioning mask 内统计 `[-1,1]` 范围的
+16-bin 归一化强度 histogram，并计算：
+
+\[
+D_{own}=\frac{L1(hist(G_{first}),H_{first})+L1(hist(G_{last}),H_{last})}{2}
+\]
+
+\[
+D_{swapped}=\frac{L1(hist(G_{first}),H_{last})+L1(hist(G_{last}),H_{first})}{2}
+\]
+
+\[
+margin=D_{swapped}-D_{own}
+\]
+
+多标签模式对每个非空标签的 first/last 两项共同取平均；union 模式只有被赋值的单一目标标签。
+归一化 histogram 的 L1 距离范围为 `0–2`。`margin>0` 表示输出更接近自己的请求，
+`margin<0` 表示反而更接近交换后的错误请求；当前通过条件仅为 `D_own<D_swapped`，没有额外
+margin 阈值。union-as-single 使用完全相同的公式，只是先把完整 union mask 放入一个目标类别
+通道，其余 mask/hist block 置零。
+
+| 方法 | 四类 hist margin 均值 | 四类 hist 最小值 | union hist margin 均值 | union hist 最小值 |
+|---|---:|---:|---:|---:|
+| exp010 | 0.07063 | -0.03344 | 0.18622 | -0.08446 |
+| exp011 | 0.05400 | -0.01769 | 0.18843 | -0.11003 |
+| exp012 | 0.18891 | +0.09967 | 0.60547 | +0.09521 |
+
+因此 exp012 对 first/last histogram 请求的边际强度分布响应更稳定：普通四类 hist margin
+约为 exp010 的 `2.67` 倍，union hist margin 约为 `3.25` 倍，且 8 例最小 margin 都为正。
+这个指标**不衡量**空间纹理排列、形态、边界、union 内视觉均匀性或医学亚型语义，不能称为
+“同一种病灶生成通过率”。
+
+### 5.2 exp010 与 exp012 的 paired 重建差异
+
+exp010 的 lesion MAE 为 `0.138066`，exp012 为 `0.163218`，绝对差为 `0.025152`；8/8
+病例均由 exp010 获得更低 MAE，逐例优势范围为 `0.014106–0.050797`，中位数为 `0.019769`。
+统一以 exp010 为参照时，exp012 的 MAE 高 `18.2%`；若改用 exp012 作分母，则 exp010 低
+`15.4%`。两个百分比不矛盾，只是分母不同。后续统一使用“exp012 比 exp010 高 18.2%”。
+
+exp010/exp012 的生成病灶平均绝对强度为 `0.33958/0.33104`，平均标准差为
+`0.27487/0.23682`。这进一步说明 exp010 的 paired 重建优势是一致的，而 exp012 在显式
+histogram 约束下牺牲了一部分逐体素复原能力。
+
+### 5.3 Union QA 的视觉复核与结论下调
+
+重新复核 exp012 的 union-first/union-last contact sheet 后，只能确认 first/last 条件会改变
+union 内亮暗比例和全局强度分布。肉眼不能确认不同病例在指定同一类别后具有统一病灶外观；
+union 内仍有不同亮暗斑块和局部结构，生成结果明显受解剖背景、union 形状和采样噪声影响。
+
+当前设计还把类别与病例混杂：每个病例只被分配一个目标类别，不是同一病例分别生成
+NETC/SNFH/ET/RC 四类。因此现有 8/8 只证明 histogram 配对正确，不能证明四个 mask 通道
+学出了四种视觉可辨、类内一致的病灶。
 
 ## 6. 结论与解释
 
-- **当前最佳可控候选是 exp012。** 它是唯一在 lesion、hist 和 union-as-single 三项上均达到
-  8/8 的方法，显式 soft-histogram loss 明显增强了条件控制。
+- **当前最强 histogram 条件响应候选是 exp012。** 它在普通四类和 union 模式的 histogram
+  counterfactual 中均为 8/8；这不等价于视觉或医学亚型控制已经通过。
 - **paired 重建最好的方法是 exp010。** 它的 lesion MAE 最低，适合作为后续视觉真实性改进的
-  重建质量对照，但 histogram 切换带来的定量与视觉差异弱于 exp012。
-- **exp011 不建议仅靠增加步数继续。** lesion-only 噪声预测没有优于 exp010，且 union 门槛
-  只有 5/8；若保留 lesion-only state，应采用 exp012 的直接 x0 与显式 histogram 约束路线。
+  重建质量对照；exp012 相对它增加 `18.2%` MAE。
+- **exp011 不建议仅靠增加步数继续。** lesion-only 噪声预测没有优于 exp010，且 union hist
+  counterfactual 只有 5/8。
 - 三种方法的背景误差均为 0，主要由推理末端“只在 union mask 内粘贴”的合成契约保证，
   不能解释为 denoiser 自身学会了保护背景。
-- 目检中 exp012 个别病例仍有偏黑或偏亮团块。因此“最佳”只表示当前 5k、8 例、单 seed
-  条件控制最佳，不能称为稳定或医学可信的伪病灶生成器。
+- 若目标是 paired 病灶复原，当前证据支持 exp010；若目标仅是按请求 histogram 改变边际强度
+  分布，当前证据支持 exp012。对于“生成指定医学亚型的伪病灶”，两者目前都没有充分证据。
+- 目检中 exp012 个别病例仍有偏黑或偏亮团块。因此不能把它称为稳定、类别明确或医学可信的
+  伪病灶生成器。
 
 ## 7. QA 图与结果目录
 
@@ -133,6 +186,15 @@ exp012 的 histogram loss 权重在前 500 step 从 0 线性升至 `0.1`。
 
 ## 8. 后续建议
 
-以 exp012 为主线，仅做小规模视觉真实性改进，优先约束异常亮暗团块、边界连续性和局部平滑；
-同时保留 exp010 作为 paired 重建对照。任何新增训练、其他 seed、p80 或扩大测试范围都应另建
-实验并单独授权。
+在调整 `λhist` 或继续训练前，应先做相同病例的四类别 counterfactual QA：对同一个挖空输入、
+同一个 union mask 和同一个初始噪声，分别生成 NETC/SNFH/ET/RC，除目标 mask 通道及对应
+hist block 外保持条件一致。每个病例都生成四类，并增加以下判定：
+
+1. 输出对四类真实/cluster histogram 的目标类别排名，而不是只比较 first/last 两个中心。
+2. 类内一致性是否高于类间一致性；指标需包含空间纹理或无标签泄漏的类别表征，不能只有
+   全局 histogram。
+3. 同时保留 exp010/exp012 paired MAE、异常亮暗团块、边界连续性和局部平滑对照。
+
+只有确认四类确实可辨后，才适合对 exp012 的 `λhist` 做 `0.03/0.05/0.1` 等短程折中实验；
+否则增强 histogram loss 可能只强化亮暗分布，而不会增强病灶语义。任何新增训练、其他 seed、
+p80 或扩大测试范围都应另建实验并单独授权。

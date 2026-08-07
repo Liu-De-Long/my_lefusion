@@ -48,8 +48,9 @@ BraTS2024 GLI 流程状态：
    不作为有效伪病灶模型或全量 test 结论。
 10. exp010–exp012 将扩散状态缩减为单通道，分别比较完整 T1c 噪声预测、lesion-only 噪声
     预测和 lesion-only x0/soft-histogram 目标；三者均已完成同一 seed 的 5,000 step 和固定
-    8 例五种 validation QA。exp012 的 lesion/hist/union 门槛为 `8/8/8`、背景误差为 `0`，
-    当前作为最佳可控候选；该结论不外推到医学有效性、其他 seed 或全量 test。
+    8 例五种 validation QA。exp012 的 lesion/hist-CF/union-hist-CF 为 `8/8/8`、背景误差为
+    `0`，当前仅作为最强 histogram 条件响应候选；union 指标不证明同类病灶视觉/语义一致性，
+    结论不外推到医学有效性、其他 seed 或全量 test。
 
 ## 项目结构
 

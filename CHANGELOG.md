@@ -1,5 +1,19 @@
 # 实验变更记录
 
+## 2026-08-08 — 修订 exp010–exp012 histogram 与 union 指标解释
+
+- 更新 `docs/20260807_001_gli_short_method_comparison.md`，补充 own-vs-swapped histogram
+  L1、margin 公式、`0–2` 距离范围和通过条件，明确 union 8/8 只表示 histogram 配对正确。
+- 记录 exp010/exp012 paired MAE 的绝对差 `0.025152`：以 exp010 为参照，exp012 高
+  `18.2%`；exp010 在 8/8 病例上均获得更低 MAE。
+- 重新解释 union QA 目检：不同病例指定同一类别后没有明确统一外观；当前设计把类别与病例、
+  解剖背景、mask 形状混杂，不能证明四通道学出了视觉可辨的医学亚型。
+- 将 exp012 定位从“最佳可控伪病灶候选”收窄为“最强 histogram 条件响应候选”；exp010
+  继续作为 paired 重建最佳方法。下一步先做同一病例、同一 mask/噪声下的四类别
+  counterfactual QA，再考虑 `λhist` 消融。
+- 同步修订 `README.md`、`STATUS.md`、exp010–exp013 `result.md` 与实验地图；本次没有运行
+  训练、QA、p80、其他 seed、519 例或全量 test。
+
 ## 2026-08-07 — 建立 exp013 横向比较实验卡与长期说明文档
 
 - 新建 `20260807_exp013_gli_short_method_comparison`，将 exp010–exp012 的统一比较作为独立的
