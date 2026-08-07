@@ -12,6 +12,6 @@
 | `20260806_exp007_gli_masked_input_qa` | 方法实验 | 仅用 8 例冻结 val QA 比较显式挖空输入的多标签与 anchor-union 单标签生成 | 已停止；QA 暴露旧 checkpoint 未学习条件式修复 |
 | `20260806_exp008_gli_conditional_inpainting_training` | 方法实验 | 以挖空 T1c、四通道 mask 与 hist 作为条件，重新训练 p64 病灶修复扩散模型 | 实施与验证中 |
 | `20260806_exp009_gli_p64_weak_supervision_classifier` | 方法实验 | 用 1000 个有标签 p64 patch 训练 T1c 与总 mask 的四类逐体素分类器 | 已完成 val；C0 focus mIoU 0.5436，未过 0.85 门禁，test 封存 |
-| `20260807_exp013_gli_p64_multiscale_semisupervised_classifier` | 方法实验 | 在同一 1000 patch 上训练多尺度残差 3D U-Net，并用剩余 train patch 做 mean-teacher 半监督 | 实现与验证中；test 封存 |
+| `20260807_exp013_gli_p64_multiscale_semisupervised_classifier` | 方法实验 | 在同一 1000 patch 上训练多尺度残差 3D U-Net，并用剩余 train patch 做 mean-teacher 半监督 | CPU/GPU preflight 通过，等待 W&B 凭据；test 封存 |
 
 实验 ID 只描述研究目的。两种 patch 大小分别记录在同一实验目录的配置文件中，使用同一份裁剪代码和患者划分。

@@ -94,7 +94,8 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
   `docs/20260806_001_gli_p64_weak_supervision_classifier_plan.md`。
 - 已创建 `20260807_exp013_gli_p64_multiscale_semisupervised_classifier`：监督阶段使用多尺度残差
   3D U-Net，半监督阶段使用剩余 train patch 的 EMA teacher 一致性与高置信伪标签；长期方案为
-  `docs/20260807_001_gli_p64_multiscale_semisupervised_classifier.md`，当前实现与验证中，test 封存。
+  `docs/20260807_001_gli_p64_multiscale_semisupervised_classifier.md`。远端 11/11 单测、CPU 与
+  GPU0 完整 p64 零步 preflight 均通过；当前等待 W&B 凭据，test 封存。
 
 ## 失败尝试
 
@@ -122,6 +123,8 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
 - exp009 的 C0 `history.jsonl` 实际最高 focus mIoU 为 epoch 29 的 `0.5482`，但旧实现把
   `early_stopping_min_delta` 复用于 best 保存，导致 `best.pt` 停在 epoch 22 的 `0.5436`；
   该问题不改变门禁失败，但必须在下一次训练前修复。
+- exp013 远端当前无 `WANDB_API_KEY` 且 `wandb status` 无缓存认证；正式训练入口已 fail-closed，
+  在凭据恢复前不得启动、不得回退 offline。
 
 ## 下一步
 
@@ -132,3 +135,4 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
    启动 mean-teacher；验证门禁通过前不运行 test。
 5. 用户已同时授权监督多尺度与半监督两条路线；exp013 应先完成监督 U-Net，再从其最佳 val checkpoint 启动
    mean-teacher，最终只按 val 选择一次候选，五项门禁通过后才运行冻结 test。
+6. 用户需先在远端安全恢复 W&B online 凭据；不得把 key 写入项目、日志或 Git。

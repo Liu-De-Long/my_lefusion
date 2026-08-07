@@ -40,6 +40,12 @@ GPU0 初始 base 24、batch 2 完整 p64 零步 preflight 的峰值 allocated/re
 `609/804 MiB`，因此正式配置使用监督 batch 8、半监督 labeled/unlabeled batch 各 4，并将
 base channels 提高到 32；调整后仍必须重新通过完整图显存与梯度 preflight。
 
+调整后的完整图 preflight 已通过：监督为 `2769/3914 MiB`，半监督为 `2687/3292 MiB`，
+均为零 optimizer step。半监督剩余 train pool 为 6772 patch，SHA-256 为
+`8248585a47003f33cf0f318b4df7170cee457b2f2ed40663d5112496b643057b`，未标签 target 未加载。
+当前远端 W&B 环境变量与缓存认证均不可用，因此正式训练保持 fail-closed，等待用户安全恢复
+凭据后再启动，不允许退回 offline。
+
 ## 5. 训练与门禁
 
 - 两阶段使用不同固定 W&B run ID，online 初始化失败时在模型训练前退出。

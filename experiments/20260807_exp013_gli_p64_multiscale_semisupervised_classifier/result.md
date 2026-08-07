@@ -8,7 +8,11 @@ patch 以无标签方式进入 EMA teacher 一致性与高置信伪标签训练�
 
 ## 变更
 
-- 待完成。
+- 新增约 306 万参数的两级多尺度残差 3D U-Net，bottleneck 使用 dilation 1/2/4。
+- 拆分绝对最佳 checkpoint 与 early-stopping min delta，任何验证新高都会保存。
+- 新增 focus-weighted CE/focal/Dice、三轴翻转与 T1c 强度扰动。
+- 新增 EMA teacher、强弱扰动一致性、mask 内高置信按类限额伪标签。
+- 新增 W&B online fail-closed、监督/半监督独立 run ID 和完整 p64 GPU 零步 preflight。
 
 ## 配置
 
@@ -20,15 +24,26 @@ patch 以无标签方式进入 EMA teacher 一致性与高置信伪标签训练�
 
 ## 结果
 
-待测试与训练。
+- 远端 classifier 单测 11/11 通过。
+- 监督 CPU preflight 覆盖八个 `anchor × role` 层，半监督 CPU preflight 确认剩余 train pool
+  为 6772 patch，SHA-256 为 `8248585a47003f33cf0f318b4df7170cee457b2f2ed40663d5112496b643057b`，
+  且 `unlabeled_target_present=false`。
+- GPU0 完整 p64 监督 preflight：batch 8，参数量 3,062,912，峰值 allocated/reserved 显存
+  `2769/3914 MiB`，零 optimizer step，loss 与梯度有限。
+- GPU0 完整 p64 半监督 preflight：labeled/unlabeled batch 各 4，峰值 allocated/reserved
+  `2687/3292 MiB`，零 optimizer step，伪标签路径与梯度正常。
+- 远端当前没有 `WANDB_API_KEY`，`wandb status` 也无缓存认证，因此 W&B fail-closed 门禁阻止
+  正式训练；尚无监督或半监督验证指标，冻结 test 未运行。
 
 ## 结论
 
-待验证集结果。
+代码、数据泄漏与资源 preflight 已通过，但 0.85 目标尚未验证。正式训练必须等待远端 W&B
+凭据恢复，不能改为 offline 或绕过日志门禁。
 
 ## 下一步
 
-先完成代码回归、真实数据 CPU preflight 与 GPU 显存 preflight，再顺序运行监督和半监督阶段。
+用户在远端安全恢复 W&B online 凭据后，先运行监督阶段，再从其绝对最佳 val checkpoint 顺序
+运行半监督阶段。
 只有 focus mIoU、ET IoU、RC IoU、mask 外背景和 union 一致性五项验证门禁全部通过，才允许
 对冻结 test 运行一次。
 

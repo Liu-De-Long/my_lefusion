@@ -620,3 +620,9 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
 - GPU0 初始完整 p64 零 optimizer-step preflight 通过：base 24、batch 2 峰值 allocated/reserved
   显存为 `609/804 MiB`；据此将正式监督配置调整为 base 32、batch 8，半监督为 labeled 与
   unlabeled batch 各 4，调整后需重新 preflight。
+- 调整后监督/半监督完整 p64 GPU0 preflight 均通过：参数量 3,062,912；监督 batch 8 峰值
+  `2769/3914 MiB`，半监督双 batch 4 峰值 `2687/3292 MiB`，均为零 optimizer step。
+- 半监督真实数据 preflight 冻结 6772 个剩余 train patch，pool SHA-256 为
+  `8248585a47003f33cf0f318b4df7170cee457b2f2ed40663d5112496b643057b`，确认未加载 target。
+- 远端 `WANDB_API_KEY` 与缓存认证均不可用；正式训练按 fail-closed 保持未启动，不回退 offline，
+  冻结 test 仍未运行。
