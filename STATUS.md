@@ -2,32 +2,35 @@
 
 ## 当前版本
 
-v0.8.0-gli-single-state-short-comparison
+v0.9.0-gli-short-comparison-complete
 
 ## 当前最佳实验
 
-当前没有满足“挖空背景条件下生成伪病灶”目标的有效最佳 checkpoint。exp008 已按正确的
-空间条件契约完成训练，但 8 例冻结 val QA 显示病灶区输出几乎退化为挖空值 `0`，因此也只
-保留为失败审计。exp005 的 p64/p80 与 exp006/exp007 同样不再作为当前最佳模型或医学有效性依据。
+当前最佳可控伪病灶候选为 `20260807_exp012_gli_lesion_only_x0_hist` 的 p64、seed
+`20260805`、step `5000` checkpoint。它使用 lesion-only 扩散状态、直接 x0 预测和
+soft-histogram loss，在冻结 8 例五种 QA 中达到 lesion `8/8`、hist counterfactual `8/8`、
+union-as-single `8/8`、mask 外最大误差 `0`。该选择仅表示短程工程与条件控制门槛最佳，
+不构成医学有效性、其他 seed 或全量 test 结论。
 
-当前已获授权实施 exp010–exp012 三种单通道短程方法，每种固定 seed `20260805`、最多 5000
-optimizer step，并在同一组 8 个 validation patch 上比较；三者完成前不指定新的最佳方法。
+exp010 同样通过全部门槛，并以平均 lesion MAE `0.138066` 获得三方法最佳 paired 重建；
+exp011 因 union-as-single 仅 `5/8` 未入选。exp008、exp005 p64/p80 与 exp006/exp007 继续
+仅保留为失败审计。
 
 ## 当前最佳结果
 
-数据资产仍为两种尺寸各 9842 个 patch。旧 exp005 p64 的低 validation noise-prediction loss
-不能证明伪病灶生成有效，因为 denoiser 未接收挖空 T1c 与 lesion mask 空间条件。p80 已在
-step `11500` 由用户要求停止；`latest.pt`、`best.pt` 和 milestone 仅保留用于失败审计。
+数据资产仍为两种尺寸各 9842 个 patch。本轮 exp010–exp012 均只运行同一 seed 的 5000 step，
+W&B 已 finished，`milestone-500/1000/2500/5000.pt`、`latest.pt` 与最终 validation 齐全。
+step 5000 EMA validation total loss 分别为 `0.135519 / 0.136704 / 0.144356`；exp012 的
+base/hist loss 为 `0.111711 / 0.326442`。
 
-exp008 p64 seed `20260805` 已完成 50,000 step，最终 EMA validation total loss 为 `0.091035`；
-`best.pt` 为 step `48000`、EMA，SHA-256 为
-`660e23533064eaf9f32310b42500a8067c476dbd2bddbfd88a88dbc0f2c64857`。仅对冻结的 8 个
-val patch 运行了 `masked_multilabel` 和 `masked_anchor_union` 两组完整 `t_T=300` QA，
-每组 2,400 次模型调用；没有运行 519 例、test split 或任何全量 test。
+统一冻结 8 例 QA 结果：exp010 为 lesion/hist/union `8/7/7`，exp011 为 `7/7/5`，exp012
+为 `8/8/8`；三者 mask 外最大绝对误差均为 `0`。原始真实 hist 模式的平均 lesion MAE 分别为
+`0.138066 / 0.164752 / 0.163218`，零填洞基线为 `0.323883`。统一指标、摘要和横向图保存在
+`results/20260807_exp010_exp012_short_comparison/`。
 
-两组 QA 的病灶区生成绝对强度均值仅为 `0.00834/0.00949`，而原始病灶为 `0.32388`；
-histogram L1 约为 `1.49–1.98`，目检显示输出基本保留挖空后的均匀灰值，没有恢复病灶纹理。
-因此低 noise-prediction validation loss 不能证明条件式生成成功，exp008 不属于有效最佳结果。
+目检确认三者均生成非零、非平坦且与 mask 对齐的结构；exp012 对 first/last cluster 的强度与
+纹理响应最明显，但个别样本仍有偏黑/偏亮团块。没有运行 p80、其他 seed、519 例、test split
+或全量 test。
 
 ## 当前流程
 
@@ -97,6 +100,12 @@ histogram L1 约为 `1.49–1.98`，目检显示输出基本保留挖空后的�
 - 修复真实边界 patch 的负 `origin_xyz` loader 契约，代码 commit 为 `b34d867f944343f9f6ff6e4edde5abe3a0b0805b`；修复后远端全量测试 28/28 通过。
 - 已新增 `docs/20260806_001_gli_p64_weak_supervision_classifier_plan.md`，冻结 p64 少标签逐体素
   四分类的数据子集、MLP/轻量 CNN、标签泄漏门禁和 ET/RC focus mIoU 评价方案；本次未实现或训练。
+- exp010、exp011、exp012 均在 GPU1 串行完成 seed `20260805` 的 5000 step，W&B finished，
+  checkpoint 与最终 validation 审计通过。
+- 固定 8 例五种 QA 全部完成；经用户授权，剩余 QA 从单 worker 切换为 GPU1 上两个输出互斥
+  worker（父 PID `31788/31790`），未启动第三个 worker或重复变体。
+- 已仅运行一次 `scripts/gli_compare_short_generation_experiments.py`，生成统一指标表、摘要与
+  三方法横向 contact sheet，并完成原图、挖空输入、生成、difference、mask 及 union first/last 目检。
 
 ## 失败尝试
 
@@ -104,8 +113,10 @@ histogram L1 约为 `1.49–1.98`，目检显示输出基本保留挖空后的�
 
 ## 已知问题
 
-- exp010–exp012 实现位于 `feature/20260807-exp010-012-gli-short-compare`；正式运行 commit
-  将在远端回归和 GPU preflight 通过后冻结，尚未合并到 `main`。
+- exp010–exp012 实现位于 `feature/20260807-exp010-012-gli-short-compare`，正式运行 commit
+  已冻结为 `d0c6aaa056b38e34e4cb929f85106cc90af05426`，尚未合并到 `main`。
+- exp012 虽在固定 8 例的 histogram 与 union 控制上最好，但个别生成含偏黑/偏亮团块；
+  当前只可作为下一轮方法候选，不能直接用于医学结论或数据增强发布。
 - exp008 的训练 loss 与 validation loss 正常下降，但完整反向采样在病灶区退化到接近 `0`；
   下一步必须先区分 teacher-forced 噪声预测、逐步 `x0` 重建和自由采样之间的失配，不能直接扩展数据规模。
 - exp005 p64 虽完成 50,000 step，但其训练契约缺少挖空 T1c 与 mask 空间条件，已失效；
@@ -125,7 +136,7 @@ histogram L1 约为 `1.49–1.98`，目检显示输出基本保留挖空后的�
 
 ## 下一步
 
-1. 完成 exp010–exp012 的 focused/full regression、真实数据零更新 preflight 与 W&B online 门禁。
-2. 在不影响 GPU 0 上 exp009 队列的前提下，仅用 GPU 1 顺序训练三个 5000-step run。
-3. 三个 checkpoint 均只运行固定 8 例五种 QA，并生成统一指标表和横向 contact sheet。
-4. 不启动其他 seed、p80、519 例或全量 test；exp009 保持独立。
+1. 以 exp012 为后续可控生成起点，用 exp010 作为 paired 重建质量对照，先设计针对偏黑/偏亮
+   团块的小规模视觉真实性改进。
+2. 在任何新增训练前建立新实验 ID、配置和 Git commit，并重新执行零更新 preflight。
+3. 未经用户另行授权，不启动其他 seed、p80、519 例或全量 test；exp009 保持独立。

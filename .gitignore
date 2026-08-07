@@ -25,3 +25,6 @@ activations_dir/
 *.nii.gz
 *.npz
 *.npy
+
+# Case-level QA tables and medical-image contact sheets stay local/remote, not in Git
+results/20260807_exp010_exp012_short_comparison/

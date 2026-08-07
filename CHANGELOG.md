@@ -1,5 +1,34 @@
 # 实验变更记录
 
+## 2026-08-07 — exp010–exp012 完成 5k、冻结 8 例 QA 与统一比较
+
+- 三种方法均固定 seed `20260805`、仅用 GPU1 完成 `5000` optimizer step；W&B run
+  `exp010-p64-s20260805`、`exp011-p64-s20260805`、`exp012-p64-s20260805` 均 finished，
+  `milestone-500/1000/2500/5000.pt`、`latest.pt` 与最终 validation 齐全。
+- step 5000 EMA validation total loss 分别为 `0.135519 / 0.136704 / 0.144356`；exp012 的
+  base/hist loss 为 `0.111711 / 0.326442`，hist 权重为 `0.1`。运行代码固定为
+  `d0c6aaa056b38e34e4cb929f85106cc90af05426`。
+- 每种方法只运行同一冻结 manifest 的 8 个 validation patch 与五种既定 QA 变体；15 个变体
+  均为 `8/8`，NPZ、metrics、contract 与 contact sheet 完整。未运行 p80、其他 seed、519 例、
+  test split 或任何全量 test。
+- exp010 五变体先串行完成。用户随后授权为提高 GPU1 利用率，将剩余输出互斥的 QA 切换为
+  两个 worker：父 PID/PGID `31788` 与 `31790`；日志为
+  `experiments/20260807_exp010_gli_single_state_noise/outputs/short_qa_parallel_worker_a.log` 和
+  `short_qa_parallel_worker_b.log`。未启动第三个 worker，未重复已完成变体，两个进程均正常结束。
+- 仅运行一次 `scripts/gli_compare_short_generation_experiments.py`。统一结果写入
+  `results/20260807_exp010_exp012_short_comparison/`，包括 `case_metrics.csv`、`summary.json` 和
+  `three_method_original_real_contact_sheet.png`。
+- 四项门槛结果：exp010 为 lesion/hist/union `8/7/7`、背景误差 `0`，全部通过；exp011 为
+  `7/7/5`、背景误差 `0`，因 union 低于 `6/8` 失败；exp012 为 `8/8/8`、背景误差 `0`，
+  全部通过。原始真实 hist 模式平均 lesion MAE 为 `0.138066 / 0.164752 / 0.163218`，零填洞
+  基线为 `0.323883`。
+- 横向原始模式与六张 union first/last contact sheet 均已目检：三者均在 mask 内生成非零、
+  非平坦结构且洞外不变；exp012 的 hist 切换响应最明显，exp010 paired 重建最好，exp011
+  union 响应不稳定。exp012 个别样本仍有偏黑/偏亮团块，不能外推为医学有效。
+- 本地目检临时拉取的六张 union contact sheet 在结论记录后删除；远端各实验正式 QA 原图未删除。
+- exp012 选为当前最佳可控伪病灶候选，exp010 保留为 paired 重建次优对照，exp011 保留为
+  union 门槛失败对照。三份 `result.md`、`STATUS.md`、实验地图与 config 状态已同步更新。
+
 ## 2026-08-07 — exp008 完成训练并仅执行两组 8 例 QA
 
 - exp008 p64 seed `20260805` 正常完成 50,000 step；最终 EMA validation total loss 为

@@ -14,4 +14,5 @@ amp_dtype: bfloat16
 qa_cases: 8
 qa_variants: [original_real, original_cluster_first, original_cluster_last, union_cluster_first, union_cluster_last]
 wandb_run_id: exp011-p64-s20260805
-status: implementation
+status: completed_threshold_failed
+comparison_result_dir: results/20260807_exp010_exp012_short_comparison

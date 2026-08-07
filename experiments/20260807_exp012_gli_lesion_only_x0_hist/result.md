@@ -24,16 +24,26 @@
 - 正式运行代码 commit：`d0c6aaa056b38e34e4cb929f85106cc90af05426`；远端完整回归测试 `39/39` 通过。
 - BF16 正式预检（零 optimizer update）通过：总 loss `0.773416`，基础 L1 `0.653153`，soft-hist loss `1.202632`，梯度范数 `20.736454`，反向峰值显存 `23324.62 MiB`；checkpoint 恢复成功。
 - 预检 validation：总 loss `0.704994`、基础 L1 `0.584811`、soft-hist loss `1.201826`、hist 权重 `0.1`；覆盖 `1032` patches、`73` subjects、`3207` 个有效类单元及全部 4 类。
-- W&B 预检 run：`exp012-p64-preflight-s20260805`。正式 5k 训练在串行队列中等待 exp010、exp011 完成，未提前或重复启动。
+- 正式训练仅使用 GPU1、seed `20260805`，完成 `5000` optimizer step；W&B run
+  [`exp012-p64-s20260805`](https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp012-p64-s20260805)
+  已 finished，未提前或重复启动。
+- `milestone-500/1000/2500/5000.pt` 与 `latest.pt` 齐全。step 5000 的 EMA validation total/base/hist loss
+  为 `0.144356 / 0.111711 / 0.326442`，hist 权重为 `0.1`，覆盖口径与另外两种方法一致。
+- 五种冻结 8 例 QA 均完成 `8/8`，NPZ、metrics、contract 与 contact sheet 齐全；没有运行 test split、519 例或全量 test。
+- `qa_original_real` 平均 lesion MAE 为 `0.163218`，相对零填洞基线 `0.323883` 平均改善
+  `47.5%`；8/8 病例通过 lesion 生成门槛。
+- histogram counterfactual 为 `8/8`，union-as-single counterfactual 为 `8/8`，mask 外最大绝对误差为 `0`；四项定量门槛全部通过，控制一致性为三方法最佳。
+- 目检显示 first/last cluster 会产生清楚且一致的强度/纹理变化，union mask 内也能响应单一目标类别；个别 5k 样本仍出现偏黑或偏亮团块，视觉真实性尚不稳定。
 
 ## 结论
 
-待定。
+exp012 是本轮当前最佳可控伪病灶候选：四项门槛全部以 `8/8` 或严格零背景误差通过，histogram 与 union-as-single 控制明显强于 exp010/exp011。该结论仅限固定 8 例 validation QA，不代表医学有效性、其他 seed 或全量 test 表现。
 
 ## 下一步
 
-等待现有串行队列自动进入 exp012；完成后只运行固定 8 例五种 QA 变体并执行三方法统一比较。
+以 exp012 为后续方法起点，优先针对偏黑/偏亮团块设计小规模视觉真实性改进，并用 exp010 作为 paired 重建对照。任何新增训练、seed 或扩大测试范围均需另行授权。
 
 ## 输出路径
 
-`experiments/20260807_exp012_gli_lesion_only_x0_hist/outputs/`
+- 实验输出：`experiments/20260807_exp012_gli_lesion_only_x0_hist/outputs/`
+- 统一比较：`results/20260807_exp010_exp012_short_comparison/`
