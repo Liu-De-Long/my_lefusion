@@ -14,6 +14,7 @@ from LeFusion.classifier.engine import (
     _cyclic_epoch_records,
     _feature_rows_and_target,
     _select_balanced_pseudo_voxels,
+    evaluate_model,
     update_selection_state,
     validate_test_gate,
 )
@@ -203,6 +204,56 @@ class TestGLIClassifierFeaturesAndModels(unittest.TestCase):
 
 
 class TestGLIClassifierMetrics(unittest.TestCase):
+    def test_spatial_batched_evaluation_matches_single_patch_evaluation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            patch_root = root / "patch_64x64x32" / "patches"
+            patch_root.mkdir(parents=True)
+            records = []
+            for index in range(2):
+                image = np.zeros((64, 64, 32), dtype=np.float32)
+                seg = np.zeros((64, 64, 32), dtype=np.uint8)
+                seg[16:48, 16:48, 8:24] = (index % 4) + 1
+                path = patch_root / f"sample-{index}.npz"
+                np.savez_compressed(path, t1c=image, seg=seg)
+                records.append(
+                    {
+                        "relative_path": f"patches/{path.name}",
+                        "case_id": f"case-{index}",
+                        "subject_id": f"subject-{index}",
+                    }
+                )
+            model = build_classifier("c0", cnn_channels=4).eval()
+            single = evaluate_model(
+                model,
+                kind="c0",
+                dataset_root=root,
+                records=records,
+                device=torch.device("cpu"),
+                inference_voxels=1024,
+                spatial_batch_size=1,
+                bootstrap_samples=0,
+                seed=3,
+            )
+            batched = evaluate_model(
+                model,
+                kind="c0",
+                dataset_root=root,
+                records=records,
+                device=torch.device("cpu"),
+                inference_voxels=1024,
+                spatial_batch_size=2,
+                bootstrap_samples=0,
+                seed=3,
+            )
+            self.assertTrue(
+                np.allclose(
+                    single["patient_normalized_confusion_matrix"],
+                    batched["patient_normalized_confusion_matrix"],
+                )
+            )
+            self.assertAlmostEqual(single["focus_miou"], batched["focus_miou"])
+
     def test_unlabeled_epoch_sampler_covers_pool_without_label_metadata(self) -> None:
         records = [
             {

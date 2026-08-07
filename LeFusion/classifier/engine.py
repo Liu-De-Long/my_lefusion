@@ -855,6 +855,7 @@ def evaluate_model(
     records: Sequence[Mapping[str, Any]],
     device: torch.device,
     inference_voxels: int,
+    spatial_batch_size: int,
     bootstrap_samples: int,
     seed: int,
     feature_cache: FeatureRowCache | None = None,
@@ -863,15 +864,32 @@ def evaluate_model(
     accumulator = PatientMetricAccumulator()
     dataset = GLIClassifierPatchDataset(dataset_root, _safe_records(records), load_targets=True)
     started = time.monotonic()
-    for sample in dataset:
-        image = sample["image"]  # type: ignore[assignment]
-        mask = sample["total_mask"]  # type: ignore[assignment]
-        target = sample["target"]  # type: ignore[assignment]
-        if kind in SPATIAL_MODEL_KINDS:
-            inputs = torch.cat((image, mask.to(image.dtype)), dim=0)[None].to(device)
-            logits = model(inputs)[0]
-            inside_indices = logits[:, mask[0].to(device)].argmax(dim=0).cpu()
-        else:
+    if kind in SPATIAL_MODEL_KINDS:
+        spatial_batch_size = max(1, int(spatial_batch_size))
+        for start in range(0, len(dataset), spatial_batch_size):
+            samples = [
+                dataset[index]
+                for index in range(start, min(start + spatial_batch_size, len(dataset)))
+            ]
+            images = torch.stack([sample["image"] for sample in samples])  # type: ignore[list-item]
+            masks = torch.stack([sample["total_mask"] for sample in samples])  # type: ignore[list-item]
+            inputs = torch.cat((images, masks.to(images.dtype)), dim=1).to(device)
+            batch_logits = model(inputs).cpu()
+            for sample, logits in zip(samples, batch_logits, strict=True):
+                mask = sample["total_mask"]  # type: ignore[assignment]
+                target = sample["target"]  # type: ignore[assignment]
+                inside_indices = logits[:, mask[0]].argmax(dim=0)
+                prediction = reconstruct_prediction(inside_indices, mask)
+                accumulator.update(
+                    subject_id=str(sample["subject_id"]),
+                    prediction=prediction,
+                    target=target,
+                    total_mask=mask,
+                )
+    else:
+        for sample in dataset:
+            mask = sample["total_mask"]  # type: ignore[assignment]
+            target = sample["target"]  # type: ignore[assignment]
             rows, _ = _feature_rows_and_target(
                 sample,
                 feature_kind=kind,
@@ -882,13 +900,13 @@ def evaluate_model(
                 logits = model(rows[start : start + inference_voxels].to(device))
                 predictions.append(logits.argmax(dim=1).cpu())
             inside_indices = torch.cat(predictions, dim=0)
-        prediction = reconstruct_prediction(inside_indices, mask)
-        accumulator.update(
-            subject_id=str(sample["subject_id"]),
-            prediction=prediction,
-            target=target,
-            total_mask=mask,
-        )
+            prediction = reconstruct_prediction(inside_indices, mask)
+            accumulator.update(
+                subject_id=str(sample["subject_id"]),
+                prediction=prediction,
+                target=target,
+                total_mask=mask,
+            )
     metrics = accumulator.compute(bootstrap_samples=bootstrap_samples, seed=seed)
     metrics["elapsed_seconds"] = time.monotonic() - started
     metrics["model_kind"] = kind
@@ -1020,6 +1038,7 @@ def _run_training_impl(
             records=val_records,
             device=device,
             inference_voxels=int(evaluation_config.get("inference_voxels", 65536)),
+            spatial_batch_size=int(evaluation_config.get("batch_size", 1)),
             bootstrap_samples=0,
             seed=seed,
             feature_cache=val_feature_cache,
@@ -1107,6 +1126,7 @@ def _run_training_impl(
         records=val_records,
         device=device,
         inference_voxels=int(evaluation_config.get("inference_voxels", 65536)),
+        spatial_batch_size=int(evaluation_config.get("batch_size", 1)),
         bootstrap_samples=int(evaluation_config.get("bootstrap_samples", 1000)),
         seed=seed,
         feature_cache=val_feature_cache,
@@ -1291,6 +1311,7 @@ def _run_mean_teacher_training_impl(
             records=val_records,
             device=device,
             inference_voxels=int(evaluation_config.get("inference_voxels", 65536)),
+            spatial_batch_size=int(evaluation_config.get("batch_size", 1)),
             bootstrap_samples=0,
             seed=seed,
         )
@@ -1383,6 +1404,7 @@ def _run_mean_teacher_training_impl(
         records=val_records,
         device=device,
         inference_voxels=int(evaluation_config.get("inference_voxels", 65536)),
+        spatial_batch_size=int(evaluation_config.get("batch_size", 1)),
         bootstrap_samples=int(evaluation_config.get("bootstrap_samples", 1000)),
         seed=seed,
     )
@@ -1788,6 +1810,7 @@ def run_evaluation(
         records=records,
         device=device,
         inference_voxels=int(evaluation_config.get("inference_voxels", 65536)),
+        spatial_batch_size=int(evaluation_config.get("batch_size", 1)),
         bootstrap_samples=int(evaluation_config.get("bootstrap_samples", 1000)),
         seed=int(training_config["seed"]),
     )
