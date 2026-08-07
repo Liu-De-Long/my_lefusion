@@ -1519,6 +1519,51 @@ def run_cpu_preflight(
         input_shape = list(inputs.shape)
     else:
         raise ValueError(f"unsupported preflight kind: {kind}")
+    semi_preflight: dict[str, Any] = {}
+    if str(training_config.get("mode", "supervised")) == "mean_teacher":
+        train_pool, _ = load_manifest_records(dataset_root, split_file, split="train")
+        labeled_paths = {str(record["relative_path"]) for record in records}
+        unlabeled_pool = [
+            record
+            for record in _input_only_records(train_pool)
+            if str(record["relative_path"]) not in labeled_paths
+        ]
+        unlabeled_dataset = GLIClassifierPatchDataset(
+            dataset_root, [unlabeled_pool[0]], load_targets=False
+        )
+        unlabeled_sample = unlabeled_dataset[0]
+        if "target" in unlabeled_sample:
+            raise AssertionError("mean-teacher preflight detected target leakage")
+        dummy_target = torch.zeros_like(
+            unlabeled_sample["total_mask"][0], dtype=torch.int64  # type: ignore[index]
+        )
+        unlabeled_image, unlabeled_mask, _ = _lesion_center_crop(
+            unlabeled_sample["image"],  # type: ignore[arg-type]
+            unlabeled_sample["total_mask"],  # type: ignore[arg-type]
+            dummy_target,
+        )
+        unlabeled_inputs = torch.cat(
+            (unlabeled_image, unlabeled_mask.to(unlabeled_image.dtype)), dim=0
+        )[None]
+        teacher = deepcopy(model).eval()
+        with torch.no_grad():
+            teacher_logits = teacher(unlabeled_inputs)
+        student_logits = model(unlabeled_inputs)
+        consistency_loss, pseudo_stats = _pseudo_consistency_loss(
+            student_logits,
+            teacher_logits,
+            unlabeled_mask[0][None],
+            threshold=0.0,
+            max_per_class=64,
+            class_weights=class_weights_from_subset(subset_payload),
+        )
+        loss = loss + 0.1 * consistency_loss
+        semi_preflight = {
+            "unlabeled_pool_count": len(unlabeled_pool),
+            "unlabeled_pool_sha256": _records_sha256(unlabeled_pool),
+            "unlabeled_target_present": False,
+            "pseudo_selected_voxels": int(pseudo_stats["selected_voxels"]),
+        }
     if not torch.isfinite(loss):
         raise RuntimeError(f"non-finite preflight loss: {loss}")
     loss.backward()
@@ -1548,6 +1593,7 @@ def run_cpu_preflight(
         "subset_sha256": sha256_file(subset_path),
         "config_sha256": config["_config_sha256"],
         "elapsed_seconds": time.monotonic() - started,
+        **semi_preflight,
     }
     if output_path is not None:
         output = Path(output_path)
