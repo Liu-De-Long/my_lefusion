@@ -119,8 +119,8 @@ class PatientMetricAccumulator:
                 metric: _nanmean([values[metric] for values in per_patient])
                 for metric in ("iou", "dice", "precision", "recall")
             }
-            class_payload[class_name]["evaluable_patients"] = sum(
-                np.isfinite(values["iou"]) for values in per_patient
+            class_payload[class_name]["evaluable_patients"] = int(
+                sum(bool(np.isfinite(values["iou"])) for values in per_patient)
             )
 
         macro_iou = _nanmean([float(values["iou"]) for values in class_payload.values()])

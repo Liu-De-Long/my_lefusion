@@ -174,6 +174,7 @@ class TestGLIClassifierMetrics(unittest.TestCase):
         self.assertEqual(metrics["outside_nonzero_rate"], 0.0)
         self.assertEqual(metrics["union_dice"], 1.0)
         self.assertTrue(all(metrics["gate"].values()))
+        json.dumps(metrics)
 
     def test_test_gate_is_bound_to_exact_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
