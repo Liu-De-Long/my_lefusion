@@ -79,10 +79,19 @@ exp010 已证明单一完整 T1c 状态能在 5k 内学习挖空区域的非平�
 - GPU0/1 反向峰值显存为 `11855.53/11693.59 MiB`；双卡均有实际计算与参数副本。
 - 完整 validation 覆盖 1032 patch、73 subject、3207 个有效类单元和全部四类，EMA total loss
   `0.996759`；checkpoint 保存/恢复和下一 batch 读取通过，临时 checkpoint 已自动删除。
+- 正式训练已于 `2026-08-07 19:58:48 UTC`（北京时间 `2026-08-08 03:58:48`）启动，父 PID
+  `39061`，运行 HEAD `1392bffed5691fae7651e50d14a080b228fb7aff`。
+- 正式 W&B：
+  [exp010-p64-full50k-2gpu-s20260805](https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp010-p64-full50k-2gpu-s20260805)，状态 running。
+- 启动审计到 optimizer step `649`，最近 loss `0.280569`、grad norm `1.472375`，均为有限值；
+  GPU0/1 显存约 `13369/13165 MiB`，两卡均有计算利用率。
+- step 500 的首个 `latest.pt` 已写入，约 554 MiB；首次观察 SHA-256 为
+  `4a80b4a3a472e99ae1787468223a660f4c51edd41961acb27cf33317238ce98c`。训练继续运行。
 
 ### 结论
 
-等待训练与后续冻结 QA。
+双 GPU、W&B、DataLoader、optimizer 和 checkpoint 正式闭环已进入稳定运行；模型质量结论等待
+后续 validation、50k 完成及冻结少量 QA。
 
 ### 下一步
 

@@ -55,11 +55,13 @@ exp012，但不能把差异单独归因于 `λhist`，因为两模型的扩散�
 
 ## 当前流程
 
-exp010 的 50k 双 GPU 正式训练已获授权且 preflight 已通过：固定 seed `20260805`、完整
+exp010 的 50k 双 GPU 正式训练已启动并由 W&B online 监控：固定 seed `20260805`、完整
 train split、global batch 4、GPU0/1 DataParallel、最多 50,000 optimizer step，W&B run 为
 `exp010-p64-full50k-2gpu-s20260805`。该 run 从随机初始化开始并使用独立输出目录；exp012 本次不启动。
 preflight 的 GPU0/1 反向峰值显存为 `11855.53/11693.59 MiB`，optimizer update 为 `0`，完整
 validation loss 为 `0.996759`，checkpoint 恢复成功。
+正式 run 父 PID 为 `39061`；启动后已越过 step 500 并成功写入 `latest.pt`，两张 GPU 均有
+实际计算。exp012 继续只作为后续对照，本次没有启动。
 
 当前实验工作区包含一份 LeFusion 代码副本：
 

@@ -1,6 +1,6 @@
 variant: patch_64x64x32_seed_20260805_full_50k_2gpu
 hydra_config: LeFusion/train/config/experiment/gli_exp010_single_state_noise_64x64x32_full.yaml
-status: preflight_passed_formal_launch_authorized
+status: running
 code_commit: dcea75a784a2af087010fead7fd71d307a76fd49
 seed: 20260805
 initialization: random
@@ -29,3 +29,9 @@ preflight_validation_patches: 1032
 preflight_resume_restored: true
 exp012_started: false
 output_dir: experiments/20260807_exp010_gli_single_state_noise/outputs/full_50k_2gpu/seed_20260805
+runtime_git_head: 1392bffed5691fae7651e50d14a080b228fb7aff
+formal_parent_pid: 39061
+started_at_utc: 2026-08-07T19:58:48Z
+wandb_url: https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp010-p64-full50k-2gpu-s20260805
+first_checkpoint_observed_step: 500
+first_checkpoint_sha256: 4a80b4a3a472e99ae1787468223a660f4c51edd41961acb27cf33317238ce98c

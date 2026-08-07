@@ -18,6 +18,11 @@
   optimizer update，loss/grad norm 为 `1.069795/16.795513`，GPU0/1 反向峰值显存为
   `11855.53/11693.59 MiB`，完整 validation loss 为 `0.996759`，覆盖 1032 patch、73 subject
   和全部四类，checkpoint 恢复成功。W&B preflight run 已 finished 并同步。
+- 正式训练于 `2026-08-07 19:58:48 UTC` 启动，父 PID `39061`，运行 HEAD `1392bff`；W&B run
+  `exp010-p64-full50k-2gpu-s20260805` 已 online/running。启动审计到 step 649，loss/grad norm 为
+  `0.280569/1.472375`，GPU0/1 显存约 `13369/13165 MiB`，两卡均实际计算。
+- step 500 首个 `latest.pt` 已成功原子写入，约 554 MiB；exp012 未启动，也没有第二份 exp010
+  训练进程。训练继续运行，质量结论等待 validation 与冻结 QA。
 
 ## 2026-08-08 — exp016 完成 exp010/exp012 同病例四类别配对比较
 
