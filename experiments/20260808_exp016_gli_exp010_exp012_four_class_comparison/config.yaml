@@ -4,7 +4,7 @@ status: prepared
 source_experiments:
   exp010: 20260807_exp010_gli_single_state_noise
   exp012: 20260808_exp014_gli_four_class_counterfactual_qa
-code_commit: pending
+code_commit: d3a9e720018a07d59d5f326ddcf0876d804bf9d8
 checkpoint_step: 5000
 checkpoint_weights: ema
 checkpoint_seed: 20260805
