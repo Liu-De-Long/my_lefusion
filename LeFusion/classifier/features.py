@@ -67,10 +67,13 @@ def _coordinate_features(mask: torch.Tensor) -> list[torch.Tensor]:
 def _local_statistics(image: torch.Tensor, mask: torch.Tensor, kernel: int) -> list[torch.Tensor]:
     image_5d = image[None, None]
     mask_5d = mask.to(torch.float32)[None, None]
-    mean = F.avg_pool3d(image_5d, kernel, stride=1, padding=kernel // 2)[0, 0]
-    mean_sq = F.avg_pool3d(image_5d.square(), kernel, stride=1, padding=kernel // 2)[0, 0]
+    padding = (kernel // 2,) * 6
+    padded_image = F.pad(image_5d, padding)
+    padded_mask = F.pad(mask_5d, padding)
+    mean = F.avg_pool3d(padded_image, kernel, stride=1)[0, 0]
+    mean_sq = F.avg_pool3d(padded_image.square(), kernel, stride=1)[0, 0]
     variance = (mean_sq - mean.square()).clamp_min(0.0)
-    occupancy = F.avg_pool3d(mask_5d, kernel, stride=1, padding=kernel // 2)[0, 0]
+    occupancy = F.avg_pool3d(padded_mask, kernel, stride=1)[0, 0]
     return [mean, variance.sqrt(), occupancy]
 
 
