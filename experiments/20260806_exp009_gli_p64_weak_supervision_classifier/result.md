@@ -16,6 +16,8 @@ NETC、SNFH、ET、RC 四分类；以完整 p64 重建后患者等权的 ET/RC `
 - 新增原子 `latest/best` checkpoint、严格 config/subset hash resume 和 early stopping。
 - test 入口 fail-closed：只有 `best_val_metrics.json` 的五项门禁全部通过，且 checkpoint、config、
   subset SHA-256 与验证记录一致时，才允许读取冻结的 `best.pt` 运行 test。
+- 新增真实 p64 CPU preflight：覆盖八个 `anchor × role` 分层，执行一次前反向但固定
+  `optimizer_steps=0`；C0 使用真实病灶中心小裁块控制 CPU 成本，正式完整 p64 仍须等待 GPU。
 
 ## 配置
 

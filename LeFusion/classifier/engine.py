@@ -568,6 +568,138 @@ def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, 
     return {**metadata, "best_val": final_metrics, "best_checkpoint": str(best_path)}
 
 
+def _lesion_center_crop(
+    image: torch.Tensor,
+    mask: torch.Tensor,
+    target: torch.Tensor,
+    shape_dhw: Sequence[int] = (8, 16, 16),
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    mask_3d = mask[0].to(torch.bool)
+    indices = torch.nonzero(mask_3d, as_tuple=False)
+    if not indices.numel():
+        raise ValueError("cannot crop an empty lesion mask")
+    center = indices.to(torch.float32).mean(dim=0).round().to(torch.int64)
+    slices: list[slice] = []
+    for axis, requested in enumerate(shape_dhw):
+        size = int(mask_3d.shape[axis])
+        requested = min(int(requested), size)
+        start = min(max(int(center[axis]) - requested // 2, 0), size - requested)
+        slices.append(slice(start, start + requested))
+    spatial = tuple(slices)
+    cropped_image = image[(slice(None), *spatial)]
+    cropped_mask = mask[(slice(None), *spatial)]
+    cropped_target = target[spatial]
+    if not torch.any(cropped_mask):
+        raise AssertionError("lesion-centered crop unexpectedly lost the lesion")
+    return cropped_image, cropped_mask, cropped_target
+
+
+def run_cpu_preflight(
+    config_path: str | Path,
+    *,
+    output_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Run a zero-optimizer-step real-data forward/backward contract check."""
+
+    config = load_config(config_path)
+    data_config = config["data"]
+    training_config = config["training"]
+    seed = int(training_config["seed"])
+    seed_everything(seed)
+    torch.set_num_threads(min(8, max(1, os.cpu_count() or 1)))
+    device = torch.device("cpu")
+    dataset_root = Path(data_config["dataset_root"])
+    split_file = Path(data_config["split_file"])
+    subset_path = Path(data_config["labeled_subset"])
+    records, subset_payload = load_labeled_subset(subset_path, dataset_root, split_file)
+    selected: list[dict[str, Any]] = []
+    seen: set[tuple[int, str]] = set()
+    for record in records:
+        stratum = (int(record["anchor_label"]), str(record["sample_role"]))
+        if stratum not in seen:
+            selected.append(dict(record))
+            seen.add(stratum)
+        if len(seen) == 8:
+            break
+    if len(selected) != 8:
+        raise RuntimeError(f"preflight could not cover eight strata: {sorted(seen)}")
+
+    kind = str(config["model"]["kind"]).lower()
+    model = _model_from_config(config).to(device)
+    model.train()
+    started = time.monotonic()
+    if kind in FEATURE_CHANNELS:
+        generator = torch.Generator().manual_seed(seed)
+        features, target = build_balanced_voxel_batch(
+            dataset_root,
+            selected,
+            feature_kind=kind,
+            voxels_per_class=64,
+            generator=generator,
+        )
+        logits = model(features)
+        loss = F.cross_entropy(logits, target)
+        output_shape = list(logits.shape)
+        input_shape = list(features.shape)
+    elif kind == "c0":
+        dataset = GLIClassifierPatchDataset(
+            dataset_root, _safe_records([selected[0]]), load_targets=True
+        )
+        sample = dataset[0]
+        image, mask, target_original = _lesion_center_crop(
+            sample["image"], sample["total_mask"], sample["target"]  # type: ignore[arg-type]
+        )
+        inputs = torch.cat((image, mask.to(image.dtype)), dim=0)[None]
+        target = target_original[None] - 1
+        logits = model(inputs)
+        safe_target = target.clamp(0, 3)
+        loss_map = F.cross_entropy(logits, safe_target, reduction="none")
+        mask_3d = mask[0][None]
+        cross_entropy = (loss_map * mask_3d).sum() / mask_3d.sum().clamp_min(1)
+        loss = 0.7 * cross_entropy + 0.3 * _soft_dice_loss(logits, target, mask_3d)
+        output_shape = list(logits.shape)
+        input_shape = list(inputs.shape)
+    else:
+        raise ValueError(f"unsupported preflight kind: {kind}")
+    if not torch.isfinite(loss):
+        raise RuntimeError(f"non-finite preflight loss: {loss}")
+    loss.backward()
+    gradient_norm = torch.sqrt(
+        sum(
+            parameter.grad.detach().square().sum()
+            for parameter in model.parameters()
+            if parameter.grad is not None
+        )
+    )
+    if not torch.isfinite(gradient_norm) or float(gradient_norm) <= 0:
+        raise RuntimeError(f"invalid preflight gradient norm: {gradient_norm}")
+    result = {
+        "schema_version": 1,
+        "experiment_id": config["experiment_id"],
+        "model_kind": kind,
+        "device": "cpu",
+        "optimizer_steps": 0,
+        "parameter_count": count_parameters(model),
+        "input_shape": input_shape,
+        "output_shape": output_shape,
+        "loss": float(loss.detach()),
+        "gradient_norm": float(gradient_norm),
+        "covered_strata": [f"{label}:{role}" for label, role in sorted(seen)],
+        "record_count": len(selected),
+        "subset_count": int(subset_payload["actual_count"]),
+        "subset_sha256": sha256_file(subset_path),
+        "config_sha256": config["_config_sha256"],
+        "elapsed_seconds": time.monotonic() - started,
+    }
+    if output_path is not None:
+        output = Path(output_path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    return result
+
+
 def run_evaluation(
     config_path: str | Path,
     checkpoint_path: str | Path,

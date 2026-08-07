@@ -12,7 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from LeFusion.classifier.data import build_labeled_subset
-from LeFusion.classifier.engine import run_evaluation, run_training
+from LeFusion.classifier.engine import run_cpu_preflight, run_evaluation, run_training
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,6 +29,10 @@ def parse_args() -> argparse.Namespace:
     train = subparsers.add_parser("train")
     train.add_argument("--config", type=Path, required=True)
     train.add_argument("--resume", action="store_true")
+
+    preflight = subparsers.add_parser("preflight")
+    preflight.add_argument("--config", type=Path, required=True)
+    preflight.add_argument("--output", type=Path)
 
     evaluate = subparsers.add_parser("evaluate")
     evaluate.add_argument("--config", type=Path, required=True)
@@ -50,6 +54,8 @@ def main() -> int:
         )
     elif args.command == "train":
         result = run_training(args.config, resume=args.resume)
+    elif args.command == "preflight":
+        result = run_cpu_preflight(args.config, output_path=args.output)
     else:
         result = run_evaluation(
             args.config,
