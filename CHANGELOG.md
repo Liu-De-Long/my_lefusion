@@ -627,3 +627,16 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
 - 初查发现 `WANDB_API_KEY` 环境变量为空且 `wandb status` 未展示认证；后续只检查标准位置，
   确认 `/root/.netrc` 存在 W&B 主机条目，`wandb login --verify` 在线验证当前 entity 成功。
   全程未读取或输出 key，正式训练继续使用 online fail-closed，不回退 offline。
+
+## 2026-08-07 — exp013 完成监督与 mean-teacher 验证
+
+- 监督多尺度残差 3D U-Net 完成 40 epoch；患者等权最佳 ET/RC focus mIoU 为 `0.573000`，
+  ET/RC IoU 为 `0.510031/0.635969`，95% CI 为 `[0.529404,0.618380]`。
+- mean-teacher 使用冻结 6772 个剩余 train patch 无标签池，在 epoch 8 因连续八次无显著改善
+  早停；最佳 focus mIoU 为 `0.572729`，ET/RC IoU 为 `0.523194/0.622264`，无监督正增益。
+- 伪标签覆盖约 `19%–20%`、平均置信度约 `0.993–0.995`，说明当前配方主要复制监督教师偏差，
+  后续不重复相同 mean-teacher 方案。
+- 两阶段均由 W&B online 完整记录；监督 run 为 `exp013-unet-sup-s20260807`，半监督 run 为
+  `exp013-unet-mt-s20260807`。最终 classifier 单测 12/12 通过。
+- 三项性能门禁均失败，空间门禁通过；未生成任何 test 指标。下一方法实验将验证仅由 T1c 与
+  总 mask 推导的显式几何通道和小区域边界监督。

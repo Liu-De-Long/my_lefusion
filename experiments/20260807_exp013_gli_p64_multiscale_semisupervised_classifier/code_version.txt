@@ -1,5 +1,7 @@
 branch: feature/20260807-exp013-gli-p64-multiscale-semisupervised
 implementation_head: 610ad633e2802bd9d68f033f6cfe958119ed8c0f
 config_head: 1de019c25543b7f5e768f3576f35f90e1220fbfe
+supervised_training_head: 4615ca4cfe9993f1cbe376498c64ec484c9e8b95
+mean_teacher_training_head: 793ac37c9e8d1a7b813ed9f678f0e7e8be8d3afb
 base_head: c0722144fabacf35923409fc7dafacefe895e0aa
-change: 实现多尺度残差 3D U-Net、严格最佳验证保存、W&B online 门禁与 mean-teacher 半监督训练
+change: 完成多尺度残差 3D U-Net、严格最佳验证保存、W&B online 门禁与 mean-teacher 半监督训练及批量验证等价性修复

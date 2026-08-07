@@ -24,7 +24,7 @@ patch 以无标签方式进入 EMA teacher 一致性与高置信伪标签训练�
 
 ## 结果
 
-- 远端 classifier 单测 11/11 通过。
+- 最终远端 classifier 单测 12/12 通过；新增批量空间验证与单 patch 验证等价性覆盖。
 - 监督 CPU preflight 覆盖八个 `anchor × role` 层，半监督 CPU preflight 确认剩余 train pool
   为 6772 patch，SHA-256 为 `8248585a47003f33cf0f318b4df7170cee457b2f2ed40663d5112496b643057b`，
   且 `unlabeled_target_present=false`。
@@ -33,18 +33,30 @@ patch 以无标签方式进入 EMA teacher 一致性与高置信伪标签训练�
 - GPU0 完整 p64 半监督 preflight：labeled/unlabeled batch 各 4，峰值 allocated/reserved
   `2687/3292 MiB`，零 optimizer step，伪标签路径与梯度正常。
 - 进一步只读检查发现 `/root/.netrc` 存在 W&B 主机认证；`wandb login --verify` 已在线确认
-  当前登录 entity 与配置一致，未读取或输出 key。正式训练的 W&B 门禁已解除；当前尚无监督或
-  半监督验证指标，冻结 test 未运行。
+  当前登录 entity 与配置一致，未读取或输出 key。
+- 监督阶段运行 40 epoch，患者等权最佳 focus mIoU 为 `0.573000`，95% CI
+  `[0.529404,0.618380]`；ET/RC IoU 为 `0.510031/0.635969`，macro IoU 为 `0.586163`，
+  mask 外非零率为 `0`，union Dice 为 `1`。checkpoint SHA-256 为
+  `de3636a2b169373c1b2e0bfb678dec07c7f7136a0cb1465c69ac6c2f6646b37a`。
+- mean-teacher 使用全部 6772 个剩余 train patch 的无标签池，在 epoch 8 因连续八次无显著
+  改善早停；最佳出现在 epoch 0，focus mIoU 为 `0.572729`，95% CI
+  `[0.526628,0.617570]`，ET/RC IoU 为 `0.523194/0.622264`。伪标签覆盖约 `19%–20%`，
+  平均置信度约 `0.993–0.995`，但没有带来验证增益。
+- 监督 W&B：<https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp013-unet-sup-s20260807>；
+  mean-teacher W&B：<https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp013-unet-mt-s20260807>。
+- 两阶段均未通过 focus mIoU、ET IoU、RC IoU 三项性能门禁；冻结 test 从未运行。
 
 ## 结论
 
-代码、数据泄漏、资源与 W&B 认证 preflight 已通过，但 0.85 目标尚未验证。
+多尺度残差 U-Net 相对 exp009 C0 的历史绝对最佳 `0.5482` 提升约 `0.0248`，但仍远低于
+`0.85`。mean-teacher 的高置信伪标签主要复制监督教师偏差，未产生正增益，因此 exp013
+最终保留监督模型为验证最优候选，但不晋级 test。
 
 ## 下一步
 
-先运行监督阶段，再从其绝对最佳 val checkpoint 顺序运行半监督阶段。
-只有 focus mIoU、ET IoU、RC IoU、mask 外背景和 union 一致性五项验证门禁全部通过，才允许
-对冻结 test 运行一次。
+下一方法实验保持同一冻结 1000 patch 和患者划分，优先加入仅由总 mask 推导的距离、bbox、
+质心与 patch 坐标空间通道，并改善 ET/RC 边界监督；不再重复当前 mean-teacher 配方。
+验证五项门禁全部通过前，冻结 test 继续封存。
 
 ## 输出路径
 

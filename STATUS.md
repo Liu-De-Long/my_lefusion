@@ -92,10 +92,10 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
   依次训练 M0/M1/M2/C0；验证最佳为 C0，ET/RC focus mIoU `0.5436`，95% CI
   `[0.5000,0.5862]`，未过 0.85 门禁，冻结 test 未运行。长期方案与结论记录于
   `docs/20260806_001_gli_p64_weak_supervision_classifier_plan.md`。
-- 已创建 `20260807_exp013_gli_p64_multiscale_semisupervised_classifier`：监督阶段使用多尺度残差
-  3D U-Net，半监督阶段使用剩余 train patch 的 EMA teacher 一致性与高置信伪标签；长期方案为
-  `docs/20260807_001_gli_p64_multiscale_semisupervised_classifier.md`。远端 11/11 单测、CPU 与
-  GPU0 完整 p64 零步 preflight 均通过；W&B online 认证已验证，准备监督训练，test 封存。
+- 已完成 `20260807_exp013_gli_p64_multiscale_semisupervised_classifier`：监督多尺度残差 U-Net
+  患者等权 ET/RC focus mIoU 为 `0.573000`，mean-teacher 为 `0.572729`，半监督无正增益；
+  两阶段空间门禁通过但性能门禁失败，冻结 test 未运行。远端最终单测 12/12 通过，两个正式
+  W&B online run 与 checkpoint/config/subset SHA 均已保留。
 
 ## 失败尝试
 
@@ -123,16 +123,16 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
 - exp009 的 C0 `history.jsonl` 实际最高 focus mIoU 为 epoch 29 的 `0.5482`，但旧实现把
   `early_stopping_min_delta` 复用于 best 保存，导致 `best.pt` 停在 epoch 22 的 `0.5436`；
   该问题不改变门禁失败，但必须在下一次训练前修复。
-- exp013 未设置 `WANDB_API_KEY` 环境变量，但 `/root/.netrc` 的标准认证已由
-  `wandb login --verify` 在线验证；凭据不进入项目文件或日志，训练仍不允许回退 offline。
+- exp013 的 `/root/.netrc` 标准认证已由 `wandb login --verify` 在线验证；两阶段 W&B online
+  均完成。监督与 mean-teacher 的 95% CI 高度重叠，后者的高置信伪标签未改善验证结果。
 
 ## 下一步
 
 1. 监控 exp008 p64 seed `20260805` 的 W&B、latest/best/milestone 与 validation 收敛。
 2. 新 checkpoint 可用后仅先做少量冻结 QA，不运行 519 例或全量 test。
 3. 不自动启动其他 seed、p80 或额外训练；任何扩展均需新的用户授权。
-4. exp013 先补 W&B fail-closed 与严格 best 保存，完成监督 U-Net 后再从其最佳 val checkpoint
-   启动 mean-teacher；验证门禁通过前不运行 test。
-5. 用户已同时授权监督多尺度与半监督两条路线；exp013 应先完成监督 U-Net，再从其最佳 val checkpoint 启动
-   mean-teacher，最终只按 val 选择一次候选，五项门禁通过后才运行冻结 test。
-6. W&B online 认证已通过；启动前仍需核验 GPU0 空闲、exp013 worktree 干净且本地/远端 HEAD 一致。
+4. exp013 已完成且不晋级 test；下一分类方法实验固定复用同一 1000 patch、split 与门禁。
+5. 优先验证总 mask 距离、bbox/质心和 patch XYZ 等无标签泄漏几何通道，并针对小区域边界
+   改善监督；不重复已证实无增益的当前 mean-teacher 配方。
+6. 任何新训练仍须 W&B online fail-closed、GPU 零步 preflight、本地/远端 HEAD 一致，并仅按
+   完整 p64 患者等权 val 选模；五项门禁通过前不运行冻结 test。
