@@ -46,4 +46,4 @@ exp011 能学习病灶生成并保持洞外背景，但未通过 union-as-single
 ## 输出路径
 
 - 实验输出：`experiments/20260807_exp011_gli_lesion_only_noise/outputs/`
-- 统一比较：`results/20260807_exp010_exp012_short_comparison/`
+- 统一比较：`experiments/20260807_exp013_gli_short_method_comparison/outputs/`

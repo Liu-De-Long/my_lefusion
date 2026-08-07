@@ -26,7 +26,8 @@ base/hist loss 为 `0.111711 / 0.326442`。
 统一冻结 8 例 QA 结果：exp010 为 lesion/hist/union `8/7/7`，exp011 为 `7/7/5`，exp012
 为 `8/8/8`；三者 mask 外最大绝对误差均为 `0`。原始真实 hist 模式的平均 lesion MAE 分别为
 `0.138066 / 0.164752 / 0.163218`，零填洞基线为 `0.323883`。统一指标、摘要和横向图保存在
-`results/20260807_exp010_exp012_short_comparison/`。
+`experiments/20260807_exp013_gli_short_method_comparison/outputs/`。完整比较设定、结论和 QA
+目录说明见 `docs/20260807_001_gli_short_method_comparison.md`。
 
 目检确认三者均生成非零、非平坦且与 mask 对齐的结构；exp012 对 first/last cluster 的强度与
 纹理响应最明显，但个别样本仍有偏黑/偏亮团块。没有运行 p80、其他 seed、519 例、test split

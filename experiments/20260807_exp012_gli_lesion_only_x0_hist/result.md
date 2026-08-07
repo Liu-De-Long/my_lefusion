@@ -46,4 +46,4 @@ exp012 是本轮当前最佳可控伪病灶候选：四项门槛全部以 `8/8` 
 ## 输出路径
 
 - 实验输出：`experiments/20260807_exp012_gli_lesion_only_x0_hist/outputs/`
-- 统一比较：`results/20260807_exp010_exp012_short_comparison/`
+- 统一比较：`experiments/20260807_exp013_gli_short_method_comparison/outputs/`

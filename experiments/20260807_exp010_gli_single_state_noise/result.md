@@ -47,4 +47,4 @@ exp010 已证明单一完整 T1c 状态能在 5k 内学习挖空区域的非平�
 ## 输出路径
 
 - 实验输出：`experiments/20260807_exp010_gli_single_state_noise/outputs/`
-- 统一比较：`results/20260807_exp010_exp012_short_comparison/`
+- 统一比较：`experiments/20260807_exp013_gli_short_method_comparison/outputs/`

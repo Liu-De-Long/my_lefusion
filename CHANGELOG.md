@@ -1,5 +1,16 @@
 # 实验变更记录
 
+## 2026-08-07 — 建立 exp013 横向比较实验卡与长期说明文档
+
+- 新建 `20260807_exp013_gli_short_method_comparison`，将 exp010–exp012 的统一比较作为独立的
+  跨实验分析归档，不将比较结果附属于任一训练方法。
+- 将 `case_metrics.csv`、`summary.json` 和三方法横向 contact sheet 从仓库根 `results/`
+  迁移到 exp013 的 `outputs/`；文件内容和三种方法原始 QA 输出不变。
+- 新增 `docs/20260807_001_gli_short_method_comparison.md`，完整记录共同训练契约、三方法差异、
+  五种固定 8 例 QA、四项门槛、定量结果、视觉结论、局限和精确 QA 图目录。
+- exp012 仍是当前最佳可控候选，exp010 仍是 paired 重建对照；未运行任何新增训练、p80、
+  其他 seed、519 例或全量 test。
+
 ## 2026-08-07 — exp010–exp012 完成 5k、冻结 8 例 QA 与统一比较
 
 - 三种方法均固定 seed `20260805`、仅用 GPU1 完成 `5000` optimizer step；W&B run
@@ -16,7 +27,7 @@
   `experiments/20260807_exp010_gli_single_state_noise/outputs/short_qa_parallel_worker_a.log` 和
   `short_qa_parallel_worker_b.log`。未启动第三个 worker，未重复已完成变体，两个进程均正常结束。
 - 仅运行一次 `scripts/gli_compare_short_generation_experiments.py`。统一结果写入
-  `results/20260807_exp010_exp012_short_comparison/`，包括 `case_metrics.csv`、`summary.json` 和
+  `experiments/20260807_exp013_gli_short_method_comparison/outputs/`，包括 `case_metrics.csv`、`summary.json` 和
   `three_method_original_real_contact_sheet.png`。
 - 四项门槛结果：exp010 为 lesion/hist/union `8/7/7`、背景误差 `0`，全部通过；exp011 为
   `7/7/5`、背景误差 `0`，因 union 低于 `6/8` 失败；exp012 为 `8/8/8`、背景误差 `0`，
