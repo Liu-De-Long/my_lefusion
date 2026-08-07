@@ -61,6 +61,12 @@ AUDIT = importlib.util.module_from_spec(AUDIT_SPEC)
 assert AUDIT_SPEC.loader is not None
 AUDIT_SPEC.loader.exec_module(AUDIT)
 
+INFERENCE_SCRIPT = ROOT / "LeFusion" / "inference" / "inference.py"
+INFERENCE_SPEC = importlib.util.spec_from_file_location("gli_inference_entrypoint", INFERENCE_SCRIPT)
+INFERENCE = importlib.util.module_from_spec(INFERENCE_SPEC)
+assert INFERENCE_SPEC.loader is not None
+INFERENCE_SPEC.loader.exec_module(INFERENCE)
+
 
 MANIFEST_FIELDS = (
     "relative_path",
@@ -106,6 +112,9 @@ def _write_manifest(path: Path, rows: list[dict[str, str]]) -> None:
 
 
 class GLIInferenceClosedLoopTests(unittest.TestCase):
+    def test_direct_inference_entrypoint_imports_fixed_union_resolver(self) -> None:
+        self.assertIs(INFERENCE.resolve_union_target_labels, resolve_union_target_labels)
+
     def test_split_v2_preserves_train_and_creates_exact_holdout(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:
             root = Path(temporary_dir)

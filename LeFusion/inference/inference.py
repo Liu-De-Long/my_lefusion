@@ -20,9 +20,9 @@ if __package__:
         indexed_cluster_condition,
         load_cluster_centers,
         mask_input_inside_lesion,
-    nearest_cluster_condition,
-    resolve_union_target_labels,
-    union_label_cluster_condition,
+        nearest_cluster_condition,
+        resolve_union_target_labels,
+        union_label_cluster_condition,
     )
     from inference.gli_selection import manifest_shard_paths
 else:
@@ -33,6 +33,7 @@ else:
         load_cluster_centers,
         mask_input_inside_lesion,
         nearest_cluster_condition,
+        resolve_union_target_labels,
         union_label_cluster_condition,
     )
     from gli_selection import manifest_shard_paths
