@@ -33,6 +33,9 @@ from .metrics import PatientMetricAccumulator, reconstruct_prediction
 from .models import build_classifier, count_parameters
 
 
+FeatureRowCache = dict[str, tuple[torch.Tensor, torch.Tensor]]
+
+
 def load_config(path: str | Path) -> dict[str, Any]:
     config_path = Path(path)
     payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
@@ -249,6 +252,32 @@ def _sample_rows(
     return rows[indices]
 
 
+def _feature_rows_and_target(
+    sample: Mapping[str, Any],
+    *,
+    feature_kind: str,
+    cache: FeatureRowCache | None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return immutable mask-inside rows, optionally reusing leak-safe features.
+
+    The cache key is the frozen relative patch path.  Cached feature rows are
+    derived only from T1c and the total lesion mask; target rows remain a
+    separate tensor used exclusively for loss sampling.
+    """
+
+    key = str(sample["relative_path"])
+    if cache is not None and key in cache:
+        return cache[key]
+    features = build_feature_volume(
+        sample["image"], sample["total_mask"], feature_kind  # type: ignore[arg-type]
+    )
+    rows = masked_feature_rows(features, sample["total_mask"])  # type: ignore[arg-type]
+    target = sample["target"][sample["total_mask"][0]] - 1  # type: ignore[index,operator]
+    if cache is not None:
+        cache[key] = (rows, target)
+    return rows, target
+
+
 def build_balanced_voxel_batch(
     dataset_root: str | Path,
     records: Sequence[Mapping[str, Any]],
@@ -256,13 +285,16 @@ def build_balanced_voxel_batch(
     feature_kind: str,
     voxels_per_class: int,
     generator: torch.Generator,
+    feature_cache: FeatureRowCache | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     dataset = GLIClassifierPatchDataset(dataset_root, _safe_records(records), load_targets=True)
     buckets: dict[int, list[torch.Tensor]] = {index: [] for index in range(4)}
     for sample in dataset:
-        features = build_feature_volume(sample["image"], sample["total_mask"], feature_kind)  # type: ignore[arg-type]
-        rows = masked_feature_rows(features, sample["total_mask"])  # type: ignore[arg-type]
-        target = sample["target"][sample["total_mask"][0]] - 1  # type: ignore[index,operator]
+        rows, target = _feature_rows_and_target(
+            sample,
+            feature_kind=feature_kind,
+            cache=feature_cache,
+        )
         for class_index in range(4):
             class_rows = rows[target == class_index]
             if class_rows.shape[0] > voxels_per_class:
@@ -313,6 +345,7 @@ def _train_mlp_epoch(
     patches_per_class: int,
     voxels_per_class: int,
     device: torch.device,
+    feature_cache: FeatureRowCache | None,
 ) -> float:
     model.train()
     losses: list[float] = []
@@ -329,6 +362,7 @@ def _train_mlp_epoch(
             feature_kind=kind,
             voxels_per_class=voxels_per_class,
             generator=generator,
+            feature_cache=feature_cache,
         )
         optimizer.zero_grad(set_to_none=True)
         logits = model(features.to(device, non_blocking=True))
@@ -394,6 +428,7 @@ def evaluate_model(
     inference_voxels: int,
     bootstrap_samples: int,
     seed: int,
+    feature_cache: FeatureRowCache | None = None,
 ) -> dict[str, Any]:
     model.eval()
     accumulator = PatientMetricAccumulator()
@@ -408,8 +443,11 @@ def evaluate_model(
             logits = model(inputs)[0]
             inside_indices = logits[:, mask[0].to(device)].argmax(dim=0).cpu()
         else:
-            features = build_feature_volume(image, mask, kind)
-            rows = masked_feature_rows(features, mask)
+            rows, _ = _feature_rows_and_target(
+                sample,
+                feature_kind=kind,
+                cache=feature_cache,
+            )
             predictions: list[torch.Tensor] = []
             for start in range(0, rows.shape[0], inference_voxels):
                 logits = model(rows[start : start + inference_voxels].to(device))
@@ -482,6 +520,12 @@ def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, 
         )
 
     class_weights = class_weights_from_subset(subset_payload)
+    train_feature_cache: FeatureRowCache | None = (
+        {} if kind in FEATURE_CHANNELS else None
+    )
+    val_feature_cache: FeatureRowCache | None = (
+        {} if kind in FEATURE_CHANNELS else None
+    )
     metadata = {
         "experiment_id": config["experiment_id"],
         "config_sha256": config["_config_sha256"],
@@ -492,6 +536,7 @@ def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, 
         "train_patches": len(train_records),
         "val_patches": len(val_records),
         "val_subjects": len({record["subject_id"] for record in val_records}),
+        "feature_cache": "masked_rows_memory" if kind in FEATURE_CHANNELS else "none",
         **git_provenance,
         "python_version": sys.version,
         "torch_version": torch.__version__,
@@ -517,6 +562,7 @@ def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, 
                 patches_per_class=int(training_config.get("patches_per_class", 2)),
                 voxels_per_class=int(training_config.get("voxels_per_class", 2048)),
                 device=device,
+                feature_cache=train_feature_cache,
             )
         elif kind == "c0":
             train_loss = _train_cnn_epoch(
@@ -542,6 +588,7 @@ def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, 
             inference_voxels=int(evaluation_config.get("inference_voxels", 65536)),
             bootstrap_samples=0,
             seed=seed,
+            feature_cache=val_feature_cache,
         )
         focus_miou = float(metrics["focus_miou"])
         scheduler.step(focus_miou)
@@ -598,6 +645,7 @@ def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, 
         inference_voxels=int(evaluation_config.get("inference_voxels", 65536)),
         bootstrap_samples=int(evaluation_config.get("bootstrap_samples", 1000)),
         seed=seed,
+        feature_cache=val_feature_cache,
     )
     final_metrics["checkpoint_sha256"] = sha256_file(best_path)
     final_metrics["config_sha256"] = config["_config_sha256"]

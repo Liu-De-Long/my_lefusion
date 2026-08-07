@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from LeFusion.classifier.engine import validate_test_gate
+from LeFusion.classifier.engine import _feature_rows_and_target, validate_test_gate
 from LeFusion.classifier.data import (
     GLIClassifierPatchDataset,
     SAFE_SAMPLE_KEYS,
@@ -151,6 +151,32 @@ class TestGLIClassifierFeaturesAndModels(unittest.TestCase):
         output = cnn(torch.zeros(1, 2, 4, 8, 8))
         self.assertEqual(tuple(output.shape), (1, 4, 4, 8, 8))
         self.assertLess(count_parameters(cnn), 400_000)
+
+    def test_feature_row_cache_keeps_targets_separate_and_reuses_rows(self) -> None:
+        image = torch.linspace(-1, 1, 4 * 5 * 6).reshape(1, 4, 5, 6)
+        mask = torch.zeros((1, 4, 5, 6), dtype=torch.bool)
+        mask[:, 1:4, 1:4, 2:6] = True
+        target = torch.zeros((4, 5, 6), dtype=torch.int64)
+        target[mask[0]] = 3
+        sample = {
+            "relative_path": "patches/frozen.npz",
+            "image": image,
+            "total_mask": mask,
+            "target": target,
+        }
+        cache: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
+        rows, target_rows = _feature_rows_and_target(
+            sample, feature_kind="m1", cache=cache
+        )
+        sample["image"] = torch.full_like(image, 99)
+        sample["target"] = torch.full_like(target, 4)
+        cached_rows, cached_targets = _feature_rows_and_target(
+            sample, feature_kind="m1", cache=cache
+        )
+        self.assertEqual(rows.data_ptr(), cached_rows.data_ptr())
+        self.assertEqual(target_rows.data_ptr(), cached_targets.data_ptr())
+        self.assertEqual(set(target_rows.tolist()), {2})
+        self.assertFalse(torch.any(rows == 99))
 
 
 class TestGLIClassifierMetrics(unittest.TestCase):
