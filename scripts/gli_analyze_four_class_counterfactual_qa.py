@@ -22,6 +22,11 @@ BIN_EDGES = np.linspace(-1.0, 1.0, 17)
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-root", type=Path, required=True)
+    parser.add_argument(
+        "--experiment-id",
+        default="20260808_exp014_gli_four_class_counterfactual_qa",
+        help="Experiment identifier written to summary.json.",
+    )
     return parser.parse_args()
 
 
@@ -250,7 +255,7 @@ def main() -> None:
         for label, name in LABELS.items()
     }
     summary = {
-        "experiment_id": "20260808_exp014_gli_four_class_counterfactual_qa",
+        "experiment_id": args.experiment_id,
         "case_count": 8,
         "generation_count": 32,
         "same_case_same_input_mask_noise_contract": True,

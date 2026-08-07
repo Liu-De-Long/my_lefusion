@@ -17,5 +17,6 @@
 | `20260807_exp012_gli_lesion_only_x0_hist` | 方法实验 | 用 lesion-only 状态直接预测 x0 并增加 soft-histogram 约束 | 已完成 5k 与固定 8 例 QA；histogram 响应最强，类别视觉/语义一致性未证实 |
 | `20260807_exp013_gli_short_method_comparison` | 比较实验 | 统一比较 exp010–exp012 的固定 8 例五变体 QA、定量门槛与横向图 | 已完成；exp012 为 hist 响应候选，exp010 为 paired 重建最佳方法 |
 | `20260808_exp014_gli_four_class_counterfactual_qa` | QA 方法扩展 | 对同一冻结病例、union mask 和采样随机序列分别请求四类，检查 histogram 排名与无亮度泄漏纹理可分性 | 已完成 32 个结果；只证实亮暗/统计控制，四类视觉与医学语义控制未通过 |
+| `20260808_exp016_gli_exp010_exp012_four_class_comparison` | 配对 QA 比较 | 为 exp010 补充与 exp012 完全相同的冻结 8 例 × 4 类生成，并逐例比较 histogram、GLCM、margin 与背景保持 | 已准备，待运行 exp010 32 个结果 |
 
 实验 ID 只描述研究目的。两种 patch 大小分别记录在同一实验目录的配置文件中，使用同一份裁剪代码和患者划分。
