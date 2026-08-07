@@ -36,7 +36,7 @@ from .tracking import classifier_wandb_run
 
 
 FeatureRowCache = dict[str, tuple[torch.Tensor, torch.Tensor]]
-SPATIAL_MODEL_KINDS = {"c0", "unet3d"}
+SPATIAL_MODEL_KINDS = {"c0", "unet3d", "geometry_unet3d"}
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -128,6 +128,50 @@ def _model_from_config(config: Mapping[str, Any]) -> nn.Module:
         cnn_channels=int(model_config.get("cnn_channels", 24)),
         unet_base_channels=int(model_config.get("unet_base_channels", 24)),
     )
+
+
+def _load_geometry_warmstart(
+    model: nn.Module,
+    checkpoint_path: Path,
+    *,
+    subset_path: Path,
+    device: torch.device,
+) -> str:
+    """Expand a two-channel U-Net checkpoint into the 18-channel geometry model."""
+
+    payload = torch.load(checkpoint_path, map_location=device)
+    if payload.get("model_kind") != "unet3d":
+        raise ValueError("geometry warm-start requires an unet3d checkpoint")
+    if payload.get("subset_sha256") != sha256_file(subset_path):
+        raise ValueError("geometry warm-start labeled subset mismatch")
+    source_state = payload.get("model")
+    if not isinstance(source_state, Mapping):
+        raise ValueError("geometry warm-start checkpoint has no model state")
+    target_state = model.state_dict()
+    expandable = {"encoder0.body.0.weight", "encoder0.skip.weight"}
+    mismatched: list[str] = []
+    for key, target_value in target_state.items():
+        if key not in source_state:
+            raise ValueError(f"geometry warm-start is missing parameter: {key}")
+        source_value = source_state[key]
+        if source_value.shape == target_value.shape:
+            target_state[key] = source_value
+            continue
+        if key not in expandable or source_value.shape[1] != 2 or target_value.shape[1] != 18:
+            mismatched.append(key)
+            continue
+        expanded = torch.zeros_like(target_value)
+        expanded[:, 0] = source_value[:, 0]
+        expanded[:, -1] = source_value[:, 1]
+        target_state[key] = expanded
+    unexpected = sorted(set(source_state).difference(target_state))
+    if mismatched or unexpected:
+        raise ValueError(
+            "geometry warm-start architecture mismatch: "
+            f"mismatched={sorted(mismatched)}, unexpected={unexpected}"
+        )
+    model.load_state_dict(target_state, strict=True)
+    return sha256_file(checkpoint_path)
 
 
 def update_selection_state(
@@ -389,6 +433,56 @@ def _soft_dice_loss(
     return 1.0 - (dice * weights).sum() / weights.sum().clamp_min(1e-6)
 
 
+def _interclass_boundary_mask(target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """Return mask-inside voxels whose 3x3x3 neighborhood contains >1 class."""
+
+    safe_target = target.clamp(0, 3)
+    one_hot = F.one_hot(safe_target, 4).permute(0, 4, 1, 2, 3).to(torch.float32)
+    one_hot = one_hot * mask[:, None].to(one_hot.dtype)
+    neighborhood_presence = F.max_pool3d(one_hot, kernel_size=3, stride=1, padding=1)
+    return (neighborhood_presence.sum(dim=1) > 1) & mask.to(torch.bool)
+
+
+def _lovasz_gradient(sorted_foreground: torch.Tensor) -> torch.Tensor:
+    count = sorted_foreground.numel()
+    total = sorted_foreground.sum()
+    intersection = total - sorted_foreground.cumsum(dim=0)
+    union = total + (1.0 - sorted_foreground).cumsum(dim=0)
+    gradient = 1.0 - intersection / union.clamp_min(1e-6)
+    if count > 1:
+        gradient[1:] = gradient[1:] - gradient[:-1]
+    return gradient
+
+
+def _lovasz_softmax_loss(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    mask: torch.Tensor,
+    *,
+    class_multipliers: torch.Tensor,
+) -> torch.Tensor:
+    """Multiclass Lovasz-Softmax over mask-inside voxels only."""
+
+    probabilities = logits.softmax(dim=1).permute(0, 2, 3, 4, 1)[mask]
+    labels = target[mask].clamp(0, 3)
+    losses: list[torch.Tensor] = []
+    weights: list[torch.Tensor] = []
+    for class_index in range(4):
+        foreground = (labels == class_index).to(probabilities.dtype)
+        if not torch.any(foreground):
+            continue
+        errors = (foreground - probabilities[:, class_index]).abs()
+        errors_sorted, permutation = torch.sort(errors, descending=True)
+        foreground_sorted = foreground[permutation]
+        losses.append(torch.dot(errors_sorted, _lovasz_gradient(foreground_sorted)))
+        weights.append(class_multipliers[class_index].to(probabilities.dtype))
+    if not losses:
+        return logits.sum() * 0.0
+    stacked_losses = torch.stack(losses)
+    stacked_weights = torch.stack(weights).to(stacked_losses.device)
+    return (stacked_losses * stacked_weights).sum() / stacked_weights.sum().clamp_min(1e-6)
+
+
 def _loss_settings(training_config: Mapping[str, Any], device: torch.device) -> dict[str, Any]:
     loss_config = training_config.get("loss", {})
     focus_multiplier = float(loss_config.get("focus_class_multiplier", 1.0))
@@ -396,6 +490,8 @@ def _loss_settings(training_config: Mapping[str, Any], device: torch.device) -> 
         "ce_weight": float(loss_config.get("ce_weight", 0.7)),
         "focal_weight": float(loss_config.get("focal_weight", 0.0)),
         "dice_weight": float(loss_config.get("dice_weight", 0.3)),
+        "lovasz_weight": float(loss_config.get("lovasz_weight", 0.0)),
+        "boundary_multiplier": float(loss_config.get("boundary_multiplier", 0.0)),
         "focal_gamma": float(loss_config.get("focal_gamma", 2.0)),
         "class_multipliers": torch.tensor(
             [1.0, 1.0, focus_multiplier, focus_multiplier], device=device
@@ -419,10 +515,23 @@ def _masked_supervised_loss(
         weight=effective_class_weights,
         reduction="none",
     )
-    denominator = mask.sum().clamp_min(1)
-    cross_entropy = (ce_map * mask).sum() / denominator
+    boundary_multiplier = float(settings["boundary_multiplier"])
+    boundary = (
+        _interclass_boundary_mask(safe_target, mask)
+        if boundary_multiplier > 0.0
+        else torch.zeros_like(mask, dtype=torch.bool)
+    )
+    voxel_weights = mask.to(logits.dtype) * (
+        1.0 + boundary_multiplier * boundary.to(logits.dtype)
+    )
+    denominator = voxel_weights.sum().clamp_min(1.0)
+    cross_entropy = (ce_map * voxel_weights).sum() / denominator
     target_probability = logits.softmax(dim=1).gather(1, safe_target[:, None]).squeeze(1)
-    focal = (((1.0 - target_probability) ** float(settings["focal_gamma"])) * ce_map * mask).sum()
+    focal = (
+        ((1.0 - target_probability) ** float(settings["focal_gamma"]))
+        * ce_map
+        * voxel_weights
+    ).sum()
     focal = focal / denominator
     dice = _soft_dice_loss(
         logits,
@@ -430,16 +539,56 @@ def _masked_supervised_loss(
         mask,
         class_multipliers=settings["class_multipliers"],
     )
+    lovasz = (
+        _lovasz_softmax_loss(
+            logits,
+            safe_target,
+            mask,
+            class_multipliers=settings["class_multipliers"],
+        )
+        if float(settings["lovasz_weight"]) > 0.0
+        else logits.sum() * 0.0
+    )
     loss = (
         float(settings["ce_weight"]) * cross_entropy
         + float(settings["focal_weight"]) * focal
         + float(settings["dice_weight"]) * dice
+        + float(settings["lovasz_weight"]) * lovasz
     )
     return loss, {
         "cross_entropy": float(cross_entropy.detach().cpu()),
         "focal": float(focal.detach().cpu()),
         "dice_loss": float(dice.detach().cpu()),
+        "lovasz_loss": float(lovasz.detach().cpu()),
+        "boundary_fraction": float(
+            (boundary.sum() / mask.sum().clamp_min(1)).detach().cpu()
+        ),
     }
+
+
+def _build_spatial_inputs(
+    image: torch.Tensor,
+    mask: torch.Tensor,
+    *,
+    kind: str,
+) -> torch.Tensor:
+    """Build dense spatial inputs without consulting scalar class targets."""
+
+    if image.ndim != 5 or image.shape[1] != 1 or mask.ndim != 4:
+        raise ValueError(
+            f"expected image [B,1,D,H,W] and mask [B,D,H,W], got {image.shape}, {mask.shape}"
+        )
+    if kind in {"c0", "unet3d"}:
+        return torch.cat((image, mask[:, None].to(image.dtype)), dim=1)
+    if kind != "geometry_unet3d":
+        raise ValueError(f"unsupported spatial input kind: {kind}")
+    feature_volumes = torch.stack(
+        [
+            build_feature_volume(image[index], mask[index], "m1")
+            for index in range(image.shape[0])
+        ]
+    )
+    return torch.cat((feature_volumes, mask[:, None].to(feature_volumes.dtype)), dim=1)
 
 
 def _augment_spatial_batch(
@@ -526,6 +675,7 @@ def _train_cnn_epoch(
     class_weights: torch.Tensor,
     device: torch.device,
     training_config: Mapping[str, Any],
+    kind: str,
 ) -> float:
     model.train()
     generator = torch.Generator().manual_seed(seed + 10_000_019 * epoch)
@@ -555,10 +705,9 @@ def _train_cnn_epoch(
             if target_augmented is None:
                 raise AssertionError("labeled augmentation lost its target")
             target = target_augmented
-        image = image.to(device)
+        inputs = _build_spatial_inputs(image, mask, kind=kind).to(device)
         mask = mask.to(device)
         target = target.to(device)
-        inputs = torch.cat((image, mask[:, None].to(image.dtype)), dim=1)
         optimizer.zero_grad(set_to_none=True)
         logits = model(inputs)
         loss, _ = _masked_supervised_loss(
@@ -873,7 +1022,9 @@ def evaluate_model(
             ]
             images = torch.stack([sample["image"] for sample in samples])  # type: ignore[list-item]
             masks = torch.stack([sample["total_mask"] for sample in samples])  # type: ignore[list-item]
-            inputs = torch.cat((images, masks.to(images.dtype)), dim=1).to(device)
+            inputs = _build_spatial_inputs(
+                images, masks[:, 0], kind=kind
+            ).to(device)
             batch_logits = model(inputs).cpu()
             for sample, logits in zip(samples, batch_logits, strict=True):
                 mask = sample["total_mask"]  # type: ignore[assignment]
@@ -937,6 +1088,27 @@ def _run_training_impl(
     )
     kind = str(config["model"]["kind"]).lower()
     model = _model_from_config(config).to(device)
+    initial_checkpoint_value = training_config.get("initial_checkpoint")
+    initial_checkpoint = (
+        Path(str(initial_checkpoint_value)) if initial_checkpoint_value else None
+    )
+    initial_checkpoint_sha256: str | None = None
+    if initial_checkpoint is not None:
+        if not initial_checkpoint.is_file():
+            raise FileNotFoundError(initial_checkpoint)
+        if not resume:
+            if kind != "geometry_unet3d":
+                raise ValueError(
+                    "supervised initial_checkpoint is only supported for geometry_unet3d"
+                )
+            initial_checkpoint_sha256 = _load_geometry_warmstart(
+                model,
+                initial_checkpoint,
+                subset_path=subset_path,
+                device=device,
+            )
+        else:
+            initial_checkpoint_sha256 = sha256_file(initial_checkpoint)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=float(training_config["learning_rate"]),
@@ -967,6 +1139,9 @@ def _run_training_impl(
             subset_path=subset_path,
             device=device,
         )
+        latest_payload = torch.load(latest_path, map_location="cpu")
+        if latest_payload.get("initial_checkpoint_sha256") != initial_checkpoint_sha256:
+            raise ValueError("supervised initial checkpoint changed during resume")
 
     class_weights = class_weights_from_subset(subset_payload)
     train_feature_cache: FeatureRowCache | None = (
@@ -986,6 +1161,8 @@ def _run_training_impl(
         "val_patches": len(val_records),
         "val_subjects": len({record["subject_id"] for record in val_records}),
         "feature_cache": "masked_rows_memory" if kind in FEATURE_CHANNELS else "none",
+        "initial_checkpoint": str(initial_checkpoint) if initial_checkpoint else None,
+        "initial_checkpoint_sha256": initial_checkpoint_sha256,
         "wandb_run_id": str(wandb_run.id),
         "wandb_url": getattr(wandb_run, "url", None),
         **git_provenance,
@@ -1027,6 +1204,7 @@ def _run_training_impl(
                 class_weights=class_weights,
                 device=device,
                 training_config=training_config,
+                kind=kind,
             )
         else:
             raise ValueError(f"unsupported training kind: {kind}")
@@ -1069,6 +1247,7 @@ def _run_training_impl(
             patience_metric=patience_metric,
             bad_epochs=bad_epochs,
         )
+        checkpoint["initial_checkpoint_sha256"] = initial_checkpoint_sha256
         _atomic_torch_save(checkpoint, latest_path)
         if is_absolute_best:
             _atomic_torch_save(checkpoint, best_path)
@@ -1134,6 +1313,7 @@ def _run_training_impl(
     final_metrics["checkpoint_sha256"] = sha256_file(best_path)
     final_metrics["config_sha256"] = config["_config_sha256"]
     final_metrics["subset_sha256"] = sha256_file(subset_path)
+    final_metrics["initial_checkpoint_sha256"] = initial_checkpoint_sha256
     (output_dir / "best_val_metrics.json").write_text(
         json.dumps(final_metrics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -1503,6 +1683,16 @@ def run_cpu_preflight(
 
     kind = str(config["model"]["kind"]).lower()
     model = _model_from_config(config).to(device)
+    preflight_initial_sha256: str | None = None
+    if training_config.get("initial_checkpoint"):
+        if kind != "geometry_unet3d":
+            raise ValueError("preflight initial checkpoint requires geometry_unet3d")
+        preflight_initial_sha256 = _load_geometry_warmstart(
+            model,
+            Path(str(training_config["initial_checkpoint"])),
+            subset_path=subset_path,
+            device=device,
+        )
     model.train()
     started = time.monotonic()
     if kind in FEATURE_CHANNELS:
@@ -1526,7 +1716,9 @@ def run_cpu_preflight(
         image, mask, target_original = _lesion_center_crop(
             sample["image"], sample["total_mask"], sample["target"]  # type: ignore[arg-type]
         )
-        inputs = torch.cat((image, mask.to(image.dtype)), dim=0)[None]
+        inputs = _build_spatial_inputs(
+            image[None], mask[0][None], kind=kind
+        )
         target = target_original[None] - 1
         logits = model(inputs)
         mask_3d = mask[0][None]
@@ -1614,6 +1806,7 @@ def run_cpu_preflight(
         "subset_count": int(subset_payload["actual_count"]),
         "subset_sha256": sha256_file(subset_path),
         "config_sha256": config["_config_sha256"],
+        "initial_checkpoint_sha256": preflight_initial_sha256,
         "elapsed_seconds": time.monotonic() - started,
         **semi_preflight,
     }
@@ -1652,6 +1845,16 @@ def run_gpu_preflight(
         raise ValueError("GPU full-p64 preflight is only defined for spatial models")
     batch_size = int(training_config.get("batch_size", 1))
     model = _model_from_config(config).to(device).train()
+    preflight_initial_sha256: str | None = None
+    if training_config.get("initial_checkpoint"):
+        if kind != "geometry_unet3d":
+            raise ValueError("GPU preflight initial checkpoint requires geometry_unet3d")
+        preflight_initial_sha256 = _load_geometry_warmstart(
+            model,
+            Path(str(training_config["initial_checkpoint"])),
+            subset_path=subset_path,
+            device=device,
+        )
     class_weights = class_weights_from_subset(subset_payload)
     settings = _loss_settings(training_config, device)
     torch.cuda.empty_cache()
@@ -1663,10 +1866,9 @@ def run_gpu_preflight(
     )
     if target is None:
         raise AssertionError("GPU preflight labeled batch has no target")
-    image = image.to(device)
+    inputs = _build_spatial_inputs(image, mask, kind=kind).to(device)
     mask = mask.to(device)
     target = target.to(device)
-    inputs = torch.cat((image, mask[:, None].to(image.dtype)), dim=1)
     logits = model(inputs)
     supervised_loss, _ = _masked_supervised_loss(
         logits,
@@ -1756,6 +1958,7 @@ def run_gpu_preflight(
         "peak_reserved_mib": torch.cuda.max_memory_reserved(device) / (1024**2),
         "subset_sha256": sha256_file(subset_path),
         "config_sha256": config["_config_sha256"],
+        "initial_checkpoint_sha256": preflight_initial_sha256,
         "elapsed_seconds": time.monotonic() - started,
         **semi_result,
     }

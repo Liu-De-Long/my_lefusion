@@ -11,8 +11,13 @@ import numpy as np
 import torch
 
 from LeFusion.classifier.engine import (
+    _build_spatial_inputs,
     _cyclic_epoch_records,
     _feature_rows_and_target,
+    _interclass_boundary_mask,
+    _load_geometry_warmstart,
+    _loss_settings,
+    _masked_supervised_loss,
     _select_balanced_pseudo_voxels,
     evaluate_model,
     update_selection_state,
@@ -175,6 +180,53 @@ class TestGLIClassifierFeaturesAndModels(unittest.TestCase):
         output = unet(torch.zeros(1, 2, 8, 16, 16))
         self.assertEqual(tuple(output.shape), (1, 4, 8, 16, 16))
         self.assertLess(count_parameters(unet), 2_000_000)
+        geometry_unet = build_classifier("geometry_unet3d", unet_base_channels=8)
+        output = geometry_unet(torch.zeros(1, 18, 8, 16, 16))
+        self.assertEqual(tuple(output.shape), (1, 4, 8, 16, 16))
+        self.assertLess(count_parameters(geometry_unet), 2_000_000)
+
+    def test_geometry_spatial_inputs_are_target_independent(self) -> None:
+        image = torch.linspace(-1, 1, 2 * 1 * 8 * 12 * 16).reshape(2, 1, 8, 12, 16)
+        mask = torch.zeros((2, 8, 12, 16), dtype=torch.bool)
+        mask[0, 1:7, 2:10, 3:14] = True
+        mask[1, 2:6, 1:11, 2:15] = True
+        first = _build_spatial_inputs(image, mask, kind="geometry_unet3d")
+        second = _build_spatial_inputs(image.clone(), mask.clone(), kind="geometry_unet3d")
+        self.assertEqual(tuple(first.shape), (2, 18, 8, 12, 16))
+        self.assertTrue(torch.equal(first, second))
+        self.assertTrue(torch.equal(first[:, -1].to(torch.bool), mask))
+
+    def test_geometry_warmstart_expands_only_input_stem(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            subset = root / "subset.json"
+            subset.write_text("{}", encoding="utf-8")
+            source = build_classifier("unet3d", unet_base_channels=8)
+            checkpoint = root / "best.pt"
+            torch.save(
+                {
+                    "model_kind": "unet3d",
+                    "subset_sha256": hashlib.sha256(b"{}").hexdigest(),
+                    "model": source.state_dict(),
+                },
+                checkpoint,
+            )
+            target = build_classifier("geometry_unet3d", unet_base_channels=8)
+            _load_geometry_warmstart(
+                target,
+                checkpoint,
+                subset_path=subset,
+                device=torch.device("cpu"),
+            )
+            source_state = source.state_dict()
+            target_state = target.state_dict()
+            for key in ("encoder0.body.0.weight", "encoder0.skip.weight"):
+                self.assertTrue(torch.equal(target_state[key][:, 0], source_state[key][:, 0]))
+                self.assertTrue(torch.equal(target_state[key][:, -1], source_state[key][:, 1]))
+                self.assertEqual(int(torch.count_nonzero(target_state[key][:, 1:-1])), 0)
+            self.assertTrue(
+                torch.equal(target_state["head.weight"], source_state["head.weight"])
+            )
 
     def test_feature_row_cache_keeps_targets_separate_and_reuses_rows(self) -> None:
         image = torch.linspace(-1, 1, 4 * 5 * 6).reshape(1, 4, 5, 6)
@@ -204,6 +256,42 @@ class TestGLIClassifierFeaturesAndModels(unittest.TestCase):
 
 
 class TestGLIClassifierMetrics(unittest.TestCase):
+    def test_boundary_lovasz_loss_is_finite_and_target_only_affects_loss(self) -> None:
+        mask = torch.ones((1, 4, 6, 8), dtype=torch.bool)
+        target = torch.zeros_like(mask, dtype=torch.int64)
+        target[:, :, :, 4:] = 2
+        boundary = _interclass_boundary_mask(target, mask)
+        self.assertGreater(int(boundary.sum()), 0)
+        self.assertFalse(torch.any(boundary[:, :, :, :2]))
+        self.assertFalse(torch.any(boundary[:, :, :, 6:]))
+
+        logits = torch.randn((1, 4, 4, 6, 8), requires_grad=True)
+        settings = _loss_settings(
+            {
+                "loss": {
+                    "ce_weight": 0.3,
+                    "focal_weight": 0.1,
+                    "dice_weight": 0.2,
+                    "lovasz_weight": 0.4,
+                    "boundary_multiplier": 1.0,
+                    "focus_class_multiplier": 1.25,
+                }
+            },
+            torch.device("cpu"),
+        )
+        loss, parts = _masked_supervised_loss(
+            logits,
+            target,
+            mask,
+            class_weights=torch.ones(4),
+            settings=settings,
+        )
+        loss.backward()
+        self.assertTrue(torch.isfinite(loss))
+        self.assertGreater(float(logits.grad.abs().sum()), 0.0)
+        self.assertGreater(parts["lovasz_loss"], 0.0)
+        self.assertGreater(parts["boundary_fraction"], 0.0)
+
     def test_spatial_batched_evaluation_matches_single_patch_evaluation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

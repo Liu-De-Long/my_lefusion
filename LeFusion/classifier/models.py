@@ -145,10 +145,11 @@ class MultiScaleContext3D(nn.Module):
 class ResidualMultiScaleUNet3D(nn.Module):
     """Two-level residual 3D U-Net for complete 32x64x64 p64 patches."""
 
-    def __init__(self, base_channels: int = 24) -> None:
+    def __init__(self, base_channels: int = 24, input_channels: int = 2) -> None:
         super().__init__()
         base = int(base_channels)
-        self.encoder0 = ResidualConvBlock3D(2, base)
+        self.input_channels = int(input_channels)
+        self.encoder0 = ResidualConvBlock3D(self.input_channels, base)
         self.down0 = nn.Conv3d(base, base * 2, 2, stride=2, bias=False)
         self.encoder1 = ResidualConvBlock3D(base * 2, base * 2)
         self.down1 = nn.Conv3d(base * 2, base * 4, 2, stride=2, bias=False)
@@ -164,9 +165,10 @@ class ResidualMultiScaleUNet3D(nn.Module):
         self.head = nn.Conv3d(base, 4, 1)
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        if inputs.ndim != 5 or inputs.shape[1] != 2:
+        if inputs.ndim != 5 or inputs.shape[1] != self.input_channels:
             raise ValueError(
-                f"ResidualMultiScaleUNet3D expects [B,2,D,H,W], got {tuple(inputs.shape)}"
+                "ResidualMultiScaleUNet3D expects "
+                f"[B,{self.input_channels},D,H,W], got {tuple(inputs.shape)}"
             )
         skip0 = self.encoder0(inputs)
         skip1 = self.encoder1(self.down0(skip0))
@@ -190,7 +192,15 @@ def build_classifier(
     if kind == "c0":
         return Light3DClassifier(channels=int(cnn_channels))
     if kind == "unet3d":
-        return ResidualMultiScaleUNet3D(base_channels=int(unet_base_channels))
+        return ResidualMultiScaleUNet3D(
+            base_channels=int(unet_base_channels), input_channels=2
+        )
+    if kind == "geometry_unet3d":
+        # M1 provides 17 leak-safe T1c/union-mask features; the explicit union
+        # mask is retained as the eighteenth channel.
+        return ResidualMultiScaleUNet3D(
+            base_channels=int(unet_base_channels), input_channels=18
+        )
     raise ValueError(f"unknown classifier kind: {kind}")
 
 
