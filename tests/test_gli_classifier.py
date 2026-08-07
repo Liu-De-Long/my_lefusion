@@ -210,7 +210,7 @@ class TestGLIClassifierMetrics(unittest.TestCase):
             patch_root = root / "patch_64x64x32" / "patches"
             patch_root.mkdir(parents=True)
             records = []
-            for index in range(2):
+            for index in range(4):
                 image = np.zeros((64, 64, 32), dtype=np.float32)
                 seg = np.zeros((64, 64, 32), dtype=np.uint8)
                 seg[16:48, 16:48, 8:24] = (index % 4) + 1
