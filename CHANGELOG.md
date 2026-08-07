@@ -758,4 +758,11 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   `[1,5,8,16,16] -> [1,4,8,16,16]`，loss `0.606481`，梯度范数 `8.815803`，8 个
   `anchor×role` 分层全覆盖；config/subset/initial checkpoint SHA 匹配。
 - 删除已被 `multimodal_build_audit.json` 取代的一次性 `outputs/data_build.log`；保留正式数据、数据 audit 与
-  `cpu_preflight.json`。尚未执行 GPU0 preflight、未初始化 W&B、未执行 optimizer step，冻结 test 未运行。
+  `cpu_preflight.json`。
+- 用户授权 exp016 使用 GPU0 执行零步 preflight，并在通过后启动唯一 W&B online、val-only 正式训练；五项门禁
+  前不运行 test。
+- 物理 GPU0 完整 p64、batch 8 零 optimizer-step preflight 通过：输入/输出
+  `[8,5,32,64,64] -> [8,4,32,64,64]`，loss `0.190637`、梯度范数 `1.868516`，峰值
+  allocated/reserved 显存 `2777.291/3920 MiB`；GPU1 既有任务未干扰。
+- GPU preflight SHA-256 为 `4ae883839b9912451c30a3d9f24bc9dfcaf0c2f6fd5bc48ef9d3d227ee530d00`，
+  config/subset/initial checkpoint SHA 全匹配。正式 W&B run 与 optimizer step 尚未启动，冻结 test 未运行。

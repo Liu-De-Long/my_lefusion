@@ -42,7 +42,13 @@ T1c/T1n/T2f/T2w 四模态是否能突破 T1c-only 的可分性瓶颈，并将患
   `anchor×role` 分层；config/subset/initial checkpoint SHA 全匹配。CPU preflight 文件 SHA-256 为
   `9b75211a794f822f375e4556212c14afe13b026b2ee424b6c849e0282f378e99`。
 - 一次性 `data_build.log` 已由正式 JSON audit 取代并删除；未删除数据集、audit 或 CPU preflight。
-- 当前未执行 GPU0 preflight，未启动正式 W&B run，未执行 optimizer step，未运行 test。
+- 物理 GPU0 完整 p64 零 optimizer-step preflight 通过：batch 8，输入/输出
+  `[8,5,32,64,64] -> [8,4,32,64,64]`，loss `0.190637`，梯度范数 `1.868516`，峰值
+  allocated/reserved 显存 `2777.291/3920 MiB`；GPU1 既有任务未干扰。
+- GPU preflight 文件 SHA-256 为 `4ae883839b9912451c30a3d9f24bc9dfcaf0c2f6fd5bc48ef9d3d227ee530d00`，
+  config/subset/initial checkpoint SHA 全匹配。
+- 用户已授权在 preflight 通过后启动唯一 W&B online、val-only 正式训练。当前尚未初始化正式 run、未执行正式
+  optimizer step、未运行 test。
 
 ## 结论
 
@@ -51,10 +57,9 @@ T1c/T1n/T2f/T2w 四模态是否能突破 T1c-only 的可分性瓶颈，并将患
 
 ## 下一步
 
-1. 获得 GPU0 preflight 与 val-only 正式训练确认；
-2. 物理 GPU0 完整 p64 零 optimizer-step preflight；
-3. W&B online val-only 正式训练；
-4. 门禁未通过则继续封存 test。
+1. 从本地/远端一致的 clean commit 启动唯一 W&B online、val-only 正式训练；
+2. 仅按完整 p64 患者等权 val 选择 best，并监控 early stopping；
+3. 门禁未通过则继续封存 test。
 
 ## 输出路径
 

@@ -168,4 +168,7 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
 14. 正式四模态数据已物化 7772 train+1032 val；独立审计确认冻结 subset 缺失 0、test 1038 条物化 0、
     六键输入无 hist，源/目标 manifest SHA 一致。正式 audit SHA 为
     `cb34a00e963f77a0dd0df74c84d6937d635d2a4606dd585f4b0e118d7e3996d1`。
-15. 尚未执行 GPU0 preflight、尚未启动 W&B 或 optimizer step；GPU0 保持空闲，GPU1 既有任务未干扰。
+15. 用户已授权 GPU0 preflight 与唯一 W&B online、val-only 正式训练。物理 GPU0 完整 p64、batch 8
+    零 optimizer-step preflight 已通过：loss `0.190637`、梯度范数 `1.868516`、峰值 allocated/reserved
+    `2777.291/3920 MiB`；GPU1 既有任务未干扰。
+16. 正式 W&B run 尚未初始化、正式 optimizer step 尚未执行；完成 preflight 文档同步并核验 clean HEAD 后启动。

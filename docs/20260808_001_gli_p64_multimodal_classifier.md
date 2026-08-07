@@ -83,4 +83,7 @@ CUDA_VISIBLE_DEVICES=0 python scripts/gli_p64_classifier.py train --config exper
 - 数据 audit SHA-256：`cb34a00e963f77a0dd0df74c84d6937d635d2a4606dd585f4b0e118d7e3996d1`。
 - CPU 零步 preflight 输入/输出为 `[1,5,8,16,16] -> [1,4,8,16,16]`，loss/梯度有限，冻结 SHA 全匹配；
   preflight SHA-256：`9b75211a794f822f375e4556212c14afe13b026b2ee424b6c849e0282f378e99`。
-- 当前未执行 GPU0 preflight、未启动 W&B 或 optimizer step；test 继续封存。
+- 物理 GPU0 完整 p64 零步 preflight 输入/输出为 `[8,5,32,64,64] -> [8,4,32,64,64]`，loss
+  `0.190637`、梯度范数 `1.868516`，峰值 allocated/reserved 显存 `2777.291/3920 MiB`；GPU1 未干扰。
+- GPU preflight SHA-256：`4ae883839b9912451c30a3d9f24bc9dfcaf0c2f6fd5bc48ef9d3d227ee530d00`。
+- 用户已授权唯一 W&B online、val-only 正式训练；正式 run 启动前 test 继续封存。
