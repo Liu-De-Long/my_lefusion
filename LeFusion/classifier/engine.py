@@ -7,6 +7,8 @@ import json
 import math
 import os
 import random
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -63,6 +65,33 @@ def resolve_device(value: str) -> torch.device:
     if device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError(f"CUDA was requested but is unavailable: {value}")
     return device
+
+
+def clean_git_provenance(config: Mapping[str, Any]) -> dict[str, str]:
+    config_path = Path(str(config["_config_path"])).resolve()
+    project_root = config_path.parents[2]
+
+    def git(*arguments: str) -> str:
+        result = subprocess.run(
+            ["git", *arguments],
+            cwd=project_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+
+    status = git("status", "--porcelain", "--untracked-files=normal")
+    if status:
+        raise RuntimeError(
+            "formal classifier training requires a clean Git worktree; "
+            f"found:\n{status}"
+        )
+    return {
+        "git_head": git("rev-parse", "HEAD"),
+        "git_branch": git("branch", "--show-current"),
+        "project_root": str(project_root),
+    }
 
 
 def _safe_records(records: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -124,6 +153,8 @@ def _checkpoint_payload(
         "bad_epochs": int(bad_epochs),
         "config_sha256": config["_config_sha256"],
         "subset_sha256": sha256_file(subset_path),
+        "git_head": config["_git_head"],
+        "git_branch": config["_git_branch"],
         "torch_rng_state": torch.get_rng_state(),
         "numpy_rng_state": np.random.get_state(),
         "python_rng_state": random.getstate(),
@@ -397,6 +428,9 @@ def evaluate_model(
 
 def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, Any]:
     config = load_config(config_path)
+    git_provenance = clean_git_provenance(config)
+    config["_git_head"] = git_provenance["git_head"]
+    config["_git_branch"] = git_provenance["git_branch"]
     data_config = config["data"]
     training_config = config["training"]
     evaluation_config = config["evaluation"]
@@ -456,6 +490,10 @@ def run_training(config_path: str | Path, *, resume: bool = False) -> dict[str, 
         "train_patches": len(train_records),
         "val_patches": len(val_records),
         "val_subjects": len({record["subject_id"] for record in val_records}),
+        **git_provenance,
+        "python_version": sys.version,
+        "torch_version": torch.__version__,
+        "cuda_version": torch.version.cuda,
     }
     (output_dir / "run_metadata.json").write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

@@ -14,6 +14,8 @@ NETC、SNFH、ET、RC 四分类；以完整 p64 重建后患者等权的 ET/RC `
 - 新增 M0 单强度 MLP、M1 空间特征 MLP、M2 `3×3×3` 邻域 MLP 和 C0 轻量 3D CNN。
 - 新增完整 p64 恢复、mask 外强制背景、患者等权指标、bootstrap 置信区间和小区域分层评估。
 - 新增原子 `latest/best` checkpoint、严格 config/subset hash resume 和 early stopping。
+- 正式训练 fail-closed：要求 Git 工作树干净，并在 metadata/checkpoint 中冻结 branch、HEAD、
+  Python、Torch 与 CUDA 版本。
 - test 入口 fail-closed：只有 `best_val_metrics.json` 的五项门禁全部通过，且 checkpoint、config、
   subset SHA-256 与验证记录一致时，才允许读取冻结的 `best.pt` 运行 test。
 - 新增真实 p64 CPU preflight：覆盖八个 `anchor × role` 分层，执行一次前反向但固定
