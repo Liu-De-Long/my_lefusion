@@ -337,3 +337,8 @@ mask 输入白名单、患者隔离、完整 p64 后患者等权评价和一次�
 
 本次 classifier 训练没有 W&B online 记录，违反项目正式训练日志要求；结果可作为验证集方法
 审计，但 checkpoint 不能标记为 W&B 完整的正式最佳模型。后续训练必须先补 W&B fail-closed。
+
+训练历史追加审计发现 C0 epoch 29 的 focus mIoU 为 `0.5482`，略高于保存的 epoch 22
+`best.pt` 的 `0.5436`。这是因为 `early_stopping_min_delta=0.005` 被错误复用于 best 保存判断；
+小幅但真实的验证新高没有保存。该问题不改变 0.85 门禁失败与 test 封存结论，但后续实现必须
+分别维护“绝对验证最大值 checkpoint”和“显著改善 patience 基线”。

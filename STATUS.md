@@ -116,6 +116,9 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
 - 少标签分类方案中的“10% 且约 1000 Case”存在口径差异：默认按 1000 个 p64 patch
   解释；用户已确认本次按 1000 patch、T1c、ET/RC 门禁实施。exp009 最佳仅 0.5436，
   且训练未接入 W&B online，因此 checkpoint 只作为验证审计，不是正式最佳模型。
+- exp009 的 C0 `history.jsonl` 实际最高 focus mIoU 为 epoch 29 的 `0.5482`，但旧实现把
+  `early_stopping_min_delta` 复用于 best 保存，导致 `best.pt` 停在 epoch 22 的 `0.5436`；
+  该问题不改变门禁失败，但必须在下一次训练前修复。
 
 ## 下一步
 

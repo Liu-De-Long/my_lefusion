@@ -599,3 +599,7 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   后续新训练必须先补 W&B fail-closed。
 - 汇总正式远端 `outputs/` 后删除本地独立 worktree 中约 5.1 MiB 的 `.tmp_exp009_results/`
   临时结果拷贝；远端 checkpoint、history、验证指标和日志均未删除。
+- 追加只读训练历史审计：C0 epoch 29 实际 focus mIoU 为 `0.5482`，高于已保存 epoch 22
+  checkpoint 的 `0.5436`；确认根因是 `early_stopping_min_delta` 被错误复用于 best 保存判断。
+  由于该值仍远低于 0.85，冻结 test 继续封存；本地 `.tmp_c0_history.jsonl` 临时副本在汇总结论
+  后删除，远端正式 history 未删除。
