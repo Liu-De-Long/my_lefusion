@@ -1,0 +1,22 @@
+variant: patch_64x64x32_seed_20260805_full_50k_2gpu
+hydra_config: LeFusion/train/config/experiment/gli_exp010_single_state_noise_64x64x32_full.yaml
+status: preflight_pending
+code_commit: pending
+seed: 20260805
+initialization: random
+source_short_checkpoint_used: false
+max_optimizer_steps: 50000
+train_split: full_frozen_train_split
+sampler_samples_per_epoch: 7772
+global_batch_size: 4
+per_gpu_micro_batch: 2
+gradient_accumulate_every: 1
+learning_rate: 0.0001
+gpus: [0, 1]
+parallelism: torch_nn_DataParallel
+train_num_workers: 8
+validation_num_workers: 8
+wandb_run_id: exp010-p64-full50k-2gpu-s20260805
+wandb_mode: online_fail_closed
+exp012_started: false
+output_dir: experiments/20260807_exp010_gli_single_state_noise/outputs/full_50k_2gpu/seed_20260805

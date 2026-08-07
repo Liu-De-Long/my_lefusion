@@ -54,6 +54,24 @@ def build_preflight_cfg(cfg: DictConfig) -> DictConfig:
     return cloned
 
 
+def resolve_preflight_parallelism(cfg: DictConfig) -> tuple[bool, list[int]]:
+    """Resolve an opt-in multi-GPU preflight without changing historical configs."""
+    enabled = bool(cfg.preflight.get("use_data_parallel", False))
+    raw_device_ids = cfg.model.get("data_parallel_device_ids")
+    device_ids = (
+        [int(cfg.model.gpus)]
+        if raw_device_ids is None
+        else [int(value) for value in raw_device_ids]
+    )
+    if len(device_ids) != len(set(device_ids)) or any(value < 0 for value in device_ids):
+        raise ValueError(f"invalid preflight DataParallel device IDs: {device_ids}")
+    if enabled and len(device_ids) < 2:
+        raise ValueError("multi-GPU preflight requires at least two device IDs")
+    if enabled and int(cfg.model.gpus) != device_ids[0]:
+        raise ValueError("model.gpus must be the first DataParallel device ID")
+    return enabled, device_ids
+
+
 def _write_metrics(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp")
@@ -66,7 +84,10 @@ def _create_trainer(cfg: DictConfig, device: torch.device):
     train_dataset, train_sampler = get_train_dataset(cfg)
     validation_dataset = get_validation_dataset(cfg)
     resolved_config, metadata = build_checkpoint_metadata(cfg, train_dataset, spatial_shape)
-    diffusion = build_model_and_diffusion(cfg, device, use_data_parallel=False)
+    use_data_parallel, _ = resolve_preflight_parallelism(cfg)
+    diffusion = build_model_and_diffusion(
+        cfg, device, use_data_parallel=use_data_parallel
+    )
     from ddpm import Trainer
 
     trainer = Trainer(
@@ -108,6 +129,12 @@ def run(cfg: DictConfig) -> None:
 
     preflight_cfg = build_preflight_cfg(cfg)
     validate_training_config(preflight_cfg)
+    use_data_parallel, device_ids = resolve_preflight_parallelism(preflight_cfg)
+    if use_data_parallel and max(device_ids) >= torch.cuda.device_count():
+        raise RuntimeError(
+            f"preflight requests CUDA devices {device_ids}, but only "
+            f"{torch.cuda.device_count()} are visible"
+        )
     torch.cuda.set_device(int(preflight_cfg.model.gpus))
     device = torch.device("cuda", int(preflight_cfg.model.gpus))
     set_global_seed(int(preflight_cfg.seed))
@@ -149,7 +176,9 @@ def run(cfg: DictConfig) -> None:
                 f"{tuple(spatial_condition.shape)} != {expected_spatial_condition}"
             )
 
-        torch.cuda.reset_peak_memory_stats(device)
+        measured_device_ids = device_ids if use_data_parallel else [int(device.index)]
+        for device_id in measured_device_ids:
+            torch.cuda.reset_peak_memory_stats(device_id)
         trainer.model.train()
         trainer.opt.zero_grad(set_to_none=True)
         with autocast(
@@ -177,7 +206,11 @@ def run(cfg: DictConfig) -> None:
         if not bool(torch.isfinite(grad_norm)):
             raise RuntimeError("preflight gradient norm is not finite")
         trainer.opt.zero_grad(set_to_none=True)
-        backward_peak_mib = torch.cuda.max_memory_allocated(device) / (1024**2)
+        backward_peak_by_device_mib = {
+            str(device_id): torch.cuda.max_memory_allocated(device_id) / (1024**2)
+            for device_id in measured_device_ids
+        }
+        backward_peak_mib = max(backward_peak_by_device_mib.values())
 
         # No optimizer/scaler step is performed: this is an allocation and
         # gradient-validity check, not a training step.
@@ -200,7 +233,8 @@ def run(cfg: DictConfig) -> None:
             raise RuntimeError("checkpoint resume did not restore optimizer/epoch/batch state")
         resumed._next_train_batch()
 
-        torch.cuda.reset_peak_memory_stats(device)
+        for device_id in measured_device_ids:
+            torch.cuda.reset_peak_memory_stats(device_id)
         validation_metrics = run_gli_validation(
             resumed.ema_model,
             resumed.validation_dataset,
@@ -209,7 +243,11 @@ def run(cfg: DictConfig) -> None:
             num_workers=int(preflight_cfg.validation.num_workers),
             seed=int(preflight_cfg.validation.seed),
         )
-        validation_peak_mib = torch.cuda.max_memory_allocated(device) / (1024**2)
+        validation_peak_by_device_mib = {
+            str(device_id): torch.cuda.max_memory_allocated(device_id) / (1024**2)
+            for device_id in measured_device_ids
+        }
+        validation_peak_mib = max(validation_peak_by_device_mib.values())
         metrics = {
             "experiment_id": str(preflight_cfg.experiment_id),
             "variant": str(preflight_cfg.variant),
@@ -220,8 +258,12 @@ def run(cfg: DictConfig) -> None:
             "preflight_base_loss": float(loss_output['base_loss'].detach().cpu()),
             "preflight_hist_loss": float(loss_output['hist_loss'].detach().cpu()),
             "preflight_grad_norm": float(grad_norm.detach().cpu()),
+            "data_parallel": use_data_parallel,
+            "data_parallel_device_ids": device_ids,
             "backward_peak_mib": backward_peak_mib,
+            "backward_peak_by_device_mib": backward_peak_by_device_mib,
             "validation_peak_mib": validation_peak_mib,
+            "validation_peak_by_device_mib": validation_peak_by_device_mib,
             "resume_restored": True,
             "wandb_run_id": str(wandb_run.id),
             "wandb_url": getattr(wandb_run, "url", None),

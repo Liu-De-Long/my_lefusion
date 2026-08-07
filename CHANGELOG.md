@@ -1,5 +1,20 @@
 # 实验变更记录
 
+## 2026-08-08 — 授权准备 exp010 50k 双 GPU 正式训练
+
+- 用户决定以 exp010 作为首个全量训练方法，exp012 仅保留为后续对照，本次不启动 exp012。
+- 将“全量训练”冻结为完整 train split、seed `20260805`、从随机初始化运行最多 50,000 optimizer
+  step；不把已 finished 的 5k 单卡 checkpoint 跨配置、Git 和 W&B 身份强行续接。
+- 保持 exp010 的 full-T1c/pred-noise、global batch 4、学习率 `1e-4`、CFG dropout 0.1 与 lesion
+  mask-normalized loss 不变；启用 GPU0/1 `DataParallel`，每卡 micro-batch 2，train/validation
+  DataLoader worker 均为 8。
+- 新增独立 Hydra/轻量配置和输出目录，W&B 正式 run ID 为
+  `exp010-p64-full50k-2gpu-s20260805`，online fail-closed。
+- 扩展正式 preflight，使新配置可显式执行双 GPU、零 optimizer update 的反向/validation/resume
+  门禁，并记录每卡峰值显存；历史配置默认仍保持单 GPU preflight。
+- 启动前远端两张 A100 80GB 均为空闲，W&B 本机凭据可用；正式训练须在双 GPU preflight、
+  配置解析、focused tests 和文档同步全部通过后才启动。
+
 ## 2026-08-08 — exp016 完成 exp010/exp012 同病例四类别配对比较
 
 - 仅为 exp010 step 5000 EMA 补充与 exp014 完全相同的冻结 8 例 × NETC/SNFH/ET/RC，共 32 个

@@ -49,3 +49,40 @@ exp010 已证明单一完整 T1c 状态能在 5k 内学习挖空区域的非平�
 
 - 实验输出：`experiments/20260807_exp010_gli_single_state_noise/outputs/`
 - 统一比较：`experiments/20260807_exp013_gli_short_method_comparison/outputs/`
+
+## 50k 双 GPU 正式训练扩展
+
+### 目标
+
+在短程 5k 已证明能够生成非零、非平坦病灶后，保持 exp010 方法契约不变，从随机初始化开始运行
+完整 train split 的 50,000 optimizer step 正式训练。exp012 仅作为后续对照，本次不启动。
+
+### 变更
+
+- 方法、loss、seed、全局 batch 与学习率不变。
+- 启用 GPU0/1 `DataParallel`，全局 batch 4、每卡 micro-batch 2。
+- train/validation DataLoader worker 均提高到 8；W&B 使用新的 online fail-closed run。
+- 新输出目录与 5k 资产隔离，不从 5k checkpoint 强行恢复。
+
+### 配置
+
+- Hydra：`LeFusion/train/config/experiment/gli_exp010_single_state_noise_64x64x32_full.yaml`
+- 轻量记录：`config_full_50k_2gpu.yaml`
+- W&B run：`exp010-p64-full50k-2gpu-s20260805`
+- 最大步数：50,000；validation 每 2,000 step；latest 每 500 step；milestone 每 5,000 step。
+
+### 结果
+
+等待双 GPU preflight 与正式启动。
+
+### 结论
+
+等待训练与后续冻结 QA。
+
+### 下一步
+
+先完成双 GPU 零 optimizer update preflight；通过后只启动这一份 exp010 正式训练并监控 W&B。
+
+### 输出路径
+
+`experiments/20260807_exp010_gli_single_state_noise/outputs/full_50k_2gpu/`

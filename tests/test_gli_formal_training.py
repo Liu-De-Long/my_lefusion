@@ -25,7 +25,10 @@ from ddpm import GaussianDiffusion_Nolatent, Trainer  # noqa: E402
 from train.tracking import validate_wandb_config  # noqa: E402
 from train.train import validate_training_config  # noqa: E402
 from train.validation import EarlyStopping, run_gli_validation  # noqa: E402
-from scripts.gli_formal_training_preflight import build_preflight_cfg  # noqa: E402
+from scripts.gli_formal_training_preflight import (  # noqa: E402
+    build_preflight_cfg,
+    resolve_preflight_parallelism,
+)
 
 
 def _records():
@@ -260,6 +263,24 @@ class GLIFormalTrainingTests(unittest.TestCase):
         cfg.preflight.run_id = "exp008-p64"
         with self.assertRaisesRegex(ValueError, "preflight ID"):
             build_preflight_cfg(cfg)
+
+    def test_preflight_parallelism_is_explicit_and_validated(self):
+        cfg = OmegaConf.create(
+            {
+                "model": {
+                    "gpus": 0,
+                    "data_parallel_device_ids": [0, 1],
+                },
+                "preflight": {"use_data_parallel": True},
+            }
+        )
+        self.assertEqual(resolve_preflight_parallelism(cfg), (True, [0, 1]))
+        cfg.preflight.use_data_parallel = False
+        self.assertEqual(resolve_preflight_parallelism(cfg), (False, [0, 1]))
+        cfg.preflight.use_data_parallel = True
+        cfg.model.data_parallel_device_ids = [1, 0]
+        with self.assertRaisesRegex(ValueError, "first DataParallel"):
+            resolve_preflight_parallelism(cfg)
 
 
 if __name__ == "__main__":
