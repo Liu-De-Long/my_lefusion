@@ -215,7 +215,13 @@ class TestGLIClassifierMetrics(unittest.TestCase):
                 seg = np.zeros((64, 64, 32), dtype=np.uint8)
                 seg[16:48, 16:48, 8:24] = (index % 4) + 1
                 path = patch_root / f"sample-{index}.npz"
-                np.savez_compressed(path, t1c=image, seg=seg)
+                np.savez_compressed(
+                    path,
+                    t1c=image,
+                    seg=seg,
+                    hist=np.zeros((4, 16), dtype=np.float32),
+                    affine=np.eye(4, dtype=np.float32),
+                )
                 records.append(
                     {
                         "relative_path": f"patches/{path.name}",
