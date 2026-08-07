@@ -11,6 +11,9 @@
 - 将 exp012 定位从“最佳可控伪病灶候选”收窄为“最强 histogram 条件响应候选”；exp010
   继续作为 paired 重建最佳方法。下一步先做同一病例、同一 mask/噪声下的四类别
   counterfactual QA，再考虑 `λhist` 消融。
+- 修正 exp012/exp013 配置元数据：取消 `selected_best/selected_method`，明确
+  `semantic_subtype_control_validated=false`、`final_model_selected=false`；当前没有已完成
+  语义控制验证的最终模型。
 - 同步修订 `README.md`、`STATUS.md`、exp010–exp013 `result.md` 与实验地图；本次没有运行
   训练、QA、p80、其他 seed、519 例或全量 test。
 

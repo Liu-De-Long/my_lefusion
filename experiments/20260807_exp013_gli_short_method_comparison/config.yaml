@@ -18,5 +18,8 @@ qa_variants:
   - union_cluster_last
 full_test_run: false
 output_dir: experiments/20260807_exp013_gli_short_method_comparison/outputs
-selected_method: 20260807_exp012_gli_lesion_only_x0_hist
-status: completed
+histogram_response_candidate: 20260807_exp012_gli_lesion_only_x0_hist
+paired_reconstruction_candidate: 20260807_exp010_gli_single_state_noise
+semantic_subtype_control_validated: false
+final_method_selected: false
+status: completed_conclusion_downgraded

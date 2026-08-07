@@ -16,5 +16,7 @@ amp_dtype: bfloat16
 qa_cases: 8
 qa_variants: [original_real, original_cluster_first, original_cluster_last, union_cluster_first, union_cluster_last]
 wandb_run_id: exp012-p64-s20260805
-status: completed_selected_best
+status: completed_histogram_control_candidate
+semantic_subtype_control_validated: false
+final_model_selected: false
 comparison_result_dir: experiments/20260807_exp013_gli_short_method_comparison/outputs

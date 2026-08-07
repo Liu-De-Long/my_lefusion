@@ -6,11 +6,12 @@ v0.9.0-gli-short-comparison-complete
 
 ## 当前最佳实验
 
-当前最强 histogram 条件响应候选为 `20260807_exp012_gli_lesion_only_x0_hist` 的 p64、seed
-`20260805`、step `5000` checkpoint。它使用 lesion-only 扩散状态、直接 x0 预测和
-soft-histogram loss，在冻结 8 例五种 QA 中达到 lesion `8/8`、hist counterfactual `8/8`、
-union histogram counterfactual `8/8`、mask 外最大误差 `0`。这里的 union 指标只比较
-mask 内 16-bin 强度 histogram 与请求/交换请求的距离，不能证明病灶亚型的视觉或语义一致性。
+当前没有已证实能够生成视觉统一、类别明确病灶的最终最佳模型。最强 histogram 条件响应
+候选为 `20260807_exp012_gli_lesion_only_x0_hist` 的 p64、seed `20260805`、step `5000`
+checkpoint。它使用 lesion-only 扩散状态、直接 x0 预测和 soft-histogram loss，在冻结 8 例
+五种 QA 中达到 lesion `8/8`、hist counterfactual `8/8`、union histogram counterfactual
+`8/8`、mask 外最大误差 `0`。这里的 union 指标只比较 mask 内 16-bin 强度 histogram 与
+请求/交换请求的距离，不能证明病灶亚型的视觉或语义一致性，也不能据此选定最终模型。
 
 exp010 同样通过全部门槛，并以平均 lesion MAE `0.138066` 获得三方法最佳 paired 重建；
 exp011 因 union histogram counterfactual 仅 `5/8` 未入选。exp008、exp005 p64/p80 与 exp006/exp007 继续
