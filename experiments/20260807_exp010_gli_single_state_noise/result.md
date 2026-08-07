@@ -21,7 +21,8 @@
 
 ## 结果
 
-待完成训练与 8 例 QA 后填写。
+- 方法实现 commit：`d188ce170040037ec477d5ff398e1f2cf141608a`。
+- 待完成远端回归、训练与 8 例 QA 后补充数值结果。
 
 ## 结论
 
@@ -34,4 +35,3 @@
 ## 输出路径
 
 `experiments/20260807_exp010_gli_single_state_noise/outputs/`
-
