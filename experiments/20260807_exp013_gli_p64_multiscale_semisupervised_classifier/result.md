@@ -32,18 +32,17 @@ patch 以无标签方式进入 EMA teacher 一致性与高置信伪标签训练�
   `2769/3914 MiB`，零 optimizer step，loss 与梯度有限。
 - GPU0 完整 p64 半监督 preflight：labeled/unlabeled batch 各 4，峰值 allocated/reserved
   `2687/3292 MiB`，零 optimizer step，伪标签路径与梯度正常。
-- 远端当前没有 `WANDB_API_KEY`，`wandb status` 也无缓存认证，因此 W&B fail-closed 门禁阻止
-  正式训练；尚无监督或半监督验证指标，冻结 test 未运行。
+- 进一步只读检查发现 `/root/.netrc` 存在 W&B 主机认证；`wandb login --verify` 已在线确认
+  当前登录 entity 与配置一致，未读取或输出 key。正式训练的 W&B 门禁已解除；当前尚无监督或
+  半监督验证指标，冻结 test 未运行。
 
 ## 结论
 
-代码、数据泄漏与资源 preflight 已通过，但 0.85 目标尚未验证。正式训练必须等待远端 W&B
-凭据恢复，不能改为 offline 或绕过日志门禁。
+代码、数据泄漏、资源与 W&B 认证 preflight 已通过，但 0.85 目标尚未验证。
 
 ## 下一步
 
-用户在远端安全恢复 W&B online 凭据后，先运行监督阶段，再从其绝对最佳 val checkpoint 顺序
-运行半监督阶段。
+先运行监督阶段，再从其绝对最佳 val checkpoint 顺序运行半监督阶段。
 只有 focus mIoU、ET IoU、RC IoU、mask 外背景和 union 一致性五项验证门禁全部通过，才允许
 对冻结 test 运行一次。
 

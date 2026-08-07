@@ -624,5 +624,6 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   `2769/3914 MiB`，半监督双 batch 4 峰值 `2687/3292 MiB`，均为零 optimizer step。
 - 半监督真实数据 preflight 冻结 6772 个剩余 train patch，pool SHA-256 为
   `8248585a47003f33cf0f318b4df7170cee457b2f2ed40663d5112496b643057b`，确认未加载 target。
-- 远端 `WANDB_API_KEY` 与缓存认证均不可用；正式训练按 fail-closed 保持未启动，不回退 offline，
-  冻结 test 仍未运行。
+- 初查发现 `WANDB_API_KEY` 环境变量为空且 `wandb status` 未展示认证；后续只检查标准位置，
+  确认 `/root/.netrc` 存在 W&B 主机条目，`wandb login --verify` 在线验证当前 entity 成功。
+  全程未读取或输出 key，正式训练继续使用 online fail-closed，不回退 offline。
