@@ -37,6 +37,7 @@ model:
   timesteps: 300
   loss_type: l1
   amp: true
+  amp_dtype: bfloat16
 
 checkpoint:
   path: /workspace/LeFusion_v2/my_experiment/experiments/20260807_exp010_gli_single_state_noise/outputs/patch_64x64x32/seed_20260805/checkpoints/milestone-5000.pt
@@ -84,4 +85,3 @@ output:
 hydra:
   job: {chdir: false}
   run: {dir: .}
-

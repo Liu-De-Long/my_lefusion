@@ -1535,7 +1535,13 @@ class Trainer(object):
         self.step = 0
 
         self.amp = amp
-        self.scaler = GradScaler(enabled=amp)
+        amp_dtype_name = str(cfg.model.get('amp_dtype', 'float16')).lower()
+        if amp_dtype_name not in {'float16', 'bfloat16'}:
+            raise ValueError(f"unsupported AMP dtype: {amp_dtype_name}")
+        self.amp_dtype = (
+            torch.bfloat16 if amp_dtype_name == 'bfloat16' else torch.float16
+        )
+        self.scaler = GradScaler(enabled=amp and self.amp_dtype == torch.float16)
         self.max_grad_norm = max_grad_norm
 
         self.num_sample_rows = num_sample_rows
@@ -1747,7 +1753,7 @@ class Trainer(object):
                         data_frame, self.device
                     )
 
-                with autocast(enabled=self.amp):
+                with autocast(enabled=self.amp, dtype=self.amp_dtype):
 
                     loss_output = self.model(**dict(
                         x=(data, hist),

@@ -62,6 +62,7 @@ model:
   train_lr: 1e-4
   train_num_steps: 5000
   amp: true
+  amp_dtype: bfloat16
   max_grad_norm: 1.0
   ema_decay: 0.995
   results_folder: experiments/20260807_exp010_gli_single_state_noise/outputs/patch_64x64x32/seed_20260805/checkpoints
@@ -95,7 +96,6 @@ wandb:
   dir: experiments/20260807_exp010_gli_single_state_noise/outputs/patch_64x64x32/seed_20260805/wandb
 
 preflight:
-  run_id: exp010-p64-preflight-s20260805
-  run_name: exp010-p64-preflight-s20260805
+  run_id: exp010-p64-preflight-s20260805-r2
+  run_name: exp010-p64-preflight-s20260805-r2
   output_dir: experiments/20260807_exp010_gli_single_state_noise/outputs/patch_64x64x32/preflight
-

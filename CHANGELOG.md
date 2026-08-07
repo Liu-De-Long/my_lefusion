@@ -612,3 +612,6 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   首/末 cluster；新增统一指标和三方法横向 contact sheet 工具。
 - 启动审计发现 GPU 0 正在运行 exp009 队列、GPU 1 空闲；不得切换会影响 exp009 后续配置
   读取的远端工作树，也不得占用 GPU 0。
+- exp010 首次 online preflight 在 0 optimizer update 时检测到 FP16 初始反向梯度范数非有限；
+  临时 checkpoint 已清理，正式训练未启动。三个方法统一改用 A100 BF16 autocast 且不启用
+  GradScaler，exp010 使用新的 `exp010-p64-preflight-s20260805-r2` 身份重跑。

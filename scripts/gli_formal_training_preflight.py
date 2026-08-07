@@ -152,7 +152,9 @@ def run(cfg: DictConfig) -> None:
         torch.cuda.reset_peak_memory_stats(device)
         trainer.model.train()
         trainer.opt.zero_grad(set_to_none=True)
-        with autocast(enabled=bool(preflight_cfg.model.amp)):
+        with autocast(
+            enabled=bool(preflight_cfg.model.amp), dtype=trainer.amp_dtype
+        ):
             loss_output = trainer.model(
                 x=(data, hist),
                 mask=mask,

@@ -548,7 +548,15 @@ def run_gli(conf: DictConfig) -> None:
             "gt_keep_mask": conditioning_seg,
             "lesion_mask": lesion_mask,
         }
-        with th.autocast(device_type="cuda", enabled=bool(conf.model.get('amp', False))):
+        amp_dtype_name = str(conf.model.get('amp_dtype', 'float16')).lower()
+        if amp_dtype_name not in {'float16', 'bfloat16'}:
+            raise ValueError(f"unsupported inference AMP dtype: {amp_dtype_name}")
+        amp_dtype = th.bfloat16 if amp_dtype_name == 'bfloat16' else th.float16
+        with th.autocast(
+            device_type="cuda",
+            enabled=bool(conf.model.get('amp', False)),
+            dtype=amp_dtype,
+        ):
             details = diffusion.p_sample_loop_repaint(
                 shape=diffusion.sample_shape(batch['GT'].shape[0]),
                 model_kwargs=model_kwargs,
