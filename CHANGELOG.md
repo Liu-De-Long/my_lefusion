@@ -599,3 +599,16 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
 - 新增可复用 `scripts/gli_build_qa_contact_sheet.py`，将每个变体的 8 张五联图整理为 2×4 总览图。
 - 实现 commit：`000e3735ea1604981a316cfee3a97eb3f17c6e5a`。
 - 检查时 p80 正在占用 GPU 0/1；在其结束前只实施与测试代码，不启动本实验 GPU 推理，不切换远端训练工作树。
+
+## 2026-08-07 — 实施 exp010–exp012 单通道短程对比
+
+- 用户授权三个方法全部尝试，每种只运行 seed `20260805`、最多 5000 optimizer step；禁止
+  p80、其他 seed、519 例和任何全量 test。
+- exp010 使用单一完整 T1c 状态预测噪声；exp011 使用 lesion-only 状态预测噪声；exp012
+  使用 lesion-only 状态预测 x0，并将 soft-histogram loss 在前 500 step 升至 0.1。
+- 数据 loader 新增单通道 `target_t1c`，旧四通道 `data` 仅为历史兼容保留；单通道预测仍按
+  四类 mask 分别归一化和统计，不在扩散状态中复制 T1c。
+- 新增五种固定 8 例 QA：原始四类真实 hist、原始四类首/末 cluster，以及 union-as-single
+  首/末 cluster；新增统一指标和三方法横向 contact sheet 工具。
+- 启动审计发现 GPU 0 正在运行 exp009 队列、GPU 1 空闲；不得切换会影响 exp009 后续配置
+  读取的远端工作树，也不得占用 GPU 0。

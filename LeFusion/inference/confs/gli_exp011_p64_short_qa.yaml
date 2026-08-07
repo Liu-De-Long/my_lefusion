@@ -1,0 +1,15 @@
+defaults:
+  - gli_exp010_p64_short_qa
+  - _self_
+
+experiment_id: 20260807_exp011_gli_lesion_only_noise
+
+lesion_generation:
+  state_mode: lesion_only
+
+checkpoint:
+  path: /workspace/LeFusion_v2/my_experiment/experiments/20260807_exp011_gli_lesion_only_noise/outputs/patch_64x64x32/seed_20260805/checkpoints/milestone-5000.pt
+
+output:
+  root: /workspace/LeFusion_v2/my_experiment/experiments/20260807_exp011_gli_lesion_only_noise/outputs/patch_64x64x32/seed_20260805/qa_original_real
+

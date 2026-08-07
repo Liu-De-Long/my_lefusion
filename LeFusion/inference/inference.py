@@ -17,18 +17,22 @@ if __package__:
     from inference.gli_utils import (
         anchor_union_cluster_condition,
         dhw_to_xyz,
+        indexed_cluster_condition,
         load_cluster_centers,
         mask_input_inside_lesion,
         nearest_cluster_condition,
+        union_label_cluster_condition,
     )
     from inference.gli_selection import manifest_shard_paths
 else:
     from gli_utils import (
         anchor_union_cluster_condition,
         dhw_to_xyz,
+        indexed_cluster_condition,
         load_cluster_centers,
         mask_input_inside_lesion,
         nearest_cluster_condition,
+        union_label_cluster_condition,
     )
     from gli_selection import manifest_shard_paths
 import torchio as tio
@@ -84,6 +88,12 @@ def _gli_expected_metadata(conf: DictConfig) -> dict:
         "temporal_max_distance": int(conf.model.temporal_max_distance),
         "spatial_condition_channels": int(
             conf.model.get("spatial_condition_channels", 0)
+        ),
+        "objective": str(
+            conf.get("lesion_generation", {}).get("objective", "pred_noise")
+        ),
+        "gli_state_mode": str(
+            conf.get("lesion_generation", {}).get("state_mode", "full_t1c")
         ),
     }
 
@@ -183,6 +193,13 @@ def _region_metrics(
     outside_changes = difference[outside]
     outside_input_values = np.abs(input_dhw[outside])
     lesion_values = difference[lesion]
+    generated_lesion = generated_dhw[lesion]
+    input_lesion = input_dhw[lesion]
+    background_values = difference[~lesion]
+    zero_fill_baseline_mae = (
+        float(np.abs(input_lesion).mean()) if input_lesion.size else None
+    )
+    lesion_mae = float(lesion_values.mean()) if lesion_values.size else None
     shell = ndimage.binary_dilation(lesion, iterations=1) & ~lesion & support_dhw
     shell_values = difference[shell]
     input_boundary_jumps = _boundary_edge_jumps(input_dhw, lesion, support_dhw)
@@ -223,7 +240,22 @@ def _region_metrics(
         "outside_nonzero_fraction_generated": (
             float(np.mean(outside_values > 1e-6)) if outside_values.size else None
         ),
-        "lesion_change_mae": float(lesion_values.mean()) if lesion_values.size else None,
+        "lesion_change_mae": lesion_mae,
+        "zero_fill_baseline_lesion_mae": zero_fill_baseline_mae,
+        "lesion_mae_improvement_fraction": (
+            float((zero_fill_baseline_mae - lesion_mae) / zero_fill_baseline_mae)
+            if zero_fill_baseline_mae not in {None, 0.0} and lesion_mae is not None
+            else None
+        ),
+        "generated_lesion_mean_abs": (
+            float(np.abs(generated_lesion).mean()) if generated_lesion.size else None
+        ),
+        "generated_lesion_std": (
+            float(generated_lesion.std()) if generated_lesion.size else None
+        ),
+        "background_max_abs_change": (
+            float(background_values.max()) if background_values.size else None
+        ),
         "boundary_outer_shell_mae": float(shell_values.mean()) if shell_values.size else None,
         "boundary_outer_shell_p95_abs_change": _percentile(shell_values, 95),
         "boundary_outer_shell_max_abs": (
@@ -331,16 +363,24 @@ def run_gli(conf: DictConfig) -> None:
     checkpoint_git_sha = _checkpoint_git_sha(checkpoint)
     checkpoint_step = int(checkpoint.get("step", -1))
     diffusion.eval()
-    if str(conf.conditioning.source) != "cluster":
-        raise ValueError("GLI closed-loop inference requires conditioning.source=cluster")
-    if str(conf.conditioning.selection) != "nearest":
-        raise ValueError("GLI closed-loop inference requires conditioning.selection=nearest")
+    condition_source = str(conf.conditioning.source)
+    condition_selection = str(conf.conditioning.selection)
+    if condition_source not in {"real", "cluster"}:
+        raise ValueError(f"unsupported conditioning source: {condition_source}")
+    if condition_selection not in {"nearest", "first", "last"}:
+        raise ValueError(f"unsupported conditioning selection: {condition_selection}")
+    if condition_source == "real" and condition_selection != "nearest":
+        raise ValueError("real histogram conditioning uses selection=nearest as a no-op")
     if float(conf.conditioning.get("hist_perturb_std", 0.0)) != 0.0:
         raise ValueError("histogram perturbation must be disabled for formal closed-loop inference")
     if not bool(conf.input_policy.get("mask_inside_lesion", False)):
         raise ValueError("exp007 QA requires input_policy.mask_inside_lesion=true")
     lesion_mode = str(conf.input_policy.lesion_mode)
-    if lesion_mode not in {"original_multilabel", "anchor_label_union"}:
+    if lesion_mode not in {
+        "original_multilabel",
+        "anchor_label_union",
+        "union_single_label_cycle",
+    }:
         raise ValueError(f"unsupported exp007 lesion mode: {lesion_mode}")
     lesion_fill_value = float(conf.input_policy.get("fill_value", 0.0))
     centers = load_cluster_centers(conf.conditioning.clusters_path, conf.dataset.patch_size_xyz)
@@ -391,6 +431,9 @@ def run_gli(conf: DictConfig) -> None:
         "selection_shard_index": int(conf.selection.shard_index),
         "selection_shard_count": int(conf.selection.shard_count),
         "sampling_seed": int(conf.sampling.seed),
+        "conditioning_source": condition_source,
+        "conditioning_selection": condition_selection,
+        "cond_scale": float(conf.sampling.get("cond_scale", 1.0)),
         "repaint_schedule": OmegaConf.to_container(
             conf.repaint.schedule_jump_params, resolve=True
         ),
@@ -401,7 +444,9 @@ def run_gli(conf: DictConfig) -> None:
             "fill_value": lesion_fill_value,
             "lesion_mode": lesion_mode,
             "single_target_label_source": (
-                "anchor_label" if lesion_mode == "anchor_label_union" else None
+                "anchor_label"
+                if lesion_mode == "anchor_label_union"
+                else ("selection_order_cycle_1_to_4" if lesion_mode == "union_single_label_cycle" else None)
             ),
         },
     }
@@ -452,16 +497,48 @@ def run_gli(conf: DictConfig) -> None:
             source_seg,
             fill_value=lesion_fill_value,
         )
+        target_labels = batch['anchor_label'].to(device=device, dtype=th.long)
         if lesion_mode == "original_multilabel":
             conditioning_seg = source_seg
             lesion_mask = source_lesion_mask
-            condition, cluster_ids = nearest_cluster_condition(
-                batch['hist'], conditioning_seg, centers
-            )
-        else:
+            if condition_source == "real":
+                condition = batch['hist'].float()
+                cluster_ids = th.full(
+                    (condition.shape[0], 4), -1, dtype=th.int64, device=device
+                )
+            elif condition_selection == "nearest":
+                condition, cluster_ids = nearest_cluster_condition(
+                    batch['hist'], conditioning_seg, centers
+                )
+            else:
+                condition, cluster_ids = indexed_cluster_condition(
+                    batch['hist'],
+                    conditioning_seg,
+                    centers,
+                    index_mode=condition_selection,
+                )
+        elif lesion_mode == "anchor_label_union":
             conditioning_seg, lesion_mask, condition, cluster_ids = (
                 anchor_union_cluster_condition(
                     batch['hist'], source_seg, batch['anchor_label'], centers
+                )
+            )
+        else:
+            if condition_source != "cluster" or condition_selection not in {"first", "last"}:
+                raise ValueError(
+                    "union_single_label_cycle requires cluster first/last conditioning"
+                )
+            target_labels = th.full_like(
+                batch['anchor_label'].to(device=device, dtype=th.long),
+                (batch_index % 4) + 1,
+            )
+            conditioning_seg, lesion_mask, condition, cluster_ids = (
+                union_label_cluster_condition(
+                    batch['hist'],
+                    source_seg,
+                    target_labels,
+                    centers,
+                    index_mode=condition_selection,
                 )
             )
         model_gt = masked_input.repeat(1, int(conf.model.diffusion_num_channels), 1, 1, 1)
@@ -479,6 +556,7 @@ def run_gli(conf: DictConfig) -> None:
                 progress=bool(conf.repaint.show_progress),
                 conf=conf.repaint,
                 cond=condition,
+                cond_scale=float(conf.sampling.get("cond_scale", 1.0)),
                 return_details=True,
             )
         output = details['sample'].float().cpu()
@@ -543,7 +621,7 @@ def run_gli(conf: DictConfig) -> None:
                 input_lesion_mode=np.asarray(lesion_mode),
                 lesion_fill_value=np.asarray(lesion_fill_value, dtype=np.float32),
                 target_anchor_label=np.asarray(
-                    int(batch['anchor_label'][index].item()), dtype=np.uint8
+                    int(target_labels[index].item()), dtype=np.uint8
                 ),
             )
             nib.save(nib.Nifti1Image(generated_xyz, affine), nifti_path)
@@ -566,7 +644,7 @@ def run_gli(conf: DictConfig) -> None:
                     "lesion_channel_voxels": lesion_mask_cdhw.reshape(4, -1).sum(axis=1).astype(int).tolist(),
                     "source_lesion_channel_voxels": source_lesion_mask_cdhw.reshape(4, -1).sum(axis=1).astype(int).tolist(),
                     "input_lesion_mode": lesion_mode,
-                    "target_anchor_label": int(batch['anchor_label'][index].item()),
+                    "target_anchor_label": int(target_labels[index].item()),
                     "masked_input_lesion_max_abs": float(
                         np.abs(masked_input_dhw[seg_dhw > 0]).max()
                     ),
@@ -592,7 +670,7 @@ def run_gli(conf: DictConfig) -> None:
                 "checkpoint_step": checkpoint_step,
                 "checkpoint_weights_key": str(conf.checkpoint.weights_key),
                 "input_lesion_mode": lesion_mode,
-                "target_anchor_label": int(batch['anchor_label'][index].item()),
+                "target_anchor_label": int(target_labels[index].item()),
             }
             progress_record = {"manifest": manifest_record, "metrics": metrics}
             _append_progress(progress_path, progress_record)

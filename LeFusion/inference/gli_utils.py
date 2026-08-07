@@ -57,6 +57,83 @@ def nearest_cluster_condition(
     return condition, cluster_ids
 
 
+def indexed_cluster_condition(
+    source_hist: torch.Tensor,
+    scalar_seg: torch.Tensor,
+    centers: list[torch.Tensor],
+    *,
+    index_mode: str,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Use the first or last train-only center for every present lesion class."""
+    if index_mode not in {"first", "last"}:
+        raise ValueError(f"unsupported cluster index mode: {index_mode}")
+    if source_hist.ndim != 2 or source_hist.shape[1] != 64:
+        raise ValueError(f"source_hist must be [B,64], got {tuple(source_hist.shape)}")
+    condition = torch.zeros_like(source_hist, dtype=torch.float32)
+    cluster_ids = torch.full(
+        (source_hist.shape[0], 4), -1, dtype=torch.int64, device=source_hist.device
+    )
+    for channel, label_value in enumerate(LABEL_VALUES):
+        present = (scalar_seg == label_value).flatten(1).any(dim=1)
+        if not bool(present.any()):
+            continue
+        current_centers = centers[channel].to(source_hist.device)
+        selected_index = 0 if index_mode == "first" else current_centers.shape[0] - 1
+        start = channel * HIST_BINS
+        condition[present, start:start + HIST_BINS] = current_centers[selected_index]
+        cluster_ids[present, channel] = selected_index
+    return condition, cluster_ids
+
+
+def union_label_cluster_condition(
+    source_hist: torch.Tensor,
+    scalar_seg: torch.Tensor,
+    target_labels: torch.Tensor,
+    centers: list[torch.Tensor],
+    *,
+    index_mode: str,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Assign the full lesion union to an explicit target class and center."""
+    if index_mode not in {"first", "last"}:
+        raise ValueError(f"unsupported cluster index mode: {index_mode}")
+    target_labels = target_labels.to(
+        device=source_hist.device, dtype=torch.long
+    ).reshape(-1)
+    if target_labels.shape[0] != source_hist.shape[0]:
+        raise ValueError("target_labels batch size does not match source_hist")
+    if not bool(
+        torch.isin(
+            target_labels, torch.tensor(LABEL_VALUES, device=target_labels.device)
+        ).all()
+    ):
+        raise ValueError(f"target_labels must be in {LABEL_VALUES}")
+    lesion_union = scalar_seg > 0
+    if not bool(lesion_union.flatten(1).any(dim=1).all()):
+        raise ValueError("every union-as-single sample must contain lesion voxels")
+    target_seg = torch.where(
+        lesion_union,
+        target_labels.view(-1, 1, 1, 1, 1),
+        torch.zeros((), device=scalar_seg.device, dtype=torch.long),
+    )
+    target_mask = torch.cat(
+        [(target_seg == value) for value in LABEL_VALUES], dim=1
+    ).to(dtype=torch.float32)
+    condition = torch.zeros_like(source_hist, dtype=torch.float32)
+    cluster_ids = torch.full(
+        (source_hist.shape[0], 4), -1, dtype=torch.int64, device=source_hist.device
+    )
+    for channel, label_value in enumerate(LABEL_VALUES):
+        selected_samples = target_labels == label_value
+        if not bool(selected_samples.any()):
+            continue
+        current_centers = centers[channel].to(source_hist.device)
+        selected_index = 0 if index_mode == "first" else current_centers.shape[0] - 1
+        start = channel * HIST_BINS
+        condition[selected_samples, start:start + HIST_BINS] = current_centers[selected_index]
+        cluster_ids[selected_samples, channel] = selected_index
+    return target_seg, target_mask, condition, cluster_ids
+
+
 def mask_input_inside_lesion(
     input_t1c: torch.Tensor,
     scalar_seg: torch.Tensor,

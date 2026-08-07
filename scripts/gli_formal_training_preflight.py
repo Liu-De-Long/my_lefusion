@@ -122,13 +122,23 @@ def run(cfg: DictConfig) -> None:
     try:
         trainer = _create_trainer(preflight_cfg, device)
         batch = trainer._next_train_batch()
-        data, mask, hist = prepare_training_batch(batch, device, "gli")
+        data, mask, hist = prepare_training_batch(
+            batch,
+            device,
+            "gli",
+            diffusion_channels=trainer.model.channels,
+        )
         spatial_condition = prepare_gli_spatial_condition(batch, device)
-        expected = (int(preflight_cfg.model.batch_size), 4, *trainer.spatial_shape)
-        if tuple(data.shape) != expected or tuple(mask.shape) != expected:
+        expected = (
+            int(preflight_cfg.model.batch_size),
+            int(preflight_cfg.model.diffusion_num_channels),
+            *trainer.spatial_shape,
+        )
+        expected_mask = (expected[0], 4, *trainer.spatial_shape)
+        if tuple(data.shape) != expected or tuple(mask.shape) != expected_mask:
             raise ValueError(
                 f"preflight batch shape mismatch: data={tuple(data.shape)}, "
-                f"mask={tuple(mask.shape)}, expected={expected}"
+                f"mask={tuple(mask.shape)}, expected={expected}/{expected_mask}"
             )
         if hist is None or tuple(hist.shape) != (expected[0], 64):
             raise ValueError(f"preflight histogram shape mismatch: {None if hist is None else tuple(hist.shape)}")
@@ -143,9 +153,18 @@ def run(cfg: DictConfig) -> None:
         trainer.model.train()
         trainer.opt.zero_grad(set_to_none=True)
         with autocast(enabled=bool(preflight_cfg.model.amp)):
-            loss = trainer.model(
-                x=(data, hist), mask=mask, spatial_condition=spatial_condition
+            loss_output = trainer.model(
+                x=(data, hist),
+                mask=mask,
+                spatial_condition=spatial_condition,
+                optimizer_step=int(
+                    preflight_cfg.get('lesion_generation', {}).get(
+                        'hist_loss_ramp_steps', 0
+                    )
+                ),
+                return_details=True,
             )
+            loss = loss_output['loss']
         if not bool(torch.isfinite(loss)):
             raise RuntimeError(f"preflight loss is not finite: {float(loss.detach().cpu())}")
         trainer.scaler.scale(loss).backward()
@@ -196,6 +215,8 @@ def run(cfg: DictConfig) -> None:
             "optimizer_updates": 0,
             "batch_shape": list(data.shape),
             "preflight_loss": float(loss.detach().cpu()),
+            "preflight_base_loss": float(loss_output['base_loss'].detach().cpu()),
+            "preflight_hist_loss": float(loss_output['hist_loss'].detach().cpu()),
             "preflight_grad_norm": float(grad_norm.detach().cpu()),
             "backward_peak_mib": backward_peak_mib,
             "validation_peak_mib": validation_peak_mib,

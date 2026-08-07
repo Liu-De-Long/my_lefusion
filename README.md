@@ -46,6 +46,9 @@ BraTS2024 GLI 流程状态：
    p64 已完成 50,000 step；随后仅在冻结的 8 例 val patch 上做完整 `t_T=300` QA。
    工程闭环通过，但生成病灶区几乎退化为挖空值 `0`，因此 exp008 也只保留为失败审计，
    不作为有效伪病灶模型或全量 test 结论。
+10. exp010–exp012 将扩散状态缩减为单通道，分别比较完整 T1c 噪声预测、lesion-only 噪声
+    预测和 lesion-only x0/soft-histogram 目标；每种方法只运行同一 seed 的 5,000 step 和固定
+    8 例 validation QA。
 
 ## 项目结构
 
@@ -183,10 +186,10 @@ YYYYMMDD_short_goal_vN
 该数据集使用 T1c 单模态图像和标量 segmentation，后续 loader 将展开为 NETC/SNFH/ET/RC 四通道 lesion mask。两种 patch 尺寸分别为 `64×64×32` 和 `80×96×80`，每种尺寸 9842 个 patch。
 
 GLI loader 的当前契约为：`label` 保留 scalar segmentation，`lesion_mask` 提供 NETC/SNFH/ET/RC
-四通道二值 mask；原始 T1c 按四个 lesion channel 复制为扩散目标 `data`，同时生成单通道
-`masked_context`，在四类病灶 union 内置 0、洞外保持原值。denoiser 每步接收四通道 `x_t`、
-单通道 `masked_context` 与四通道 lesion mask，共 9 个空间通道；histogram 条件按四个 16-bin
-block 拼接为 `cond_dim=64`。
+四通道二值 mask；`target_t1c` 提供新的单通道扩散目标，旧四通道 `data` 仅为历史 checkpoint
+兼容保留；`masked_context` 在四类病灶 union 内置 0、洞外保持原值。exp010–exp012 denoiser
+每步接收单通道状态、单通道 `masked_context` 与四通道 lesion mask，共 6 个空间通道；histogram
+条件按四个 16-bin block 拼接为 `cond_dim=64`。
 
 GLI loss 对 batch 中所有非空 `(sample, lesion channel)` 单元等权平均；每个单元先按自身病灶体素数归一化，空单元跳过，整个 batch 全空时直接报错。两种训练空间分别为 `[D,H,W]=[32,64,64]` 和 `[80,80,96]`。
 

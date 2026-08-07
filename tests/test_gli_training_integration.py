@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "LeFusion"))
 from ddpm import (  # noqa: E402
     GaussianDiffusion_Nolatent,
     masked_lesion_loss,
+    soft_histogram_loss_details,
     normalize_spatial_shape,
     prepare_gli_spatial_condition,
     prepare_training_batch,
@@ -49,6 +50,26 @@ class GLITrainingIntegrationTests(unittest.TestCase):
         self.assertAlmostEqual(masked_lesion_loss(prediction, target, mask).item(), 1.0)
         with self.assertRaisesRegex(ValueError, "no lesion voxels"):
             masked_lesion_loss(prediction, target, torch.zeros_like(mask))
+
+    def test_single_t1c_prediction_is_masked_by_four_labels_without_state_duplication(self) -> None:
+        prediction = torch.zeros((1, 1, 1, 1, 2), requires_grad=True)
+        target = torch.tensor([[[[[2.0, 1.0]]]]])
+        mask = torch.zeros((1, 4, 1, 1, 2))
+        mask[:, 0, :, :, 0] = 1
+        mask[:, 3, :, :, 1] = 1
+        loss = masked_lesion_loss(prediction, target, mask)
+        self.assertAlmostEqual(loss.item(), 1.5)
+        loss.backward()
+        self.assertNotEqual(float(prediction.grad[0, 0, 0, 0, 0]), 0.0)
+
+        outside_prediction = torch.zeros((1, 1, 1, 1, 3), requires_grad=True)
+        outside_target = torch.ones_like(outside_prediction)
+        outside_mask = torch.zeros((1, 4, 1, 1, 3))
+        outside_mask[:, 1, :, :, 1] = 1
+        masked_lesion_loss(outside_prediction, outside_target, outside_mask).backward()
+        self.assertEqual(float(outside_prediction.grad[0, 0, 0, 0, 0]), 0.0)
+        self.assertNotEqual(float(outside_prediction.grad[0, 0, 0, 0, 1]), 0.0)
+        self.assertEqual(float(outside_prediction.grad[0, 0, 0, 0, 2]), 0.0)
 
     def test_shape_and_fixed_noise_forward_contract(self) -> None:
         diffusion = GaussianDiffusion_Nolatent(
@@ -90,6 +111,22 @@ class GLITrainingIntegrationTests(unittest.TestCase):
         self.assertEqual(moved_hist.dtype, torch.float32)
         self.assertEqual(moved_hist.device, moved_data.device)
 
+        target_t1c = torch.full((1, 1, 2, 3, 4), 7.0)
+        single_data, single_mask, _ = prepare_training_batch(
+            {
+                "data": data,
+                "target_t1c": target_t1c,
+                "label": label,
+                "lesion_mask": lesion_mask,
+                "hist": hist,
+            },
+            torch.device("cpu"),
+            "gli",
+            diffusion_channels=1,
+        )
+        self.assertIs(single_data, target_t1c)
+        self.assertIs(single_mask, lesion_mask)
+
     def test_spatial_condition_contains_hole_and_four_masks(self) -> None:
         lesion_mask = torch.zeros((1, 4, 2, 3, 4))
         lesion_mask[:, 2, 0, 1, 2] = 1
@@ -127,12 +164,67 @@ class GLITrainingIntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "spatial condition"):
             model(state, torch.zeros((1,), dtype=torch.long), cond=torch.zeros((1, 64)))
 
+    def test_single_state_unet_has_six_inputs_and_one_output(self) -> None:
+        model = Unet3D(
+            dim=8,
+            dim_mults=(1,),
+            channels=1,
+            spatial_condition_channels=5,
+            cond_dim=64,
+            attn_heads=1,
+            attn_dim_head=8,
+            resnet_groups=1,
+        )
+        self.assertEqual(model.init_conv.in_channels, 6)
+        state = torch.zeros((1, 1, 2, 4, 4))
+        output = model(
+            state,
+            torch.zeros((1,), dtype=torch.long),
+            cond=torch.zeros((1, 64)),
+            spatial_condition=torch.zeros((1, 5, 2, 4, 4)),
+        )
+        self.assertEqual(tuple(output.shape), tuple(state.shape))
+
+    def test_lesion_only_state_and_soft_histogram_have_finite_gradients(self) -> None:
+        diffusion = GaussianDiffusion_Nolatent(
+            _ZeroDenoiser(),
+            image_size=2,
+            num_frames=1,
+            spatial_shape=(1, 1, 2),
+            channels=1,
+            timesteps=4,
+            data_type='gli',
+            objective='pred_x0',
+            gli_state_mode='lesion_only',
+            hist_loss_weight=0.1,
+            hist_loss_ramp_steps=500,
+        )
+        target = torch.tensor([[[[[0.75, -0.5]]]]], requires_grad=True)
+        mask = torch.zeros((1, 4, 1, 1, 2))
+        mask[:, 2, :, :, 0] = 1
+        state = diffusion._gli_state_start(target, mask)
+        self.assertEqual(float(state[0, 0, 0, 0, 1]), 0.0)
+
+        prediction = torch.tensor([[[[[0.7, 0.0]]]]], requires_grad=True)
+        hist = torch.zeros((1, 64))
+        hist[:, 2 * 16 + 13] = 1.0
+        details = soft_histogram_loss_details(prediction, mask, hist)
+        self.assertTrue(torch.isfinite(details['loss']))
+        details['loss'].backward()
+        self.assertTrue(torch.isfinite(prediction.grad).all())
+        self.assertAlmostEqual(diffusion._hist_weight_at_step(0), 0.0)
+        self.assertAlmostEqual(diffusion._hist_weight_at_step(250), 0.05)
+        self.assertAlmostEqual(diffusion._hist_weight_at_step(500), 0.1)
+
     def test_hydra_configs_are_complete_and_shapes_are_valid(self) -> None:
         config_dir = str(ROOT / "LeFusion" / "train" / "config")
         expected = {
             "gli_64x64x32": (32, 64, 64),
             "gli_80x96x80": (80, 80, 96),
             "gli_exp008_conditional_inpainting_64x64x32": (32, 64, 64),
+            "gli_exp010_single_state_noise_64x64x32": (32, 64, 64),
+            "gli_exp011_lesion_only_noise_64x64x32": (32, 64, 64),
+            "gli_exp012_lesion_only_x0_hist_64x64x32": (32, 64, 64),
         }
         for config_name, shape in expected.items():
             with self.subTest(config_name=config_name):

@@ -33,9 +33,11 @@ from ddpm import (  # noqa: E402
 from inference.gli_utils import (  # noqa: E402
     anchor_union_cluster_condition,
     dhw_to_xyz,
+    indexed_cluster_condition,
     load_cluster_centers,
     mask_input_inside_lesion,
     nearest_cluster_condition,
+    union_label_cluster_condition,
     xyz_to_dhw,
 )
 from inference.gli_selection import (  # noqa: E402
@@ -269,6 +271,42 @@ class GLIInferenceClosedLoopTests(unittest.TestCase):
         self.assertEqual(cluster_ids.tolist(), [[-1, -1, -1, 1]])
         self.assertEqual(float(condition[:, :48].abs().sum()), 0.0)
         self.assertEqual(float(condition[:, 48:].sum()), 1.0)
+
+        indexed, indexed_ids = indexed_cluster_condition(
+            hist, seg, centers, index_mode="last"
+        )
+        self.assertEqual(indexed_ids.tolist(), [[1, -1, -1, 1]])
+        self.assertEqual(float(indexed[:, 16:48].sum()), 0.0)
+
+        cycle_seg, cycle_mask, cycle_condition, cycle_ids = union_label_cluster_condition(
+            hist,
+            seg,
+            torch.tensor([2]),
+            centers,
+            index_mode="first",
+        )
+        self.assertEqual(set(torch.unique(cycle_seg).tolist()), {0, 2})
+        self.assertEqual(cycle_mask.reshape(1, 4, -1).sum(dim=2).tolist(), [[0.0, 2.0, 0.0, 0.0]])
+        self.assertEqual(cycle_ids.tolist(), [[-1, 0, -1, -1]])
+        self.assertEqual(float(cycle_condition[:, :16].sum()), 0.0)
+        self.assertEqual(float(cycle_condition[:, 16:32].sum()), 1.0)
+
+    def test_single_state_repaint_uses_union_and_restores_exact_background(self) -> None:
+        scalar = torch.zeros((1, 1, 1, 2, 3), dtype=torch.long)
+        scalar[0, 0, 0, 0, 0] = 1
+        scalar[0, 0, 0, 1, 2] = 4
+        lesion_mask = torch.cat([(scalar == value) for value in (1, 2, 3, 4)], dim=1)
+        validate_gli_repaint_masks(scalar, lesion_mask, (1, 1, 1, 2, 3))
+        generated = torch.full((1, 1, 1, 2, 3), 2.0)
+        background = torch.full_like(generated, -0.25)
+        mixed = mix_gli_repaint_state(generated, background, lesion_mask)
+        self.assertEqual(float(mixed[0, 0, 0, 0, 0]), 2.0)
+        self.assertEqual(float(mixed[0, 0, 0, 0, 1]), -0.25)
+        composed = compose_gli_repaint_output(
+            mixed, lesion_mask, background_context=background
+        )
+        union = lesion_mask.any(dim=1, keepdim=True)
+        self.assertTrue(torch.equal(composed[~union], background[~union]))
 
     def test_pre_denoiser_shared_background_uses_fresh_noise_and_composition(self) -> None:
         denoiser = _CaptureDenoiser()

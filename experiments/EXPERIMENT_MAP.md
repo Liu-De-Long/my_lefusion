@@ -11,5 +11,9 @@
 | `20260806_exp006_gli_official_repaint_alignment` | 方法实验 | 删除 GLI 额外 post-denoiser hard clamp，按原始 LeFusion 语义重跑冻结 val/test 子集 | 已完成，但因训练契约错误而失效 |
 | `20260806_exp007_gli_masked_input_qa` | 方法实验 | 仅用 8 例冻结 val QA 比较显式挖空输入的多标签与 anchor-union 单标签生成 | 已停止；QA 暴露旧 checkpoint 未学习条件式修复 |
 | `20260806_exp008_gli_conditional_inpainting_training` | 方法实验 | 以挖空 T1c、四通道 mask 与 hist 作为条件，重新训练 p64 病灶修复扩散模型 | 已完成 50,000 step 与两组 8 例 QA；生成退化到挖空值，仅保留失败审计 |
+| `20260806_exp009_gli_p64_weak_supervision_classifier` | 方法实验 | 用 1000 个有标签 p64 patch 训练 T1c 与总 mask 的四类逐体素分类器 | 独立分支运行中 |
+| `20260807_exp010_gli_single_state_noise` | 方法实验 | 用单一完整 T1c 扩散状态消除跨通道捷径并短程预测噪声 | 实施与验证中 |
+| `20260807_exp011_gli_lesion_only_noise` | 方法实验 | 用 lesion-only 单通道状态短程预测噪声 | 实施与验证中 |
+| `20260807_exp012_gli_lesion_only_x0_hist` | 方法实验 | 用 lesion-only 状态直接预测 x0 并增加 soft-histogram 约束 | 实施与验证中 |
 
 实验 ID 只描述研究目的。两种 patch 大小分别记录在同一实验目录的配置文件中，使用同一份裁剪代码和患者划分。

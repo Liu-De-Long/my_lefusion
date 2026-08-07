@@ -2,13 +2,16 @@
 
 ## 当前版本
 
-v0.7.1-gli-conditional-inpainting-qa
+v0.8.0-gli-single-state-short-comparison
 
 ## 当前最佳实验
 
 当前没有满足“挖空背景条件下生成伪病灶”目标的有效最佳 checkpoint。exp008 已按正确的
 空间条件契约完成训练，但 8 例冻结 val QA 显示病灶区输出几乎退化为挖空值 `0`，因此也只
 保留为失败审计。exp005 的 p64/p80 与 exp006/exp007 同样不再作为当前最佳模型或医学有效性依据。
+
+当前已获授权实施 exp010–exp012 三种单通道短程方法，每种固定 seed `20260805`、最多 5000
+optimizer step，并在同一组 8 个 validation patch 上比较；三者完成前不指定新的最佳方法。
 
 ## 当前最佳结果
 
@@ -101,8 +104,8 @@ histogram L1 约为 `1.49–1.98`，目检显示输出基本保留挖空后的�
 
 ## 已知问题
 
-- 当前条件式修复实现位于 `feature/20260806-exp008-gli-conditional-inpainting`，实现 commit 为
-  `6e29f355294c762cfb8928f73abcb350200c2e70`；尚未合并到 `main`。
+- exp010–exp012 实现位于 `feature/20260807-exp010-012-gli-short-compare`；正式运行 commit
+  将在远端回归和 GPU preflight 通过后冻结，尚未合并到 `main`。
 - exp008 的训练 loss 与 validation loss 正常下降，但完整反向采样在病灶区退化到接近 `0`；
   下一步必须先区分 teacher-forced 噪声预测、逐步 `x0` 重建和自由采样之间的失配，不能直接扩展数据规模。
 - exp005 p64 虽完成 50,000 step，但其训练契约缺少挖空 T1c 与 mask 空间条件，已失效；
@@ -122,7 +125,7 @@ histogram L1 约为 `1.49–1.98`，目检显示输出基本保留挖空后的�
 
 ## 下一步
 
-1. 先做小规模诊断：按 timestep 审计 epsilon 与 `x0` 重建误差，并比较 teacher-forced 单步重建和从随机噪声自由采样。
-2. 检查 mask-only noise loss 是否需要增加 `x0`/histogram/边界重建约束；在方案确认前不重新训练。
-3. 不自动启动其他 seed、p80、519 例或全量 test；任何扩展均需新的用户授权。
-4. exp009 少标签分类工作保持独立，不用其分支或 GPU 资产改写 exp008 的失败结论。
+1. 完成 exp010–exp012 的 focused/full regression、真实数据零更新 preflight 与 W&B online 门禁。
+2. 在不影响 GPU 0 上 exp009 队列的前提下，仅用 GPU 1 顺序训练三个 5000-step run。
+3. 三个 checkpoint 均只运行固定 8 例五种 QA，并生成统一指标表和横向 contact sheet。
+4. 不启动其他 seed、p80、519 例或全量 test；exp009 保持独立。

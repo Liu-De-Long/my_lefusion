@@ -238,6 +238,12 @@ class GLIDataset(Dataset):
 
         return {
             "data": torch.from_numpy(data.astype(np.float32, copy=False)),
+            # Keep the historical four-channel ``data`` field for exp005/exp008
+            # checkpoint compatibility, while exposing the leakage-safe single
+            # T1c target used by exp010-exp012.
+            "target_t1c": torch.from_numpy(
+                image_dhw[None, ...].astype(np.float32, copy=False)
+            ),
             "label": torch.from_numpy(scalar_label.astype(np.int64, copy=False)),
             "lesion_mask": torch.from_numpy(lesion_mask),
             "masked_context": torch.from_numpy(

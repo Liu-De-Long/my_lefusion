@@ -1,0 +1,17 @@
+defaults:
+  - gli_exp011_p64_short_qa
+  - _self_
+
+experiment_id: 20260807_exp012_gli_lesion_only_x0_hist
+
+lesion_generation:
+  objective: pred_x0
+  hist_loss_weight: 0.1
+  hist_loss_ramp_steps: 500
+
+checkpoint:
+  path: /workspace/LeFusion_v2/my_experiment/experiments/20260807_exp012_gli_lesion_only_x0_hist/outputs/patch_64x64x32/seed_20260805/checkpoints/milestone-5000.pt
+
+output:
+  root: /workspace/LeFusion_v2/my_experiment/experiments/20260807_exp012_gli_lesion_only_x0_hist/outputs/patch_64x64x32/seed_20260805/qa_original_real
+

@@ -1,0 +1,17 @@
+experiment_id: 20260807_exp010_gli_single_state_noise
+type: method_change
+training_config: LeFusion/train/config/experiment/gli_exp010_single_state_noise_64x64x32.yaml
+inference_config: LeFusion/inference/confs/gli_exp010_p64_short_qa.yaml
+seed: 20260805
+patch_size_xyz: [64, 64, 32]
+max_optimizer_steps: 5000
+state_mode: full_t1c
+objective: pred_noise
+diffusion_channels: 1
+spatial_condition_channels: 5
+condition_dropout_prob: 0.1
+qa_cases: 8
+qa_variants: [original_real, original_cluster_first, original_cluster_last, union_cluster_first, union_cluster_last]
+wandb_run_id: exp010-p64-s20260805
+status: implementation
+

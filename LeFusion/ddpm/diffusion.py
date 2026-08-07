@@ -597,14 +597,32 @@ def normalize_spatial_shape(spatial_shape=None, *, image_size=None, num_frames=N
 
 
 def masked_lesion_loss_details(prediction, target, lesion_mask, loss_type='l1'):
-    """Return the unchanged GLI loss plus aggregatable per-channel details."""
-    if prediction.shape != target.shape or prediction.shape != lesion_mask.shape:
+    """Return a lesion-normalized loss and per-label aggregation details.
+
+    Historical GLI checkpoints predict four image channels and use a matching
+    four-channel mask.  Leakage-safe contracts predict one T1c channel while
+    retaining four disjoint label masks.  In the latter case the scalar error is
+    broadcast only for per-label masking and accounting; the model output is
+    never duplicated.
+    """
+    if prediction.shape != target.shape:
         raise ValueError(
-            "prediction, target, and lesion_mask must have identical shapes: "
-            f"{prediction.shape}, {target.shape}, {lesion_mask.shape}"
+            "prediction and target must have identical shapes: "
+            f"{prediction.shape}, {target.shape}"
         )
     if prediction.ndim != 5:
         raise ValueError(f"GLI tensors must be 5D BCHWD tensors, got {prediction.shape}")
+    if lesion_mask.ndim != 5 or lesion_mask.shape[0] != prediction.shape[0] or lesion_mask.shape[2:] != prediction.shape[2:]:
+        raise ValueError(
+            "lesion_mask batch/spatial shape must match prediction: "
+            f"{lesion_mask.shape}, {prediction.shape}"
+        )
+    if lesion_mask.shape[1] != prediction.shape[1]:
+        if prediction.shape[1] != 1 or lesion_mask.shape[1] != 4:
+            raise ValueError(
+                "lesion_mask channels must match prediction, except for the "
+                f"supported single-T1c/four-label contract: {lesion_mask.shape}, {prediction.shape}"
+            )
 
     mask = lesion_mask.to(device=prediction.device, dtype=prediction.dtype)
     if loss_type == 'l1':
@@ -614,6 +632,8 @@ def masked_lesion_loss_details(prediction, target, lesion_mask, loss_type='l1'):
     else:
         raise NotImplementedError(f"unsupported loss type: {loss_type}")
 
+    if error.shape[1] == 1 and mask.shape[1] == 4:
+        error = error.expand(-1, 4, -1, -1, -1)
     spatial_dims = tuple(range(2, prediction.ndim))
     voxel_counts = mask.sum(dim=spatial_dims)
     active_units = voxel_counts > 0
@@ -638,9 +658,18 @@ def masked_lesion_loss(prediction, target, lesion_mask, loss_type='l1'):
     return masked_lesion_loss_details(prediction, target, lesion_mask, loss_type)["loss"]
 
 
-def prepare_training_batch(data_frame, device, data_type):
+def prepare_training_batch(data_frame, device, data_type, diffusion_channels=None):
     """Move the model inputs to one device and select the dataset mask contract."""
-    data = data_frame['data'].to(device, non_blocking=True)
+    if data_type == 'gli' and diffusion_channels == 1:
+        source = data_frame.get('target_t1c')
+        if source is None:
+            legacy = data_frame.get('data')
+            if legacy is None or legacy.ndim != 5:
+                raise KeyError("single-channel GLI training batch is missing target_t1c")
+            source = legacy[:, :1]
+        data = source.to(device, dtype=torch.float32, non_blocking=True)
+    else:
+        data = data_frame['data'].to(device, non_blocking=True)
     mask_key = 'lesion_mask' if data_type == 'gli' else 'label'
     if mask_key not in data_frame:
         raise KeyError(f"training batch is missing required field: {mask_key}")
@@ -682,9 +711,11 @@ def validate_gli_repaint_masks(
 ) -> torch.Tensor:
     if scalar_seg.ndim != 5 or scalar_seg.shape[1] != 1:
         raise ValueError(f"GLI scalar segmentation must be [B,1,D,H,W], got {scalar_seg.shape}")
-    if tuple(lesion_mask.shape) != tuple(expected_shape):
+    expected_shape = tuple(expected_shape)
+    expected_mask_shape = (expected_shape[0], 4, *expected_shape[2:])
+    if tuple(lesion_mask.shape) != expected_mask_shape:
         raise ValueError(
-            f"GLI lesion mask shape mismatch: {tuple(lesion_mask.shape)} != {tuple(expected_shape)}"
+            f"GLI lesion mask shape mismatch: {tuple(lesion_mask.shape)} != {expected_mask_shape}"
         )
     scalar_seg = scalar_seg.to(device=lesion_mask.device)
     derived = torch.cat([(scalar_seg == value) for value in (1, 2, 3, 4)], dim=1)
@@ -705,20 +736,39 @@ def mix_gli_repaint_state(
 ) -> torch.Tensor:
     if background_context.ndim != 5 or background_context.shape[1] != 1:
         raise ValueError("GLI background context must be [B,1,D,H,W]")
-    if generated_state.shape != lesion_mask.shape:
-        raise ValueError("GLI generated state and lesion mask must have the same shape")
+    if generated_state.ndim != 5 or lesion_mask.ndim != 5:
+        raise ValueError("GLI generated state and lesion mask must be 5D")
+    if generated_state.shape[0] != lesion_mask.shape[0] or generated_state.shape[2:] != lesion_mask.shape[2:]:
+        raise ValueError("GLI generated state and lesion mask batch/spatial shapes disagree")
     expanded_background = background_context.expand_as(generated_state)
-    return torch.where(lesion_mask.bool(), generated_state, expanded_background)
+    if generated_state.shape[1] == 1:
+        state_mask = lesion_mask.bool().any(dim=1, keepdim=True)
+    elif generated_state.shape[1] == lesion_mask.shape[1]:
+        state_mask = lesion_mask.bool()
+    else:
+        raise ValueError("GLI state must use one T1c channel or four lesion channels")
+    return torch.where(state_mask, generated_state, expanded_background)
 
 
 def compose_gli_repaint_output(
     generated_channels: torch.Tensor,
     lesion_mask: torch.Tensor,
+    background_context=None,
 ) -> torch.Tensor:
     """Select each lesion channel and use channel zero as shared background."""
-    if generated_channels.shape != lesion_mask.shape:
-        raise ValueError("GLI terminal state and lesion mask must have the same shape")
+    if generated_channels.ndim != 5 or lesion_mask.ndim != 5:
+        raise ValueError("GLI terminal state and lesion mask must be 5D")
+    if generated_channels.shape[0] != lesion_mask.shape[0] or generated_channels.shape[2:] != lesion_mask.shape[2:]:
+        raise ValueError("GLI terminal state and lesion mask batch/spatial shapes disagree")
     union = lesion_mask.bool().any(dim=1, keepdim=True)
+    if generated_channels.shape[1] == 1:
+        if background_context is None:
+            return generated_channels
+        if background_context.shape != generated_channels.shape:
+            raise ValueError("single-channel GLI background must match generated state")
+        return torch.where(union, generated_channels, background_context)
+    if generated_channels.shape[1] != lesion_mask.shape[1]:
+        raise ValueError("multi-channel GLI terminal state and lesion mask must match")
     lesion_values = (
         generated_channels * lesion_mask.to(generated_channels.dtype)
     ).sum(dim=1, keepdim=True)
@@ -727,6 +777,55 @@ def compose_gli_repaint_output(
     # four denoiser outputs are never averaged and the original image is not
     # overlaid after sampling.
     return torch.where(union, lesion_values, generated_channels[:, :1])
+
+
+def soft_histogram_loss_details(prediction, lesion_mask, target_hist, bins=16):
+    """Differentiable per-label histogram L1 for a single predicted T1c volume."""
+    if prediction.ndim != 5 or prediction.shape[1] != 1:
+        raise ValueError("soft histogram loss requires [B,1,D,H,W] prediction")
+    if lesion_mask.ndim != 5 or lesion_mask.shape[1] != 4:
+        raise ValueError("soft histogram loss requires [B,4,D,H,W] lesion mask")
+    if prediction.shape[0] != lesion_mask.shape[0] or prediction.shape[2:] != lesion_mask.shape[2:]:
+        raise ValueError("soft histogram prediction/mask shape mismatch")
+    if target_hist is None or tuple(target_hist.shape) != (prediction.shape[0], 4 * int(bins)):
+        raise ValueError(
+            f"soft histogram target must be [B,{4 * int(bins)}], got "
+            f"{None if target_hist is None else tuple(target_hist.shape)}"
+        )
+    width = 2.0 / float(bins)
+    centers = torch.linspace(
+        -1.0 + width / 2.0,
+        1.0 - width / 2.0,
+        int(bins),
+        device=prediction.device,
+        dtype=prediction.dtype,
+    )
+    losses = []
+    for batch_index in range(prediction.shape[0]):
+        for channel in range(4):
+            current_mask = lesion_mask[batch_index, channel].bool()
+            if not bool(current_mask.any()):
+                continue
+            values = prediction[batch_index, 0][current_mask].clamp(-1.0, 1.0)
+            weights = (1.0 - (values[:, None] - centers[None, :]).abs() / width).clamp_min(0.0)
+            predicted_hist = weights.sum(dim=0)
+            predicted_hist = predicted_hist / predicted_hist.sum().clamp_min(1e-8)
+            start = channel * int(bins)
+            target = target_hist[batch_index, start:start + int(bins)].to(
+                device=prediction.device, dtype=prediction.dtype
+            )
+            target = target / target.sum().clamp_min(1e-8)
+            losses.append((predicted_hist - target).abs().sum())
+    if not losses:
+        raise ValueError("soft histogram loss received no active lesion units")
+    stacked = torch.stack(losses)
+    return {
+        "loss": stacked.mean(),
+        "loss_sum": stacked.sum(),
+        "effective_units": torch.tensor(
+            len(losses), device=prediction.device, dtype=torch.long
+        ),
+    }
 
 
 class GaussianDiffusion_Nolatent(nn.Module):
@@ -744,7 +843,13 @@ class GaussianDiffusion_Nolatent(nn.Module):
         use_dynamic_thres=False, 
         dynamic_thres_percentile=0.9,
         device=None,
-        data_type=''
+        data_type='',
+        objective='pred_noise',
+        gli_state_mode='full_t1c',
+        condition_dropout_prob=0.0,
+        hist_loss_weight=0.0,
+        hist_loss_ramp_steps=0,
+        hist_bins=16,
     ):
         super().__init__()
         self.data_type = data_type
@@ -768,6 +873,22 @@ class GaussianDiffusion_Nolatent(nn.Module):
         timesteps, = betas.shape
         self.num_timesteps = int(timesteps)
         self.loss_type = loss_type
+        self.objective = str(objective)
+        if self.objective not in {'pred_noise', 'pred_x0'}:
+            raise ValueError(f"unsupported diffusion objective: {self.objective}")
+        self.gli_state_mode = str(gli_state_mode)
+        if self.gli_state_mode not in {'full_t1c', 'lesion_only'}:
+            raise ValueError(f"unsupported GLI state mode: {self.gli_state_mode}")
+        self.condition_dropout_prob = float(condition_dropout_prob)
+        if not 0.0 <= self.condition_dropout_prob <= 1.0:
+            raise ValueError("condition dropout probability must be in [0,1]")
+        self.hist_loss_weight = float(hist_loss_weight)
+        self.hist_loss_ramp_steps = int(hist_loss_ramp_steps)
+        self.hist_bins = int(hist_bins)
+        if self.hist_loss_weight < 0 or self.hist_loss_ramp_steps < 0:
+            raise ValueError("histogram loss weight/ramp must be non-negative")
+        if self.hist_loss_weight and self.objective != 'pred_x0':
+            raise ValueError("soft histogram loss is supported only with pred_x0")
 
 
         def register_buffer(name, val): return self.register_buffer(
@@ -849,19 +970,21 @@ class GaussianDiffusion_Nolatent(nn.Module):
         if spatial_condition is not None:
             denoiser_kwargs['spatial_condition'] = spatial_condition
         if isinstance(self.denoise_fn, torch.nn.DataParallel):
-            noise = self.denoise_fn.module.forward_with_cond_scale(
+            model_output = self.denoise_fn.module.forward_with_cond_scale(
                 x,
                 t,
                 **denoiser_kwargs,
             )
         else:
-            noise = self.denoise_fn.forward_with_cond_scale(
+            model_output = self.denoise_fn.forward_with_cond_scale(
                 x,
                 t,
                 **denoiser_kwargs,
             )
-        x_recon = self.predict_start_from_noise(
-            x, t=t, noise=noise)
+        if self.objective == 'pred_noise':
+            x_recon = self.predict_start_from_noise(x, t=t, noise=model_output)
+        else:
+            x_recon = model_output
         if clip_denoised:
             s = 1.
             if self.use_dynamic_thres:
@@ -944,12 +1067,23 @@ class GaussianDiffusion_Nolatent(nn.Module):
                 model_kwargs['lesion_mask'],
                 final.shape,
             )
-            scalar = compose_gli_repaint_output(final, lesion_mask)
+            final_background = model_kwargs.get('gt_background')
+            scalar = compose_gli_repaint_output(
+                final,
+                lesion_mask,
+                background_context=(
+                    final_background if self.channels == 1 else None
+                ),
+            )
             if return_details:
                 return {
                     "sample": scalar,
                     "channels": final,
-                    "shared_background": final[:, :1],
+                    "shared_background": (
+                        final[:, :1]
+                        if final_background is None
+                        else final_background
+                    ),
                     "model_calls": model_calls,
                 }
             final = scalar
@@ -985,10 +1119,15 @@ class GaussianDiffusion_Nolatent(nn.Module):
             # forward-process background noise sample at every reverse call.
             # One [B,1,D,H,W] draw is shared by all four lesion channels for
             # this transition, but it is not cached across timesteps.
-            background_noise = torch.randn_like(background)
+            state_background = (
+                background
+                if self.gli_state_mode == 'full_t1c'
+                else torch.zeros_like(background)
+            )
+            background_noise = torch.randn_like(state_background)
             alpha_current = _extract_into_tensor(self.alphas_cumprod, t, background.shape)
             current_background = (
-                torch.sqrt(alpha_current) * background
+                torch.sqrt(alpha_current) * state_background
                 + torch.sqrt(1 - alpha_current) * background_noise
             )
             x = mix_gli_repaint_state(x, current_background, lesion_mask)
@@ -1089,19 +1228,53 @@ class GaussianDiffusion_Nolatent(nn.Module):
                     t, x_start.shape) * noise
         )
 
-    def p_losses(self, x_start, t, mask, cond=None, noise=None, **kwargs):
+    def _gli_state_start(self, x_start, mask):
+        if self.data_type != 'gli':
+            return x_start
+        if x_start.ndim != 5 or x_start.shape[1] not in {1, 4}:
+            raise ValueError(f"invalid GLI target shape: {tuple(x_start.shape)}")
+        if self.gli_state_mode == 'full_t1c':
+            return x_start
+        union = mask.bool().any(dim=1, keepdim=True).to(x_start.dtype)
+        if x_start.shape[1] == 4:
+            union = union.expand_as(x_start)
+        return x_start * union
+
+    def _hist_weight_at_step(self, optimizer_step):
+        if self.hist_loss_weight == 0:
+            return 0.0
+        if self.hist_loss_ramp_steps <= 0:
+            return self.hist_loss_weight
+        progress = min(max(float(optimizer_step), 0.0) / self.hist_loss_ramp_steps, 1.0)
+        return self.hist_loss_weight * progress
+
+    def p_losses(
+        self,
+        x_start,
+        t,
+        mask,
+        cond=None,
+        noise=None,
+        optimizer_step=0,
+        return_details=False,
+        **kwargs,
+    ):
         device = x_start.device
         x_start = x_start.to(device=device, dtype=torch.float32)
-        noise = default(noise, lambda: torch.randn_like(x_start))
-        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
+        state_start = self._gli_state_start(x_start, mask)
+        noise = default(noise, lambda: torch.randn_like(state_start))
+        x_noisy = self.q_sample(x_start=state_start, t=t, noise=noise)
         if is_list_str(cond):
             cond = bert_embed(
                 tokenize(cond), return_cls_repr=self.text_use_bert_cls)
             cond = cond.to(device)
-        x_recon = self.denoise_fn(**dict(x=x_noisy, time=t, cond=cond, **kwargs))
+        denoiser_kwargs = dict(x=x_noisy, time=t, cond=cond, **kwargs)
+        if self.data_type == 'gli':
+            denoiser_kwargs.setdefault('null_cond_prob', self.condition_dropout_prob)
+        model_output = self.denoise_fn(**denoiser_kwargs)
         if self.data_type == 'lidc' :
             noise = noise * mask
-            x_recon = x_recon * mask
+            x_recon = model_output * mask
             if self.loss_type == 'l1':
                 loss = F.l1_loss(noise, x_recon)
             elif self.loss_type == 'l2':
@@ -1114,7 +1287,7 @@ class GaussianDiffusion_Nolatent(nn.Module):
             noise_1, noise_2 = torch.split(noise, noise.size(1) // 2, dim=1)
             noise_1 = noise_1 * mask1
             noise_2 = noise_2 * mask2
-            x_recon1, x_recon2 = torch.split(x_recon, x_recon.size(1) // 2, dim=1)
+            x_recon1, x_recon2 = torch.split(model_output, model_output.size(1) // 2, dim=1)
             x_recon1 = x_recon1 * mask1
             x_recon2 = x_recon2 * mask2
             if self.loss_type == 'l1':
@@ -1124,14 +1297,67 @@ class GaussianDiffusion_Nolatent(nn.Module):
             else:
                 raise NotImplementedError()
         elif self.data_type == 'gli':
-            if self.channels != 4:
-                raise ValueError(f"GLI diffusion requires 4 channels, got {self.channels}")
-            loss = masked_lesion_loss(x_recon, noise, mask, self.loss_type)
+            if self.channels not in {1, 4}:
+                raise ValueError(f"GLI diffusion requires 1 or 4 channels, got {self.channels}")
+            target = noise if self.objective == 'pred_noise' else state_start
+            base_details = masked_lesion_loss_details(
+                model_output, target, mask, self.loss_type
+            )
+            hist_weight = self._hist_weight_at_step(optimizer_step)
+            hist_details = None
+            if self.hist_loss_weight:
+                predicted_x0 = (
+                    self.predict_start_from_noise(x_noisy, t=t, noise=model_output)
+                    if self.objective == 'pred_noise'
+                    else model_output
+                )
+                hist_details = soft_histogram_loss_details(
+                    predicted_x0, mask, cond, bins=self.hist_bins
+                )
+                if int(hist_details['effective_units']) != int(base_details['effective_units']):
+                    raise RuntimeError("base and histogram loss active-unit counts disagree")
+            hist_loss = (
+                model_output.new_zeros(()) if hist_details is None else hist_details['loss']
+            )
+            loss = base_details['loss'] + hist_weight * hist_loss
+            if return_details:
+                details = dict(base_details)
+                details.update(
+                    {
+                        'loss': loss,
+                        'base_loss': base_details['loss'],
+                        'hist_loss': hist_loss,
+                        'hist_weight': model_output.new_tensor(hist_weight),
+                        'base_loss_sum': base_details['total_loss_sum'],
+                        'hist_loss_sum': (
+                            model_output.new_zeros(())
+                            if hist_details is None
+                            else hist_details['loss_sum']
+                        ),
+                        'total_loss_sum': base_details['total_loss_sum']
+                        + hist_weight * (
+                            model_output.new_zeros(())
+                            if hist_details is None
+                            else hist_details['loss_sum']
+                        ),
+                    }
+                )
+                return details
         else:
             raise ValueError(f"unsupported data type: {self.data_type}")
         return loss
 
-    def forward(self, x, mask, *args, t=None, noise=None, **kwargs):
+    def forward(
+        self,
+        x,
+        mask,
+        *args,
+        t=None,
+        noise=None,
+        optimizer_step=0,
+        return_details=False,
+        **kwargs,
+    ):
         if isinstance(x, tuple):
             x, h = x
         else:
@@ -1143,9 +1369,17 @@ class GaussianDiffusion_Nolatent(nn.Module):
             raise ValueError(
                 f"diffusion input shape mismatch: got {tuple(x.shape[1:])}, expected {expected}"
             )
-        if mask.shape != x.shape:
+        mask_shape_valid = mask.shape == x.shape
+        if self.data_type == 'gli' and x.shape[1] == 1:
+            mask_shape_valid = (
+                mask.ndim == 5
+                and mask.shape[0] == x.shape[0]
+                and mask.shape[1] == 4
+                and mask.shape[2:] == x.shape[2:]
+            )
+        if not mask_shape_valid:
             raise ValueError(
-                f"mask shape must match diffusion input: got {mask.shape}, expected {x.shape}"
+                f"mask shape is incompatible with diffusion input: got {mask.shape}, input {x.shape}"
             )
         b, device = x.shape[0], x.device
         if t is None:
@@ -1162,7 +1396,17 @@ class GaussianDiffusion_Nolatent(nn.Module):
                 )
         cond = h
         return self.p_losses(
-            **dict(x_start=x, t=t, mask=mask, cond=cond, noise=noise, *args, **kwargs)
+            **dict(
+                x_start=x,
+                t=t,
+                mask=mask,
+                cond=cond,
+                noise=noise,
+                optimizer_step=optimizer_step,
+                return_details=return_details,
+                *args,
+                **kwargs,
+            )
         )
 
     def gli_validation_loss_details(
@@ -1171,8 +1415,8 @@ class GaussianDiffusion_Nolatent(nn.Module):
         """Compute deterministic GLI validation metrics without changing loss rules."""
         if self.data_type != "gli":
             raise ValueError("gli_validation_loss_details requires data_type='gli'")
-        if tuple(x.shape) != tuple(mask.shape) or tuple(x.shape) != tuple(noise.shape):
-            raise ValueError("GLI validation data, mask, and noise must have identical shapes")
+        if tuple(x.shape) != tuple(noise.shape):
+            raise ValueError("GLI validation data and noise must have identical shapes")
         expected = (self.channels, *self.spatial_shape)
         if tuple(x.shape[1:]) != expected:
             raise ValueError(
@@ -1186,14 +1430,46 @@ class GaussianDiffusion_Nolatent(nn.Module):
         t = t.to(device=x.device, dtype=torch.long)
         if cond is not None:
             cond = cond.to(device=x.device, dtype=torch.float32)
-        x_noisy = self.q_sample(x_start=x, t=t, noise=noise)
+        state_start = self._gli_state_start(x, mask)
+        x_noisy = self.q_sample(x_start=state_start, t=t, noise=noise)
         prediction = self.denoise_fn(
             x=x_noisy,
             time=t,
             cond=cond,
             spatial_condition=spatial_condition,
         )
-        return masked_lesion_loss_details(prediction, noise, mask, self.loss_type)
+        target = noise if self.objective == 'pred_noise' else state_start
+        base_details = masked_lesion_loss_details(prediction, target, mask, self.loss_type)
+        hist_weight = self._hist_weight_at_step(optimizer_step=10**18)
+        hist_details = None
+        if self.hist_loss_weight:
+            predicted_x0 = (
+                self.predict_start_from_noise(x_noisy, t=t, noise=prediction)
+                if self.objective == 'pred_noise'
+                else prediction
+            )
+            hist_details = soft_histogram_loss_details(
+                predicted_x0, mask, cond, bins=self.hist_bins
+            )
+        hist_loss = prediction.new_zeros(()) if hist_details is None else hist_details['loss']
+        details = dict(base_details)
+        details.update(
+            {
+                'loss': base_details['loss'] + hist_weight * hist_loss,
+                'base_loss': base_details['loss'],
+                'hist_loss': hist_loss,
+                'hist_weight': prediction.new_tensor(hist_weight),
+                'base_loss_sum': base_details['total_loss_sum'],
+                'hist_loss_sum': (
+                    prediction.new_zeros(()) if hist_details is None else hist_details['loss_sum']
+                ),
+                'total_loss_sum': base_details['total_loss_sum']
+                + hist_weight * (
+                    prediction.new_zeros(()) if hist_details is None else hist_details['loss_sum']
+                ),
+            }
+        )
+        return details
 
 
 class Trainer(object):
@@ -1269,6 +1545,9 @@ class Trainer(object):
         self.validation_dataset = validation_dataset
         self.validation_config = validation_config or {}
         self.validation_every = int(self.validation_config.get('every_steps', 0))
+        self.validation_steps = {
+            int(value) for value in self.validation_config.get('steps', [])
+        }
         self.validation_batch_size = int(self.validation_config.get('batch_size', 1))
         self.validation_num_workers = int(self.validation_config.get('num_workers', 0))
         self.validation_seed = int(self.validation_config.get('seed', 0))
@@ -1286,6 +1565,9 @@ class Trainer(object):
         self.checkpoint_config = checkpoint_config or {}
         self.latest_every = int(self.checkpoint_config.get('latest_every_steps', 0))
         self.milestone_every = int(self.checkpoint_config.get('milestone_every_steps', 0))
+        self.milestone_steps = {
+            int(value) for value in self.checkpoint_config.get('milestone_steps', [])
+        }
         self.keep_milestones = int(self.checkpoint_config.get('keep_milestones', 3))
         self.checkpoint_metadata = dict(checkpoint_metadata or {})
         self.resolved_config = resolved_config or {}
@@ -1447,11 +1729,17 @@ class Trainer(object):
         stopped_early = False
         while self.step < self.train_num_steps:
             micro_losses = []
+            micro_base_losses = []
+            micro_hist_losses = []
+            micro_hist_weights = []
             for i in range(self.gradient_accumulate_every):
 
                 data_frame = self._next_train_batch()
                 data, mask, hist = prepare_training_batch(
-                    data_frame, self.device, self.model.data_type
+                    data_frame,
+                    self.device,
+                    self.model.data_type,
+                    diffusion_channels=self.model.channels,
                 )
                 model_kwargs = {}
                 if self.model.spatial_condition_channels:
@@ -1461,20 +1749,38 @@ class Trainer(object):
 
                 with autocast(enabled=self.amp):
 
-                    loss = self.model(**dict(
+                    loss_output = self.model(**dict(
                         x=(data, hist),
                         mask=mask,
+                        optimizer_step=self.step,
+                        return_details=self.model.data_type == 'gli',
                         prob_focus_present=prob_focus_present,
                         focus_present_mask=focus_present_mask,
                         **model_kwargs)
                     )
+                    if isinstance(loss_output, dict):
+                        loss = loss_output['loss']
+                    else:
+                        loss = loss_output
 
                     self.scaler.scale(
                         loss / self.gradient_accumulate_every).backward()
 
                 micro_losses.append(float(loss.detach().cpu()))
+                if isinstance(loss_output, dict):
+                    micro_base_losses.append(float(loss_output['base_loss'].detach().cpu()))
+                    micro_hist_losses.append(float(loss_output['hist_loss'].detach().cpu()))
+                    micro_hist_weights.append(float(loss_output['hist_weight'].detach().cpu()))
 
             log = {'train/total_loss': sum(micro_losses) / len(micro_losses)}
+            if micro_base_losses:
+                log.update(
+                    {
+                        'train/base_loss': sum(micro_base_losses) / len(micro_base_losses),
+                        'train/hist_loss': sum(micro_hist_losses) / len(micro_hist_losses),
+                        'train/hist_weight': sum(micro_hist_weights) / len(micro_hist_weights),
+                    }
+                )
 
             grad_norm = None
             if exists(self.max_grad_norm):
@@ -1499,15 +1805,20 @@ class Trainer(object):
 
             if self.latest_every and self.step % self.latest_every == 0:
                 self.save_checkpoint(self.results_folder / 'latest.pt', kind='latest')
-            if self.milestone_every and self.step % self.milestone_every == 0:
+            save_milestone = self.step in self.milestone_steps or (
+                self.milestone_every and self.step % self.milestone_every == 0
+            )
+            if save_milestone:
                 self.save_checkpoint(
                     self.results_folder / f'milestone-{self.step}.pt', kind='milestone'
                 )
                 self._prune_milestones()
             if (
                 self.validation_dataset is not None
-                and self.validation_every
-                and self.step % self.validation_every == 0
+                and (
+                    self.step in self.validation_steps
+                    or (self.validation_every and self.step % self.validation_every == 0)
+                )
             ):
                 _, stopped_early = self._run_validation(log_fn)
                 if stopped_early:

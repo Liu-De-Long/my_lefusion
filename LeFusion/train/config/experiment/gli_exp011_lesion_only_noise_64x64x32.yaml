@@ -1,0 +1,24 @@
+# @package _global_
+defaults:
+  - gli_exp010_single_state_noise_64x64x32
+  - _self_
+
+experiment_id: 20260807_exp011_gli_lesion_only_noise
+variant: patch_64x64x32_seed_20260805
+
+lesion_generation:
+  state_mode: lesion_only
+
+model:
+  results_folder: experiments/20260807_exp011_gli_lesion_only_noise/outputs/patch_64x64x32/seed_20260805/checkpoints
+
+wandb:
+  run_name: exp011-p64-s20260805
+  run_id: exp011-p64-s20260805
+  dir: experiments/20260807_exp011_gli_lesion_only_noise/outputs/patch_64x64x32/seed_20260805/wandb
+
+preflight:
+  run_id: exp011-p64-preflight-s20260805
+  run_name: exp011-p64-preflight-s20260805
+  output_dir: experiments/20260807_exp011_gli_lesion_only_noise/outputs/patch_64x64x32/preflight
+

@@ -24,7 +24,15 @@ MODEL_METADATA_FIELDS = (
     "timesteps",
     "temporal_max_distance",
     "spatial_condition_channels",
+    "objective",
+    "gli_state_mode",
 )
+
+MODEL_METADATA_DEFAULTS = {
+    "spatial_condition_channels": 0,
+    "objective": "pred_noise",
+    "gli_state_mode": "full_t1c",
+}
 
 
 def normalized_state_dict(state_dict: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
@@ -97,10 +105,10 @@ def _torch_load(path: str | Path, map_location="cpu"):
 
 def validate_checkpoint_metadata(metadata: Mapping[str, Any], expected: Mapping[str, Any]) -> None:
     for field in MODEL_METADATA_FIELDS:
-        if field not in metadata and field != "spatial_condition_channels":
+        if field not in metadata and field not in MODEL_METADATA_DEFAULTS:
             raise ValueError(f"checkpoint metadata missing {field}")
-        actual = metadata.get(field, 0)
-        wanted = expected.get(field, 0)
+        actual = metadata.get(field, MODEL_METADATA_DEFAULTS.get(field))
+        wanted = expected.get(field, MODEL_METADATA_DEFAULTS.get(field))
         if field == "spatial_shape_dhw":
             actual = tuple(int(value) for value in actual)
             wanted = tuple(int(value) for value in wanted)
@@ -128,6 +136,8 @@ def _training_checkpoint_model_metadata(checkpoint: Mapping[str, Any]) -> dict[s
         "timesteps": model.get("timesteps"),
         "temporal_max_distance": model.get("temporal_max_distance", 32),
         "spatial_condition_channels": model.get("spatial_condition_channels", 0),
+        "objective": resolved.get("lesion_generation", {}).get("objective", "pred_noise"),
+        "gli_state_mode": resolved.get("lesion_generation", {}).get("state_mode", "full_t1c"),
     }
 
 

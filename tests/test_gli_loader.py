@@ -113,6 +113,8 @@ class GLILoaderTests(unittest.TestCase):
             self.assertEqual(tuple(sample["label"].shape), (1, 3, 4, 5))
             self.assertEqual(tuple(sample["lesion_mask"].shape), (4, 3, 4, 5))
             self.assertEqual(tuple(sample["masked_context"].shape), (1, 3, 4, 5))
+            self.assertEqual(tuple(sample["target_t1c"].shape), (1, 3, 4, 5))
+            self.assertTrue(torch.equal(sample["target_t1c"], sample["data"][:1]))
             self.assertEqual(tuple(sample["hist"].shape), (64,))
             self.assertEqual(int(sample["label"][0, 0, 0, 0]), 1)
             self.assertEqual(int(sample["label"][0, 2, 3, 4]), 4)

@@ -47,8 +47,14 @@ def validate_training_config(cfg: DictConfig) -> tuple[str, tuple[int, int, int]
             f"height and width must be divisible by {downsample_factor}: {spatial_shape}"
         )
     if data_type == 'gli':
-        if int(cfg.model.diffusion_num_channels) != 4:
-            raise ValueError("GLI training requires model.diffusion_num_channels=4")
+        generation_cfg = cfg.get('lesion_generation', {})
+        short_compare = bool(generation_cfg.get('enabled', False))
+        allowed_channels = {1} if short_compare else {4}
+        if int(cfg.model.diffusion_num_channels) not in allowed_channels:
+            raise ValueError(
+                "GLI diffusion channel contract mismatch: expected "
+                f"{sorted(allowed_channels)}, got {cfg.model.diffusion_num_channels}"
+            )
         if int(cfg.model.cond_dim) != 64:
             raise ValueError("GLI training requires model.cond_dim=64")
         spatial_condition_channels = int(
@@ -67,6 +73,24 @@ def validate_training_config(cfg: DictConfig) -> tuple[str, tuple[int, int, int]
                 )
             if float(inpainting_cfg.get('fill_value', 0.0)) != 0.0:
                 raise ValueError("the frozen exp008 lesion fill value must be 0.0")
+        if short_compare:
+            state_mode = str(generation_cfg.get('state_mode'))
+            objective = str(generation_cfg.get('objective'))
+            if state_mode not in {'full_t1c', 'lesion_only'}:
+                raise ValueError(f"unsupported lesion_generation.state_mode: {state_mode}")
+            if objective not in {'pred_noise', 'pred_x0'}:
+                raise ValueError(f"unsupported lesion_generation.objective: {objective}")
+            dropout = float(generation_cfg.get('condition_dropout_prob', 0.0))
+            if not 0.0 <= dropout <= 1.0:
+                raise ValueError("condition_dropout_prob must be in [0,1]")
+            hist_weight = float(generation_cfg.get('hist_loss_weight', 0.0))
+            hist_ramp = int(generation_cfg.get('hist_loss_ramp_steps', 0))
+            if hist_weight < 0 or hist_ramp < 0:
+                raise ValueError("hist loss weight/ramp must be non-negative")
+            if objective == 'pred_noise' and hist_weight != 0.0:
+                raise ValueError("pred_noise short runs must not enable soft histogram loss")
+            if objective == 'pred_x0' and state_mode != 'lesion_only':
+                raise ValueError("pred_x0 short run must use lesion_only state")
         patch_xyz = tuple(int(value) for value in cfg.dataset.patch_size_xyz)
         expected_dhw = (patch_xyz[2], patch_xyz[0], patch_xyz[1])
         if spatial_shape != expected_dhw:
@@ -141,6 +165,7 @@ def build_model_and_diffusion(
             device_ids=None if device_ids is None else [int(value) for value in device_ids],
         )
 
+    generation_cfg = cfg.get('lesion_generation', {})
     return GaussianDiffusion_Nolatent(
         model,
         image_size=int(cfg.model.diffusion_img_size),
@@ -151,6 +176,16 @@ def build_model_and_diffusion(
         loss_type=cfg.model.loss_type,
         device=device,
         data_type=data_type,
+        objective=str(generation_cfg.get('objective', 'pred_noise')),
+        gli_state_mode=str(generation_cfg.get('state_mode', 'full_t1c')),
+        condition_dropout_prob=float(
+            generation_cfg.get('condition_dropout_prob', 0.0)
+        ),
+        hist_loss_weight=float(generation_cfg.get('hist_loss_weight', 0.0)),
+        hist_loss_ramp_steps=int(
+            generation_cfg.get('hist_loss_ramp_steps', 0)
+        ),
+        hist_bins=int(cfg.dataset.get('hist_bins', 16)),
     ).to(device)
 
 
@@ -189,6 +224,10 @@ def build_checkpoint_metadata(cfg, train_dataset, spatial_shape):
         'wandb_run_id': None if run_id is None else str(run_id),
         'spatial_condition_channels': int(
             cfg.model.get('spatial_condition_channels', 0)
+        ),
+        'objective': str(cfg.get('lesion_generation', {}).get('objective', 'pred_noise')),
+        'gli_state_mode': str(
+            cfg.get('lesion_generation', {}).get('state_mode', 'full_t1c')
         ),
     }
 

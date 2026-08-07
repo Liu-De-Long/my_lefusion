@@ -88,6 +88,9 @@ def run_gli_validation(
     generator = torch.Generator(device="cpu")
     generator.manual_seed(int(seed))
     total_loss_sum = 0.0
+    base_loss_sum = 0.0
+    hist_loss_sum = 0.0
+    hist_weight = 0.0
     effective_units = 0
     channel_loss_sums = torch.zeros(4, dtype=torch.float64)
     channel_effective_units = torch.zeros(4, dtype=torch.int64)
@@ -100,7 +103,12 @@ def run_gli_validation(
     try:
         with torch.no_grad():
             for batch in loader:
-                data, mask, hist = prepare_training_batch(batch, device, "gli")
+                data, mask, hist = prepare_training_batch(
+                    batch,
+                    device,
+                    "gli",
+                    diffusion_channels=diffusion.channels,
+                )
                 spatial_condition = None
                 if diffusion.spatial_condition_channels:
                     spatial_condition = prepare_gli_spatial_condition(batch, device)
@@ -124,6 +132,9 @@ def run_gli_validation(
                     spatial_condition=spatial_condition,
                 )
                 total_loss_sum += float(details["total_loss_sum"].detach().cpu())
+                base_loss_sum += float(details["base_loss_sum"].detach().cpu())
+                hist_loss_sum += float(details["hist_loss_sum"].detach().cpu())
+                hist_weight = float(details["hist_weight"].detach().cpu())
                 effective_units += int(details["effective_units"].detach().cpu())
                 channel_loss_sums += details["channel_loss_sums"].detach().cpu().double()
                 channel_effective_units += (
@@ -139,6 +150,9 @@ def run_gli_validation(
         raise RuntimeError("validation produced no effective lesion units")
     metrics: dict[str, float | int] = {
         f"{prefix}/total_loss": total_loss_sum / effective_units,
+        f"{prefix}/base_loss": base_loss_sum / effective_units,
+        f"{prefix}/hist_loss": hist_loss_sum / effective_units,
+        f"{prefix}/hist_weight": hist_weight,
         f"{prefix}/effective_units": effective_units,
         f"{prefix}/patches": patch_count,
         f"{prefix}/subjects": len(subject_ids),
