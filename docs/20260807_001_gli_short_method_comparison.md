@@ -186,15 +186,18 @@ NETC/SNFH/ET/RC 四类。因此现有 8/8 只证明 histogram 配对正确，不
 
 ## 8. 后续建议
 
-在调整 `λhist` 或继续训练前，应先做相同病例的四类别 counterfactual QA：对同一个挖空输入、
-同一个 union mask 和同一个初始噪声，分别生成 NETC/SNFH/ET/RC，除目标 mask 通道及对应
-hist block 外保持条件一致。每个病例都生成四类，并增加以下判定：
+该建议已由 `20260808_exp014_gli_four_class_counterfactual_qa` 执行：对同一个挖空输入、同一个
+union mask 和同一完整采样随机序列分别生成 NETC/SNFH/ET/RC，除目标 mask 通道及对应 hist
+block 外保持条件一致。每个病例均生成四类，并检查：
 
 1. 输出对四类真实/cluster histogram 的目标类别排名，而不是只比较 first/last 两个中心。
 2. 类内一致性是否高于类间一致性；指标需包含空间纹理或无标签泄漏的类别表征，不能只有
    全局 histogram。
 3. 同时保留 exp010/exp012 paired MAE、异常亮暗团块、边界连续性和局部平滑对照。
 
-只有确认四类确实可辨后，才适合对 exp012 的 `λhist` 做 `0.03/0.05/0.1` 等短程折中实验；
-否则增强 histogram loss 可能只强化亮暗分布，而不会增强病灶语义。任何新增训练、其他 seed、
-p80 或扩大测试范围都应另建实验并单独授权。
+exp014 的 histogram 目标 Top-1 为 `21/32`，NETC/SNFH/ET/RC 分别为
+`3/8、2/8、8/8、8/8`；强度归一化 GLCM texture LOCO 为 `26/32`，但 RC 仅 `4/8`。目检只
+稳定确认 ET 高亮以及类别相关亮暗变化，NETC/SNFH/RC 仍明显重叠。因此四类视觉/医学语义
+可辨性尚未确认，不进入 `λhist=0.03/0.05/0.1` 消融。下一步先在真实 held-out T1c 上验证
+无标签泄漏的四类可分性上限；任何新增训练、其他 seed、p80 或扩大测试范围都应另建实验并
+单独授权。完整结果见 `experiments/20260808_exp014_gli_four_class_counterfactual_qa/result.md`。

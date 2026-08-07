@@ -51,6 +51,10 @@ BraTS2024 GLI 流程状态：
     8 例五种 validation QA。exp012 的 lesion/hist-CF/union-hist-CF 为 `8/8/8`、背景误差为
     `0`，当前仅作为最强 histogram 条件响应候选；union 指标不证明同类病灶视觉/语义一致性，
     结论不外推到医学有效性、其他 seed 或全量 test。
+11. exp014 已对 exp012 执行同一 8 例、同一 union mask 和同一采样随机序列的四类别
+    counterfactual QA，共 32 个结果。四类 histogram Top-1 为 `21/32`，其中 NETC/SNFH 仅
+    `3/8`、`2/8`；目检仅稳定看到 ET 高亮及整体亮暗变化，没有证据证明四类视觉或医学语义
+    控制成立，因此暂不调整 `λhist`，也不选定最终生成模型。
 
 ## 项目结构
 
@@ -206,6 +210,7 @@ GLI loss 对 batch 中所有非空 `(sample, lesion channel)` 单元等权平均
 - GLI 正式训练方案与可行性判断：`docs/20260805_004_gli_formal_training_plan.md`
 - GLI p64 少标签逐体素亚区分类方案：`docs/20260806_001_gli_p64_weak_supervision_classifier_plan.md`
 - exp010–exp012 单通道短程对比设定与结论：`docs/20260807_001_gli_short_method_comparison.md`
+- exp012 同病例四类别 QA：`experiments/20260808_exp014_gli_four_class_counterfactual_qa/result.md`
 - 可复用 GLI 病灶统计脚本：`scripts/brats_gli_lesion_patch_stats.py`
 - T1c 局部 patch 实验：`experiments/20260804_exp001_t1c_local_patch_dataset/result.md`
 - GLI lesion-aware 训练接入：`experiments/20260805_exp003_gli_lesion_aware_training/result.md`

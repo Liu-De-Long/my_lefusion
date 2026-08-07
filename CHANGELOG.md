@@ -1,5 +1,32 @@
 # 实验变更记录
 
+## 2026-08-08 — exp014 完成同病例四类别 counterfactual QA
+
+- 新建 `20260808_exp014_gli_four_class_counterfactual_qa`，只扩展推理条件编排：新增
+  `union_single_label_fixed`，不修改 exp012 模型、训练契约、checkpoint 或 `λhist`。
+- 固定 exp012 p64、seed `20260805`、step `5000` EMA、原 8 例 validation manifest、
+  `sampling.seed=20260807` 和 `t_T=300`；每个病例分别请求 NETC/SNFH/ET/RC，共生成 32 个结果。
+- 首次 1 例 smoke 在生成前因直接脚本入口漏导入 helper 退出，未写入病例进度；修复 commit 为
+  `1b7a946f88b936c33a417696fb7096a25d281238`，补充直接入口测试后远端 focused tests `2/2` 通过。
+- 经用户明确授权，使用 GPU1 四个输出互斥 worker 加速；父 PID 为
+  `23965/24388/24390/24392`，NETC 从成功的 1 例 smoke 恢复，其余三类各自独立运行，最终均为 `8/8`。
+  峰值显存按单 worker 约 `1091 MiB`，并行观察值约 `7.0 GiB`，GPU1 利用率达到 100%；GPU0 未占用。
+- 同病例合同审计通过：原图、挖空输入、source union、sample seed 在四类间逐数组一致；每次只激活
+  对应 mask 通道和 16-bin hist block；mask 外最大误差为 `0`。
+- 四类 histogram 目标 Top-1 为 `21/32`、均值 rank `1.34375`、平均 margin `0.32968`；
+  NETC/SNFH/ET/RC 分别为 `3/8、2/8、8/8、8/8`。强度归一化 3D GLCM texture LOCO 为
+  `26/32`，各类为 `6/8、8/8、8/8、4/8`。
+- 目检只稳定确认 ET 高亮及类别条件引起的亮暗/纹理变化；NETC、SNFH、RC 仍大量重叠，形态受
+  原病例背景和 union 形状主导。因此 exp012 仍只是 histogram 响应候选，四类视觉/医学语义控制未通过。
+- 输出保存在 `experiments/20260808_exp014_gli_four_class_counterfactual_qa/outputs/`，包括四类各 8 个
+  NPZ/NIfTI/五联图、`summary.json`、`case_metrics.csv`、`texture_features.csv`、8 张逐病例图和总览图。
+- 同步使用仅包含新增 commit 的一次性增量 Git bundle；远端原有 `.hydra/` 先保存为
+  `stash@{0}: pre-exp014-existing-hydra-20260808`，所有临时 bundle 均已从本地和服务器删除。
+- 删除 exp014 smoke/配置解析在远端仓库根重新生成的 `.hydra/`；它只是临时 Hydra 运行产物，
+  正式配置、合同、日志和 QA 输出均保留，旧 `.hydra/` 备份仍在上述 stash 中可恢复。
+- 本次没有训练、W&B 新 run、p80、其他 seed、519 例、test split 或全量 test；下一步先验证真实
+  held-out T1c 四类的无标签泄漏可分性上限，不立即调整 `λhist`。
+
 ## 2026-08-08 — 修订 exp010–exp012 histogram 与 union 指标解释
 
 - 更新 `docs/20260807_001_gli_short_method_comparison.md`，补充 own-vs-swapped histogram

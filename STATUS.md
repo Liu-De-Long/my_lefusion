@@ -2,7 +2,7 @@
 
 ## 当前版本
 
-v0.9.0-gli-short-comparison-complete
+v0.10.0-gli-four-class-qa-complete
 
 ## 当前最佳实验
 
@@ -32,8 +32,18 @@ base/hist loss 为 `0.111711 / 0.326442`。
 
 目检确认三者均生成非零、非平坦且与 mask 对齐的结构；exp012 对 first/last cluster 的亮暗
 分布响应最明显，但 union-as-single 没有呈现明确的跨病例同类外观，个别样本仍有偏黑/偏亮
-团块。下一步应先做同一病例四类别 counterfactual QA，再决定最终模型或调整 `λhist`。没有运行
-p80、其他 seed、519 例、test split 或全量 test。
+团块。为解除类别与病例绑定的混杂，后续已执行 exp014 同病例四类别 counterfactual QA。没有
+运行 p80、其他 seed、519 例、test split 或全量 test。
+
+exp014 已完成上述同病例四类别 QA：固定同一 8 例、挖空输入、union mask、checkpoint、EMA、
+`t_T=300`、每例 seed 和采样随机序列，共生成 `8×4=32` 个结果。合同逐数组核对通过，mask 外
+最大误差为 `0`。四类 histogram 目标 Top-1 为 `21/32`，均值 rank `1.34375`；NETC/SNFH/ET/RC
+分别为 `3/8、2/8、8/8、8/8`。强度归一化 3D GLCM texture 的 leave-one-case-out 正确数为
+`26/32`，但 RC 仅 `4/8`，且该指标只描述生成样本统计可分性，不能证明医学语义。
+
+目检显示 ET 在全部病例中稳定显著高亮，NETC/RC 多为较暗结构、SNFH 居中；NETC、SNFH、RC
+之间仍大量重叠，局部形态继续由病例背景和 union 形状主导。由此确认 exp012 学会了明显的
+亮暗/histogram 控制，但四类视觉统一性和医学亚型控制仍未通过；当前继续没有最终最佳模型。
 
 ## 当前流程
 
@@ -109,6 +119,10 @@ p80、其他 seed、519 例、test split 或全量 test。
   worker（父 PID `31788/31790`），未启动第三个 worker或重复变体。
 - 已仅运行一次 `scripts/gli_compare_short_generation_experiments.py`，生成统一指标表、摘要与
   三方法横向 contact sheet，并完成原图、挖空输入、生成、difference、mask 及 union first/last 目检。
+- 已完成 exp014 同病例四类别 counterfactual QA：仅复用 exp012 step 5000 EMA 和冻结 8 例，
+  使用 GPU1 四个输出互斥 worker 生成 32 个结果；未运行训练、p80、其他 seed、519 例或全量 test。
+- exp014 保留 `summary.json`、`case_metrics.csv`、`texture_features.csv`、8 张逐病例横向图和
+  `four_class_contact_sheet.png`；四类输入/mask/seed 合同、32 个 NPZ 和背景严格保持均已审计。
 
 ## 失败尝试
 
@@ -120,6 +134,9 @@ p80、其他 seed、519 例、test split 或全量 test。
   已冻结为 `d0c6aaa056b38e34e4cb929f85106cc90af05426`，尚未合并到 `main`。
 - exp012 虽在固定 8 例的 histogram 与 union 控制上最好，但个别生成含偏黑/偏亮团块；
   当前只可作为下一轮方法候选，不能直接用于医学结论或数据增强发布。
+- exp014 解除类别与病例绑定后，NETC/SNFH 的四类 histogram Top-1 仅 `3/8、2/8`；ET 的高亮
+  响应最明显，但 NETC/SNFH/RC 未形成稳定可辨外观。生成样本 GLCM-LOCO `26/32` 不能替代
+  真实 held-out T1c 上的无标签泄漏类别可分性上限验证。
 - exp008 的训练 loss 与 validation loss 正常下降，但完整反向采样在病灶区退化到接近 `0`；
   下一步必须先区分 teacher-forced 噪声预测、逐步 `x0` 重建和自由采样之间的失配，不能直接扩展数据规模。
 - exp005 p64 虽完成 50,000 step，但其训练契约缺少挖空 T1c 与 mask 空间条件，已失效；
@@ -139,7 +156,9 @@ p80、其他 seed、519 例、test split 或全量 test。
 
 ## 下一步
 
-1. 以 exp012 为后续可控生成起点，用 exp010 作为 paired 重建质量对照，先设计针对偏黑/偏亮
-   团块的小规模视觉真实性改进。
-2. 在任何新增训练前建立新实验 ID、配置和 Git commit，并重新执行零更新 preflight。
-3. 未经用户另行授权，不启动其他 seed、p80、519 例或全量 test；exp009 保持独立。
+1. 在调整 `λhist` 或继续训练前，先验证真实 held-out T1c 病灶的无标签泄漏四类可分性上限；
+   分类输入不得包含 mask 形状、hist block、anchor、病例 ID 或路径信息，并需报告 histogram-only 对照。
+2. 若真实 T1c 四类可分，再针对 NETC/SNFH/RC 的重叠设计空间纹理或类别表征约束；exp010 继续
+   作为 paired 重建质量对照，exp012 只作为 histogram 响应起点。
+3. 在任何新增训练前建立新实验 ID、配置和 Git commit，并重新执行零更新 preflight；未经用户
+   另行授权，不启动其他 seed、p80、519 例或全量 test，exp009 保持独立。

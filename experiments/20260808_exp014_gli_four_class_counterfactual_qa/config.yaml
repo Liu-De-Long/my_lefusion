@@ -16,5 +16,11 @@ sampling_seed: 20260807
 histogram_center: first_train_cluster_per_class
 full_test_run: false
 training_run: false
-status: prepared
+status: completed_semantic_subtype_control_not_validated
+same_case_contract_validated: true
+histogram_target_top1: "21/32"
+texture_loco_correct: "26/32"
+background_max_abs_change: 0.0
+semantic_subtype_control_validated: false
+lambda_hist_tuning_authorized: false
 output_dir: experiments/20260808_exp014_gli_four_class_counterfactual_qa/outputs
