@@ -1,1 +1,4 @@
-pending implementation commit on feature/20260806-exp009-gli-p64-weak-supervision
+branch: feature/20260806-exp009-gli-p64-weak-supervision
+implementation_head: cf0b3789305ad7cd6c18644c22f57545824e83f7
+training_base_head: 8982e7a383b0b1aa0da8d17d5dd7df38b72f20d7
+change: 实现 M0/M1/M2/C0、冻结 1000 patch、患者等权门禁、checkpoint 恢复修复与无泄漏特征缓存

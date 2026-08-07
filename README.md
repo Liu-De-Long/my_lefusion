@@ -44,6 +44,8 @@ BraTS2024 GLI 流程状态：
    W&B online 和正式训练。
 9. exp008 将训练契约改为 `x_t + masked T1c + four-channel mask + hist -> noise`，
    loss 仍只在对应病灶区域计算；当前重新训练 p64，旧 QA 不再作为有效方法结论。
+10. exp009 已在冻结的 1000 个 p64 train patch 上完成 M0/M1/M2/C0 验证；完整 p64 轻量
+    3D CNN 最佳患者等权 ET/RC focus mIoU 为 `0.5436`，未达到 `0.85`，冻结 test 未运行。
 
 ## 项目结构
 

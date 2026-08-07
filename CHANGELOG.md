@@ -581,3 +581,21 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
 - 新增可复用 `scripts/gli_build_qa_contact_sheet.py`，将每个变体的 8 张五联图整理为 2×4 总览图。
 - 实现 commit：`000e3735ea1604981a316cfee3a97eb3f17c6e5a`。
 - 检查时 p80 正在占用 GPU 0/1；在其结束前只实施与测试代码，不启动本实验 GPU 推理，不切换远端训练工作树。
+
+## 2026-08-07 — exp009 完成 p64 少标签逐体素分类验证
+
+- 在分支 `feature/20260806-exp009-gli-p64-weak-supervision` 实现 leak-safe dataset、M0/M1/M2/C0、
+  患者等权指标、原子 checkpoint、验证门禁与一次性 test 封存入口。
+- 冻结 1000 个 train p64 patch：四个 anchor 各 250、interior/boundary 各 500、覆盖 480 个
+  subject；子集 SHA-256 为 `aa7cd9844550c826f17ebe4cb43718d5c8ff61759c3b0ae81b7935c79886fa3a`。
+- 修复 NumPy 指标 JSON 序列化和 CUDA checkpoint RNG 恢复；增加只缓存 T1c/总 mask 派生
+  mask 内特征行的运行时优化。最终代码 commit 为 `cf0b3789305ad7cd6c18644c22f57545824e83f7`。
+- GPU0 严格串行完成 M0/M1/M2/C0；患者等权 val focus mIoU 分别为
+  `0.3385/0.3938/0.3815/0.5436`。C0 最佳 epoch 22，ET/RC IoU 为 `0.4937/0.5935`，
+  focus mIoU 95% CI 为 `[0.5000,0.5862]`。
+- 四种模型均未通过 0.85 focus mIoU 和 ET/RC 单类 0.80 门禁；未创建 test 结果，冻结 test
+  从未运行。结论是单体素/局部 MLP 只适合作为下限，完整三维上下文必要但当前轻量 C0 仍不足。
+- classifier 训练未接入 W&B online，已记录为正式日志缺口；本次 checkpoint 仅作验证审计，
+  后续新训练必须先补 W&B fail-closed。
+- 汇总正式远端 `outputs/` 后删除本地独立 worktree 中约 5.1 MiB 的 `.tmp_exp009_results/`
+  临时结果拷贝；远端 checkpoint、history、验证指标和日志均未删除。

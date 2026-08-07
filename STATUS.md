@@ -88,8 +88,10 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
 - 用户已安全配置远端 W&B key；64 patch online preflight 使用独立 run `exp005-p64-preflight-s20260805-r3`，完成零 optimizer update 的显存/梯度检查、完整 val、checkpoint reload 和 resume；W&B URL：<https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp005-p64-preflight-s20260805-r3>。
 - 64 preflight 的反向峰值显存为 `23330.56 MiB`，完整 validation 峰值为 `5482.45 MiB`；validation 为 1032 patch、73 subject、3207 有效单元，四个 label 全覆盖。临时 resume checkpoint 已自动删除，仅保留远端轻量 `metrics.json` 和日志。
 - 修复真实边界 patch 的负 `origin_xyz` loader 契约，代码 commit 为 `b34d867f944343f9f6ff6e4edde5abe3a0b0805b`；修复后远端全量测试 28/28 通过。
-- 已新增 `docs/20260806_001_gli_p64_weak_supervision_classifier_plan.md`，冻结 p64 少标签逐体素
-  四分类的数据子集、MLP/轻量 CNN、标签泄漏门禁和 ET/RC focus mIoU 评价方案；本次未实现或训练。
+- 已完成 `20260806_exp009_gli_p64_weak_supervision_classifier`：冻结 1000 个 train p64 patch，
+  依次训练 M0/M1/M2/C0；验证最佳为 C0，ET/RC focus mIoU `0.5436`，95% CI
+  `[0.5000,0.5862]`，未过 0.85 门禁，冻结 test 未运行。长期方案与结论记录于
+  `docs/20260806_001_gli_p64_weak_supervision_classifier_plan.md`。
 
 ## 失败尝试
 
@@ -112,12 +114,13 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
 - baseline 的 batch 是 preflight 初值而非硬编码：64 可从 `4/1` 调为 `2/2` 或 `1/4`；`50,000` optimizer steps 是上限，可由 early stopping 提前结束。
 - 原始 LeFusion 入口没有强制三 seed；`20260806/20260807` 是在首个 seed 通过后再决定的正式复现候选。
 - 少标签分类方案中的“10% 且约 1000 Case”存在口径差异：默认按 1000 个 p64 patch
-  解释，并暂定 ET/RC 为重点类别、TC 为 T1c；实施前仍需用户确认。
+  解释；用户已确认本次按 1000 patch、T1c、ET/RC 门禁实施。exp009 最佳仅 0.5436，
+  且训练未接入 W&B online，因此 checkpoint 只作为验证审计，不是正式最佳模型。
 
 ## 下一步
 
 1. 监控 exp008 p64 seed `20260805` 的 W&B、latest/best/milestone 与 validation 收敛。
 2. 新 checkpoint 可用后仅先做少量冻结 QA，不运行 519 例或全量 test。
 3. 不自动启动其他 seed、p80 或额外训练；任何扩展均需新的用户授权。
-4. 确认 p64 少标签分类方案的样本单位、1000/984 数量、重点类别和 85% mIoU 门禁后，
-   再创建 exp009 分支与实验卡；exp008 运行期间不切换远端工作树或占用 GPU。
+4. 若继续追求分类 focus mIoU 0.85，先补 W&B fail-closed，再由用户确认采用更强多尺度 3D
+   网络，还是允许剩余 train patch 进入半监督一致性/伪标签实验；验证门禁通过前不运行 test。
