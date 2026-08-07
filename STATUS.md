@@ -159,3 +159,8 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
 10. exp015 证明患者/组件重加权只能局部改善小区域 Dice，不能提高患者等权总体可分性。下一步不再
     叠加 loss 权重；优先由用户确认是保持 T1c-only 并转向患者多 patch 上下文/自监督表征，还是允许
     引入 T1n/T2f/T2w 以增加真实影像信息。任何下一方法使用新实验 ID 并重新授权。
+11. 用户已授权 exp016 使用 T1c/T1n/T2f/T2w 四模态 p64。独立分支/worktree
+    `feature/20260808-exp016-gli-p64-multimodal` 已建立；实现阶段只重建 train+val，test patch 不物化。
+12. exp016 复用同一冻结 1000 patch、患者级 split 和五项 test 门禁；模型使用四模态加总 mask 的
+    5 通道多尺度残差 3D U-Net，从 exp014 best 映射 T1c/总 mask 权重，其余模态 stem 权重置 0。
+13. 当前只完成本地实现草稿和静态编译；尚未推送、尚未远端 preflight、尚未启动 W&B 或 optimizer step。

@@ -37,7 +37,7 @@ from .tracking import classifier_wandb_run
 
 
 FeatureRowCache = dict[str, tuple[torch.Tensor, torch.Tensor]]
-SPATIAL_MODEL_KINDS = {"c0", "unet3d", "geometry_unet3d"}
+SPATIAL_MODEL_KINDS = {"c0", "unet3d", "geometry_unet3d", "multimodal_unet3d"}
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -131,6 +131,25 @@ def _model_from_config(config: Mapping[str, Any]) -> nn.Module:
     )
 
 
+def _modalities_from_config(config: Mapping[str, Any]) -> tuple[str, ...]:
+    values = config["data"].get("modalities", ["t1c"])
+    if isinstance(values, (str, bytes)):
+        raise ValueError("data.modalities must be a sequence, not a scalar")
+    modalities = tuple(str(value).lower() for value in values)
+    kind = str(config["model"]["kind"]).lower()
+    expected = 4 if kind == "multimodal_unet3d" else 1
+    if len(modalities) != expected:
+        raise ValueError(
+            f"{kind} requires {expected} MRI modalities, got {modalities}"
+        )
+    if kind == "multimodal_unet3d" and modalities != ("t1c", "t1n", "t2f", "t2w"):
+        raise ValueError(
+            "multimodal_unet3d requires ordered modalities "
+            "[t1c, t1n, t2f, t2w]"
+        )
+    return modalities
+
+
 def _load_geometry_warmstart(
     model: nn.Module,
     checkpoint_path: Path,
@@ -138,7 +157,7 @@ def _load_geometry_warmstart(
     subset_path: Path,
     device: torch.device,
 ) -> str:
-    """Load an exact geometry checkpoint or expand a two-channel U-Net."""
+    """Load a compatible U-Net while preserving T1c and mask stem weights."""
 
     payload = torch.load(checkpoint_path, map_location=device)
     if payload.get("subset_sha256") != sha256_file(subset_path):
@@ -148,21 +167,7 @@ def _load_geometry_warmstart(
         raise ValueError("geometry warm-start checkpoint has no model state")
     target_state = model.state_dict()
     source_kind = payload.get("model_kind")
-    if source_kind == "geometry_unet3d":
-        mismatched = sorted(
-            key
-            for key, target_value in target_state.items()
-            if key not in source_state or source_state[key].shape != target_value.shape
-        )
-        unexpected = sorted(set(source_state).difference(target_state))
-        if mismatched or unexpected:
-            raise ValueError(
-                "geometry warm-start architecture mismatch: "
-                f"mismatched={mismatched}, unexpected={unexpected}"
-            )
-        model.load_state_dict(source_state, strict=True)
-        return sha256_file(checkpoint_path)
-    if source_kind != "unet3d":
+    if source_kind not in {"unet3d", "geometry_unet3d"}:
         raise ValueError(
             "geometry warm-start requires an unet3d or geometry_unet3d checkpoint"
         )
@@ -175,12 +180,23 @@ def _load_geometry_warmstart(
         if source_value.shape == target_value.shape:
             target_state[key] = source_value
             continue
-        if key not in expandable or source_value.shape[1] != 2 or target_value.shape[1] != 18:
+        if (
+            key not in expandable
+            or source_value.ndim < 2
+            or target_value.ndim < 2
+            or source_value.shape[1] < 2
+            or target_value.shape[1] < 2
+        ):
             mismatched.append(key)
             continue
         expanded = torch.zeros_like(target_value)
+        # Channel zero is T1c and the final channel is the total-lesion mask in
+        # all supported spatial contracts. New modality/geometry channels start
+        # at zero, so the initial forward exactly preserves the source behavior.
         expanded[:, 0] = source_value[:, 0]
         expanded[:, -1] = source_value[:, 1]
+        if source_value.shape[1] > 2:
+            expanded[:, -1] = source_value[:, -1]
         target_state[key] = expanded
     unexpected = sorted(set(source_state).difference(target_state))
     if mismatched or unexpected:
@@ -888,14 +904,24 @@ def _build_spatial_inputs(
 ) -> torch.Tensor:
     """Build dense spatial inputs without consulting scalar class targets."""
 
-    if image.ndim != 5 or image.shape[1] != 1 or mask.ndim != 4:
+    if image.ndim != 5 or mask.ndim != 4:
         raise ValueError(
-            f"expected image [B,1,D,H,W] and mask [B,D,H,W], got {image.shape}, {mask.shape}"
+            f"expected image [B,C,D,H,W] and mask [B,D,H,W], got {image.shape}, {mask.shape}"
         )
     if kind in {"c0", "unet3d"}:
+        if image.shape[1] != 1:
+            raise ValueError(f"{kind} requires one MRI channel, got {image.shape[1]}")
+        return torch.cat((image, mask[:, None].to(image.dtype)), dim=1)
+    if kind == "multimodal_unet3d":
+        if image.shape[1] != 4:
+            raise ValueError(
+                f"multimodal_unet3d requires four MRI channels, got {image.shape[1]}"
+            )
         return torch.cat((image, mask[:, None].to(image.dtype)), dim=1)
     if kind != "geometry_unet3d":
         raise ValueError(f"unsupported spatial input kind: {kind}")
+    if image.shape[1] != 1:
+        raise ValueError(f"geometry_unet3d requires one T1c channel, got {image.shape[1]}")
     feature_volumes = torch.stack(
         [
             build_feature_volume(image[index], mask[index], "m1")
@@ -929,9 +955,10 @@ def _augment_intensity(
     shift_range: float,
     noise_std: float,
 ) -> torch.Tensor:
-    batch = image.shape[0]
-    scale = 1.0 + (torch.rand((batch, 1, 1, 1, 1), generator=generator) * 2.0 - 1.0) * scale_range
-    shift = (torch.rand((batch, 1, 1, 1, 1), generator=generator) * 2.0 - 1.0) * shift_range
+    batch, channels = image.shape[:2]
+    parameter_shape = (batch, channels, 1, 1, 1)
+    scale = 1.0 + (torch.rand(parameter_shape, generator=generator) * 2.0 - 1.0) * scale_range
+    shift = (torch.rand(parameter_shape, generator=generator) * 2.0 - 1.0) * shift_range
     noise = torch.randn(image.shape, generator=generator, dtype=image.dtype) * noise_std
     return image * scale.to(image.dtype) + shift.to(image.dtype) + noise
 
@@ -990,6 +1017,7 @@ def _train_cnn_epoch(
     device: torch.device,
     training_config: Mapping[str, Any],
     kind: str,
+    modalities: Sequence[str] = ("t1c",),
 ) -> float:
     model.train()
     generator = torch.Generator().manual_seed(seed + 10_000_019 * epoch)
@@ -1011,7 +1039,12 @@ def _train_cnn_epoch(
     use_augmentation = bool(augmentation.get("enabled", False))
     for start in range(0, len(order), batch_size):
         batch_records = [epoch_records[index] for index in order[start : start + batch_size]]
-        dataset = GLIClassifierPatchDataset(dataset_root, batch_records, load_targets=True)
+        dataset = GLIClassifierPatchDataset(
+            dataset_root,
+            batch_records,
+            load_targets=True,
+            modalities=modalities,
+        )
         samples = [dataset[index] for index in range(len(dataset))]
         image = torch.stack([sample["image"] for sample in samples])  # type: ignore[list-item]
         mask = torch.stack([sample["total_mask"][0] for sample in samples])  # type: ignore[index]
@@ -1078,9 +1111,13 @@ def _load_spatial_batch(
     records: Sequence[Mapping[str, Any]],
     *,
     load_targets: bool,
+    modalities: Sequence[str] = ("t1c",),
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
     dataset = GLIClassifierPatchDataset(
-        dataset_root, _input_only_records(records), load_targets=load_targets
+        dataset_root,
+        _input_only_records(records),
+        load_targets=load_targets,
+        modalities=modalities,
     )
     samples = [dataset[index] for index in range(len(dataset))]
     image = torch.stack([sample["image"] for sample in samples])  # type: ignore[list-item]
@@ -1346,10 +1383,16 @@ def evaluate_model(
     bootstrap_samples: int,
     seed: int,
     feature_cache: FeatureRowCache | None = None,
+    modalities: Sequence[str] = ("t1c",),
 ) -> dict[str, Any]:
     model.eval()
     accumulator = PatientMetricAccumulator()
-    dataset = GLIClassifierPatchDataset(dataset_root, _safe_records(records), load_targets=True)
+    dataset = GLIClassifierPatchDataset(
+        dataset_root,
+        _safe_records(records),
+        load_targets=True,
+        modalities=modalities,
+    )
     started = time.monotonic()
     if kind in SPATIAL_MODEL_KINDS:
         spatial_batch_size = max(1, int(spatial_batch_size))
@@ -1418,6 +1461,7 @@ def _run_training_impl(
     dataset_root = Path(data_config["dataset_root"])
     split_file = Path(data_config["split_file"])
     subset_path = Path(data_config["labeled_subset"])
+    modalities = _modalities_from_config(config)
     train_records, subset_payload = load_labeled_subset(
         subset_path, dataset_root, split_file
     )
@@ -1435,9 +1479,9 @@ def _run_training_impl(
         if not initial_checkpoint.is_file():
             raise FileNotFoundError(initial_checkpoint)
         if not resume:
-            if kind != "geometry_unet3d":
+            if kind not in {"geometry_unet3d", "multimodal_unet3d"}:
                 raise ValueError(
-                    "supervised initial_checkpoint is only supported for geometry_unet3d"
+                    "supervised initial_checkpoint is only supported for compatible U-Nets"
                 )
             initial_checkpoint_sha256 = _load_geometry_warmstart(
                 model,
@@ -1551,6 +1595,7 @@ def _run_training_impl(
                 device=device,
                 training_config=training_config,
                 kind=kind,
+                modalities=modalities,
             )
         else:
             raise ValueError(f"unsupported training kind: {kind}")
@@ -1566,6 +1611,7 @@ def _run_training_impl(
             bootstrap_samples=0,
             seed=seed,
             feature_cache=val_feature_cache,
+            modalities=modalities,
         )
         focus_miou = float(metrics["focus_miou"])
         scheduler.step(focus_miou)
@@ -1655,6 +1701,7 @@ def _run_training_impl(
         bootstrap_samples=int(evaluation_config.get("bootstrap_samples", 1000)),
         seed=seed,
         feature_cache=val_feature_cache,
+        modalities=modalities,
     )
     final_metrics["checkpoint_sha256"] = sha256_file(best_path)
     final_metrics["config_sha256"] = config["_config_sha256"]
@@ -2014,6 +2061,7 @@ def run_cpu_preflight(
     dataset_root = Path(data_config["dataset_root"])
     split_file = Path(data_config["split_file"])
     subset_path = Path(data_config["labeled_subset"])
+    modalities = _modalities_from_config(config)
     records, subset_payload = load_labeled_subset(subset_path, dataset_root, split_file)
     selected: list[dict[str, Any]] = []
     seen: set[tuple[int, str]] = set()
@@ -2031,8 +2079,8 @@ def run_cpu_preflight(
     model = _model_from_config(config).to(device)
     preflight_initial_sha256: str | None = None
     if training_config.get("initial_checkpoint"):
-        if kind != "geometry_unet3d":
-            raise ValueError("preflight initial checkpoint requires geometry_unet3d")
+        if kind not in {"geometry_unet3d", "multimodal_unet3d"}:
+            raise ValueError("preflight initial checkpoint requires a compatible U-Net")
         preflight_initial_sha256 = _load_geometry_warmstart(
             model,
             Path(str(training_config["initial_checkpoint"])),
@@ -2056,7 +2104,10 @@ def run_cpu_preflight(
         input_shape = list(features.shape)
     elif kind in SPATIAL_MODEL_KINDS:
         dataset = GLIClassifierPatchDataset(
-            dataset_root, _safe_records([selected[0]]), load_targets=True
+            dataset_root,
+            _safe_records([selected[0]]),
+            load_targets=True,
+            modalities=modalities,
         )
         sample = dataset[0]
         image, mask, target_original = _lesion_center_crop(
@@ -2183,6 +2234,7 @@ def run_gpu_preflight(
     dataset_root = Path(data_config["dataset_root"])
     split_file = Path(data_config["split_file"])
     subset_path = Path(data_config["labeled_subset"])
+    modalities = _modalities_from_config(config)
     labeled_records, subset_payload = load_labeled_subset(
         subset_path, dataset_root, split_file
     )
@@ -2193,8 +2245,8 @@ def run_gpu_preflight(
     model = _model_from_config(config).to(device).train()
     preflight_initial_sha256: str | None = None
     if training_config.get("initial_checkpoint"):
-        if kind != "geometry_unet3d":
-            raise ValueError("GPU preflight initial checkpoint requires geometry_unet3d")
+        if kind not in {"geometry_unet3d", "multimodal_unet3d"}:
+            raise ValueError("GPU preflight initial checkpoint requires a compatible U-Net")
         preflight_initial_sha256 = _load_geometry_warmstart(
             model,
             Path(str(training_config["initial_checkpoint"])),
@@ -2208,7 +2260,10 @@ def run_gpu_preflight(
     started = time.monotonic()
 
     image, mask, target = _load_spatial_batch(
-        dataset_root, labeled_records[:batch_size], load_targets=True
+        dataset_root,
+        labeled_records[:batch_size],
+        load_targets=True,
+        modalities=modalities,
     )
     if target is None:
         raise AssertionError("GPU preflight labeled batch has no target")
@@ -2347,6 +2402,7 @@ def run_evaluation(
     dataset_root = Path(data_config["dataset_root"])
     split_file = Path(data_config["split_file"])
     subset_path = Path(data_config["labeled_subset"])
+    modalities = _modalities_from_config(config)
     checkpoint_path = Path(checkpoint_path)
     if split == "test":
         validate_test_gate(
@@ -2375,6 +2431,7 @@ def run_evaluation(
         spatial_batch_size=int(evaluation_config.get("batch_size", 1)),
         bootstrap_samples=int(evaluation_config.get("bootstrap_samples", 1000)),
         seed=int(training_config["seed"]),
+        modalities=modalities,
     )
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)

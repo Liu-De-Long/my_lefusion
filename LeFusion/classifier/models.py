@@ -201,6 +201,12 @@ def build_classifier(
         return ResidualMultiScaleUNet3D(
             base_channels=int(unet_base_channels), input_channels=18
         )
+    if kind == "multimodal_unet3d":
+        # T1c/T1n/T2f/T2w are normalized independently.  The fifth channel is
+        # the total-lesion mask; no class-derived feature enters the network.
+        return ResidualMultiScaleUNet3D(
+            base_channels=int(unet_base_channels), input_channels=5
+        )
     raise ValueError(f"unknown classifier kind: {kind}")
 
 

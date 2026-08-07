@@ -156,6 +156,36 @@ class TestGLIClassifierData(unittest.TestCase):
             )
             self.assertNotIn("target", unlabeled_dataset[0])
 
+    def test_multimodal_dataset_preserves_order_and_never_returns_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            size_root = root / "patch_64x64x32" / "patches"
+            size_root.mkdir(parents=True)
+            values = (-0.75, -0.25, 0.25, 0.75)
+            arrays = {
+                modality: np.full((64, 64, 32), value, dtype=np.float32)
+                for modality, value in zip(("t1c", "t1n", "t2f", "t2w"), values, strict=True)
+            }
+            seg = np.zeros((64, 64, 32), dtype=np.uint8)
+            seg[2, 3, 4] = 4
+            np.savez_compressed(
+                size_root / "sample.npz",
+                **arrays,
+                seg=seg,
+                affine=np.eye(4),
+            )
+            dataset = GLIClassifierPatchDataset(
+                root,
+                [{"relative_path": "patches/sample.npz", "case_id": "case", "subject_id": "subject"}],
+                modalities=("t1c", "t1n", "t2f", "t2w"),
+            )
+            sample = dataset[0]
+            self.assertEqual(tuple(sample["image"].shape), (4, 32, 64, 64))
+            self.assertEqual(sample["image"][:, 4, 2, 3].tolist(), list(values))
+            self.assertTrue(set(sample).issubset(SAFE_SAMPLE_KEYS))
+            self.assertNotIn("affine", sample)
+            self.assertNotIn("hist", sample)
+
 
 class TestGLIClassifierFeaturesAndModels(unittest.TestCase):
     def test_features_depend_only_on_image_and_union(self) -> None:
@@ -186,6 +216,10 @@ class TestGLIClassifierFeaturesAndModels(unittest.TestCase):
         output = geometry_unet(torch.zeros(1, 18, 8, 16, 16))
         self.assertEqual(tuple(output.shape), (1, 4, 8, 16, 16))
         self.assertLess(count_parameters(geometry_unet), 2_000_000)
+        multimodal_unet = build_classifier("multimodal_unet3d", unet_base_channels=8)
+        output = multimodal_unet(torch.zeros(1, 5, 8, 16, 16))
+        self.assertEqual(tuple(output.shape), (1, 4, 8, 16, 16))
+        self.assertLess(count_parameters(multimodal_unet), 2_000_000)
 
     def test_geometry_spatial_inputs_are_target_independent(self) -> None:
         image = torch.linspace(-1, 1, 2 * 1 * 8 * 12 * 16).reshape(2, 1, 8, 12, 16)
@@ -197,6 +231,15 @@ class TestGLIClassifierFeaturesAndModels(unittest.TestCase):
         self.assertEqual(tuple(first.shape), (2, 18, 8, 12, 16))
         self.assertTrue(torch.equal(first, second))
         self.assertTrue(torch.equal(first[:, -1].to(torch.bool), mask))
+
+    def test_multimodal_spatial_inputs_append_only_union_mask(self) -> None:
+        image = torch.randn(2, 4, 8, 12, 16)
+        mask = torch.zeros((2, 8, 12, 16), dtype=torch.bool)
+        mask[:, 2:6, 3:10, 4:14] = True
+        inputs = _build_spatial_inputs(image, mask, kind="multimodal_unet3d")
+        self.assertEqual(tuple(inputs.shape), (2, 5, 8, 12, 16))
+        self.assertTrue(torch.equal(inputs[:, :4], image))
+        self.assertTrue(torch.equal(inputs[:, -1].to(torch.bool), mask))
 
     def test_geometry_warmstart_expands_only_input_stem(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -229,6 +272,36 @@ class TestGLIClassifierFeaturesAndModels(unittest.TestCase):
             self.assertTrue(
                 torch.equal(target_state["head.weight"], source_state["head.weight"])
             )
+
+    def test_multimodal_warmstart_maps_geometry_t1c_and_mask_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            subset = root / "subset.json"
+            subset.write_text("{}", encoding="utf-8")
+            source = build_classifier("geometry_unet3d", unet_base_channels=8)
+            checkpoint = root / "best.pt"
+            torch.save(
+                {
+                    "model_kind": "geometry_unet3d",
+                    "subset_sha256": hashlib.sha256(b"{}").hexdigest(),
+                    "model": source.state_dict(),
+                },
+                checkpoint,
+            )
+            target = build_classifier("multimodal_unet3d", unet_base_channels=8)
+            _load_geometry_warmstart(
+                target,
+                checkpoint,
+                subset_path=subset,
+                device=torch.device("cpu"),
+            )
+            source_state = source.state_dict()
+            target_state = target.state_dict()
+            for key in ("encoder0.body.0.weight", "encoder0.skip.weight"):
+                self.assertTrue(torch.equal(target_state[key][:, 0], source_state[key][:, 0]))
+                self.assertTrue(torch.equal(target_state[key][:, -1], source_state[key][:, -1]))
+                self.assertEqual(int(torch.count_nonzero(target_state[key][:, 1:-1])), 0)
+            self.assertTrue(torch.equal(target_state["head.weight"], source_state["head.weight"]))
 
     def test_geometry_warmstart_accepts_exact_geometry_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

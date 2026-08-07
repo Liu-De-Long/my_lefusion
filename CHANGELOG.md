@@ -732,3 +732,18 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   `user_triggered_method_early_stop` 后正常 finish；未恢复训练、未启动新 run。
 - 下一方法不重复 exp013 mean-teacher 或 exp015 重加权。若保持 T1c-only，优先患者多 patch
   上下文与自监督表征；若允许增加输入信息，优先引入 T1n/T2f/T2w。新实验需用户确认。
+
+## 2026-08-08 — 启动 exp016 四模态 p64 亚区分类
+
+- 用户明确授权 exp016 使用 T1c/T1n/T2f/T2w 四模态 p64；创建独立分支/worktree
+  `feature/20260808-exp016-gli-p64-multimodal`，基线提交为 `2aa676a8fab1a280136b1f6c03e5bd2af3fd4e0d`。
+- 新增冻结窗口重放脚本：复用原 p64 manifest 的患者、路径、XYZ origin 和 padding，逐 patch 断言 T1c、seg、
+  affine 与原数据一致；输出 manifest 字节级复制，冻结 1000 patch 与患者 split 的 SHA 不变。
+- 新增四模态 classifier loader 与 `multimodal_unet3d`：输入 `[B,5,32,64,64]`，不返回 hist、affine、
+  manifest per-class 字段或其他标签派生输入；mask 外输出仍强制为背景 0。
+- exp016 从 exp014 best warm-start，共享层完全复用，stem 只映射 T1c 与总 mask，新增模态权重置 0；loss、
+  网络宽度和 val-only 选模契约保持 exp014，作为多模态信息增益的单变量对照。
+- 新增长期契约文档 `docs/20260808_001_gli_p64_multimodal_classifier.md` 和实验卡
+  `experiments/20260808_exp016_gli_p64_multimodal_classifier/`。本地静态编译通过；本地环境缺少 PyTorch，
+  focused tests 将在远端 `lefusion` 环境执行。
+- 当前尚未推送、未创建远端 worktree、未重建正式数据、未使用 GPU、未初始化 W&B，冻结 test 未运行。

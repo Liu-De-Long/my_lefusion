@@ -19,7 +19,8 @@ LABEL_VALUES = (1, 2, 3, 4)
 LABEL_NAMES = ("NETC", "SNFH", "ET", "RC")
 PATCH_SIZE_XYZ = (64, 64, 32)
 PATCH_SIZE_DHW = (32, 64, 64)
-ALLOWED_NPZ_KEYS = frozenset({"t1c", "seg", "hist", "affine"})
+MODALITY_KEYS = ("t1c", "t1n", "t2f", "t2w")
+NON_INPUT_NPZ_KEYS = frozenset({"seg", "hist", "affine"})
 SAFE_SAMPLE_KEYS = frozenset(
     {
         "image",
@@ -263,7 +264,7 @@ def load_labeled_subset(
 
 
 class GLIClassifierPatchDataset(Dataset):
-    """Expose only T1c, total lesion mask and optional scalar target.
+    """Expose configured MRI modalities, total lesion mask and optional target.
 
     The NPZ histogram and manifest-derived per-class fields are deliberately not
     returned.  Model code receives a strict whitelist so label-derived metadata
@@ -276,12 +277,19 @@ class GLIClassifierPatchDataset(Dataset):
         records: Sequence[Mapping[str, Any]],
         *,
         load_targets: bool = True,
+        modalities: Sequence[str] = ("t1c",),
     ) -> None:
         self.size_root = Path(dataset_root) / "patch_64x64x32"
         self.records = [dict(record) for record in records]
         self.load_targets = bool(load_targets)
+        self.modalities = tuple(str(value).lower() for value in modalities)
         if not self.records:
             raise ValueError("classifier dataset requires at least one record")
+        if not self.modalities or len(self.modalities) != len(set(self.modalities)):
+            raise ValueError(f"modalities must be non-empty and unique: {self.modalities}")
+        invalid_modalities = sorted(set(self.modalities).difference(MODALITY_KEYS))
+        if invalid_modalities:
+            raise ValueError(f"unsupported MRI modalities: {invalid_modalities}")
 
     def __len__(self) -> int:
         return len(self.records)
@@ -293,27 +301,56 @@ class GLIClassifierPatchDataset(Dataset):
         if self.size_root.resolve() not in path.parents or not path.is_file():
             raise FileNotFoundError(path)
         with np.load(path, allow_pickle=False) as arrays:
-            if set(arrays.files) != ALLOWED_NPZ_KEYS:
+            file_keys = set(arrays.files)
+            required_keys = {*self.modalities, "seg", "affine"}
+            allowed_keys = {*self.modalities} | NON_INPUT_NPZ_KEYS
+            if not required_keys.issubset(file_keys) or not file_keys.issubset(allowed_keys):
                 raise ValueError(f"unexpected NPZ keys in {path}: {sorted(arrays.files)}")
-            t1c_xyz = np.asarray(arrays["t1c"])
+            images_xyz = [np.asarray(arrays[modality]) for modality in self.modalities]
             seg_xyz = np.asarray(arrays["seg"])
-        if t1c_xyz.shape != PATCH_SIZE_XYZ or seg_xyz.shape != PATCH_SIZE_XYZ:
-            raise ValueError(f"invalid p64 shape in {path}: {t1c_xyz.shape}, {seg_xyz.shape}")
-        if t1c_xyz.dtype != np.float32 or seg_xyz.dtype != np.uint8:
+        invalid_shapes = [
+            (modality, image.shape)
+            for modality, image in zip(self.modalities, images_xyz, strict=True)
+            if image.shape != PATCH_SIZE_XYZ
+        ]
+        if invalid_shapes or seg_xyz.shape != PATCH_SIZE_XYZ:
             raise ValueError(
-                f"invalid p64 dtypes in {path}: t1c={t1c_xyz.dtype}, seg={seg_xyz.dtype}"
+                f"invalid p64 shape in {path}: modalities={invalid_shapes}, seg={seg_xyz.shape}"
             )
-        if not np.isfinite(t1c_xyz).all():
-            raise ValueError(f"non-finite T1c values in {path}")
+        invalid_dtypes = [
+            (modality, str(image.dtype))
+            for modality, image in zip(self.modalities, images_xyz, strict=True)
+            if image.dtype != np.float32
+        ]
+        if invalid_dtypes or seg_xyz.dtype != np.uint8:
+            raise ValueError(
+                f"invalid p64 dtypes in {path}: modalities={invalid_dtypes}, seg={seg_xyz.dtype}"
+            )
+        non_finite = [
+            modality
+            for modality, image in zip(self.modalities, images_xyz, strict=True)
+            if not np.isfinite(image).all()
+        ]
+        if non_finite:
+            raise ValueError(f"non-finite MRI values in {path}: {non_finite}")
+        out_of_range = [
+            modality
+            for modality, image in zip(self.modalities, images_xyz, strict=True)
+            if image.min() < -1.00001 or image.max() > 1.00001
+        ]
+        if out_of_range:
+            raise ValueError(f"MRI values outside [-1,1] in {path}: {out_of_range}")
         labels = set(np.unique(seg_xyz).tolist())
         if not labels.issubset({0, *LABEL_VALUES}):
             raise ValueError(f"invalid labels in {path}: {sorted(labels)}")
 
-        image_dhw = np.transpose(t1c_xyz, (2, 0, 1)).copy()
+        image_dhw = np.stack(
+            [np.transpose(image, (2, 0, 1)) for image in images_xyz], axis=0
+        ).copy()
         seg_dhw = np.transpose(seg_xyz, (2, 0, 1)).copy()
         total_mask = seg_dhw > 0
         sample: dict[str, Any] = {
-            "image": torch.from_numpy(image_dhw[None]),
+            "image": torch.from_numpy(image_dhw),
             "total_mask": torch.from_numpy(total_mask[None]),
             "case_id": str(record["case_id"]),
             "subject_id": str(record["subject_id"]),
