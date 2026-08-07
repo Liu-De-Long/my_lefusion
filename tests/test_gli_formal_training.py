@@ -211,6 +211,7 @@ class GLIFormalTrainingTests(unittest.TestCase):
             ("gli_formal_64x64x32", (4, 1)),
             ("gli_formal_80x96x80", (1, 4)),
             ("gli_exp008_conditional_inpainting_64x64x32", (4, 1)),
+            ("gli_exp010_single_state_noise_64x64x32_full", (4, 1)),
         ):
             with initialize_config_dir(version_base=None, config_dir=config_dir):
                 cfg = compose(config_name="base_cfg", overrides=[f"+experiment={name}"])
