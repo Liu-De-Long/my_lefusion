@@ -1,4 +1,5 @@
 branch: feature/20260807-exp015-gli-p64-patient-component-balanced
 base_head: 19d3898c2c7dfe0df11d871e24d75dd23544d435
 implementation_head: ad35f93114387484f61636f315fd802379525c4a
+fix_head: 23c9d9b5ce26284ef75ea17f8b8620511e6295c9
 change: 实现患者等权 patch 轮换、样本类别/组件等权损失、偏召回 Tversky 与 patch presence 辅助
