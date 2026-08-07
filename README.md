@@ -50,7 +50,9 @@ BraTS2024 GLI 流程状态：
     mean-teacher 一致性训练。监督/半监督患者等权 ET/RC focus mIoU 分别为 `0.5730/0.5727`，
     均未通过 `0.85` 门禁；冻结 test 未运行。
 12. exp014 从 exp013 监督 best warm-start，向同一 U-Net 加入 18 通道 T1c/总 mask 无泄漏
-    几何输入，并用 Lovász 与类间边界监督继续优化验证 IoU；仍固定同一 1000 patch。
+    几何输入，并用 Lovász 与类间边界监督；最佳患者等权 ET/RC focus mIoU 为 `0.5922`。
+    大区域 ET/RC Dice 已达 `0.8771/0.8086`，但 1–100 体素小区域仅 `0.1248/0.1966`；
+    因性能门禁失败已方法级 early stop，冻结 test 未运行。
 
 ## 项目结构
 

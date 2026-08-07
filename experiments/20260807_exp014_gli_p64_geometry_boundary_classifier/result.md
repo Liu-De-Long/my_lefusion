@@ -35,17 +35,47 @@ ET/RC 患者等权 focus mIoU 从 exp013 的 `0.573000` 提升至至少 `0.85`�
 - 两次 preflight 的初始 checkpoint SHA-256 均为
   `de3636a2b169373c1b2e0bfb678dec07c7f7136a0cb1465c69ac6c2f6646b37a`，冻结 subset SHA
   均为 `aa7cd9844550c826f17ebe4cb43718d5c8ff61759c3b0ae81b7935c79886fa3a`。
-- 正式训练尚未运行。
-- 冻结 test 未运行。
+- 正式训练在 GPU0、W&B online run `exp014-geometry-boundary-s20260807` 上运行。服务器曾在
+  epoch 6 期间重启；恢复前核验 `latest.pt` 的 epoch、config/subset/warm-start SHA、optimizer、
+  scheduler 与 RNG 状态完整，随后从 epoch 5 原子 checkpoint 安全 resume。
+- epoch 6 后患者等权 focus mIoU 长期在约 `0.56–0.59` 波动；学习率从 `2e-4` 先后降到
+  `1e-4` 与 `5e-5`，未形成通向 `0.85` 的趋势。用户在 epoch 19 后触发方法级 early stop，
+  最终保留 20 条 epoch 历史。
+- 验证集绝对最佳为 epoch 19：患者等权 ET/RC focus mIoU `0.592211`，95% bootstrap CI
+  `[0.547210,0.638076]`；ET/RC IoU 为 `0.522322/0.662099`，ET/RC Dice 为
+  `0.589892/0.746911`，macro IoU/Dice 为 `0.595358/0.668240`，balanced accuracy
+  `0.774047`，mask 内错误率 `0.080047`。
+- 仅作参考的 pooled ET/RC IoU 为 `0.813983/0.775111`，明显高于患者等权指标，证明总体
+  大病灶体素性能不能代表小病灶患者性能。
+- 小区域是主瓶颈：`1–100` 体素 ET/RC patch Dice 仅 `0.124810/0.196575`，而 `>1000`
+  体素 ET/RC patch Dice 已达 `0.877092/0.808596`。
+- 空间门禁通过：mask 外非零率 `0`、union Dice `1`；性能门禁全部失败：focus mIoU 未达
+  `0.85`，ET/RC IoU 均未达 `0.80`。冻结 test 未运行，也未生成 test 文件。
+- best checkpoint SHA-256 为
+  `b293e5d35b078f6a290a24695f0081e0ce0599154513bf6bcbf7372a007898c2`；最终冻结 val
+  指标文件 SHA-256 为
+  `166562c2823cc2e4562534f4d35ae49eab5220ababb62d7db1ed543123295e3e`。
+- 终止信号使 W&B 一度将 run 标为 crashed 且只同步到 epoch 18；随后仅恢复同一个 run，补记
+  epoch 19 最终 val、bootstrap、门禁和 `user_triggered_method_early_stop` 后正常 finish，未训练、
+  未创建新 run。
 
 ## 结论
 
-真实 warm-start、18 通道完整图、loss/梯度与显存门禁已通过；尚无验证集性能证据。
+几何通道、Lovász 与边界监督相对 exp013 的 `0.573000` 有小幅增益，但不是达到患者等权
+`0.85` 的主路径。模型对大区域 ET/RC 已有较强总体可分性，当前主要受小区域漏检/错分以及
+患者等权聚合拖累；继续增加同一路线 epoch 的预期收益不足，因此已停止。
 
 ## 下一步
 
-同步 preflight 文档后，启动且只启动 GPU0 正式 W&B run；仅按完整患者级 val 选择。
+下一方法应直接改变小区域优化目标，而不是继续同配方训练：优先考虑 patch/患者等权的小区域
+重采样或 loss、component-aware/hierarchical head，并先在 val 做不读取 test 的连通域/小组件
+后处理审计。任何新训练应建立新实验 ID；仍复用患者隔离 split 和泄漏白名单，仍须五项门禁
+全部通过后才允许一次冻结 test。
 
 ## 输出路径
 
 `experiments/20260807_exp014_gli_p64_geometry_boundary_classifier/outputs/geometry_boundary/`
+
+关键产物：`best.pt`、`latest.pt`、`history.jsonl`、`best_val_metrics.json`、`run_metadata.json`。
+
+W&B：<https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp014-geometry-boundary-s20260807>

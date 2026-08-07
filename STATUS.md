@@ -96,10 +96,13 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
   患者等权 ET/RC focus mIoU 为 `0.573000`，mean-teacher 为 `0.572729`，半监督无正增益；
   两阶段空间门禁通过但性能门禁失败，冻结 test 未运行。远端最终单测 12/12 通过，两个正式
   W&B online run 与 checkpoint/config/subset SHA 均已保留。
-- 已创建 `20260807_exp014_gli_p64_geometry_boundary_classifier`：从 exp013 监督 best 严格
-  warm-start，新增 18 通道 T1c/总 mask 几何输入、Lovász 与类间边界监督；本地静态编译及
-  远端 focused tests 15/15 通过。CPU 与 GPU0 完整 p64 零 optimizer-step preflight 均通过；
-  GPU batch 8 峰值 allocated/reserved 为 `2829/3958 MiB`，冻结 test 继续封存。
+- 已完成 `20260807_exp014_gli_p64_geometry_boundary_classifier` 的验证：服务器重启后从 epoch 5
+  原子 checkpoint 安全 resume，用户在 epoch 19 后触发方法级 early stop。最佳患者等权
+  ET/RC focus mIoU 为 `0.592211`，95% CI `[0.547210,0.638076]`，ET/RC IoU 为
+  `0.522322/0.662099`；相对 exp013 有小幅增益但三项性能门禁仍失败。
+- exp014 的 `>1000` 体素 ET/RC patch Dice 为 `0.877092/0.808596`，`1–100` 体素仅
+  `0.124810/0.196575`，小区域与患者等权聚合是当前主瓶颈。mask 外非零率 `0`、union Dice
+  `1`；冻结 test 未运行。W&B 同一 run 已补记最终 val 与 early-stop 原因并正常结束。
 
 ## 失败尝试
 
@@ -136,9 +139,10 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
 2. 新 checkpoint 可用后仅先做少量冻结 QA，不运行 519 例或全量 test。
 3. 不自动启动其他 seed、p80 或额外训练；任何扩展均需新的用户授权。
 4. exp013 已完成且不晋级 test；下一分类方法实验固定复用同一 1000 patch、split 与门禁。
-5. 优先验证总 mask 距离、bbox/质心和 patch XYZ 等无标签泄漏几何通道，并针对小区域边界
-   改善监督；不重复已证实无增益的当前 mean-teacher 配方。
+5. exp014 已证实几何通道、Lovász 与边界监督只有小幅增益；不继续增加同配方 epoch，也不重复
+   已证实无增益的当前 mean-teacher 配方。
 6. 任何新训练仍须 W&B online fail-closed、GPU 零步 preflight、本地/远端 HEAD 一致，并仅按
    完整 p64 患者等权 val 选模；五项门禁通过前不运行冻结 test。
-7. exp014 preflight 已通过；同步文档后只启动 `exp014-geometry-boundary-s20260807`，不并行
-   扩展其他 config，并仅依据完整患者级 val 决定是否晋级。
+7. 下一方法实验优先处理小区域/患者等权目标：患者或 patch 等权重采样/loss、component-aware
+   或 hierarchical head，以及 val-only 小组件后处理审计；任何新训练使用新实验 ID。
+8. exp014 三项性能门禁失败，冻结 test 继续封存；不得因 pooled IoU 较高而绕过患者等权门禁。

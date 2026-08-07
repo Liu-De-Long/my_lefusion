@@ -660,3 +660,24 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   allocated/reserved 显存为 `2829/3958 MiB`，optimizer steps 为 0。
 - subset SHA、config SHA 与 initial checkpoint SHA 均已写入两份 preflight 产物。同步文档后
   只启动一个 W&B online 正式 run；冻结 test 继续封存。
+
+## 2026-08-07 — exp014 方法级 early stop 与最终验证审计
+
+- 正式 GPU0/W&B online 训练期间服务器在 epoch 6 中途重启；只读核验 epoch 5 `latest.pt` 的
+  config/subset/warm-start SHA、optimizer、scheduler 与 RNG 完整后安全 resume，未重置训练。
+- epoch 6 后患者等权 focus mIoU 长期在约 `0.56–0.59` 波动，学习率降至 `5e-5` 仍未出现
+  通向 `0.85` 的趋势。用户在 epoch 19 后触发方法级 early stop；训练进程已终止，GPU0 已释放。
+- epoch 19 为绝对最佳：患者等权 ET/RC focus mIoU `0.592211`，95% CI
+  `[0.547210,0.638076]`；ET/RC IoU `0.522322/0.662099`，macro IoU `0.595358`，
+  balanced accuracy `0.774047`，mask 内错误率 `0.080047`。
+- 仅作参考的 pooled ET/RC IoU 为 `0.813983/0.775111`；`>1000` 体素 ET/RC patch Dice
+  `0.877092/0.808596`，而 `1–100` 体素仅 `0.124810/0.196575`。结论是小区域与患者等权
+  聚合构成主瓶颈，继续同一路线训练不具备达到 `0.85` 的合理预期。
+- 空间门禁通过，三项性能门禁失败；冻结 test 未运行且无 test 文件。best checkpoint SHA-256：
+  `b293e5d35b078f6a290a24695f0081e0ce0599154513bf6bcbf7372a007898c2`。
+- 终止信号曾使 W&B run 显示 crashed 且只同步到 epoch 18；随后仅恢复同一 run，补记 epoch 19
+  最终 val/bootstrap、门禁、`test_ran=false` 和 `user_triggered_method_early_stop`，正常 finish，
+  未启动训练或新 run。run：
+  <https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp014-geometry-boundary-s20260807>。
+- 后续不扩展 exp014 epoch；新实验优先考虑患者/patch 等权的小区域采样与 loss、
+  component-aware/hierarchical head，以及严格 val-only 的小组件后处理审计。
