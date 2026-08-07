@@ -363,6 +363,7 @@ class TestGLIClassifierMetrics(unittest.TestCase):
         mask = torch.ones((2, 4, 6, 8), dtype=torch.bool)
         target = torch.zeros_like(mask, dtype=torch.int64)
         target[0, 1, 1, 1] = 2
+        target[0, 2:4, 4:6, 5:8] = 2
         target[1, :, :, 4:] = 3
         logits = torch.randn((2, 4, 4, 6, 8), requires_grad=True)
         settings = _loss_settings(
