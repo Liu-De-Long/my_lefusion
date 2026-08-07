@@ -21,8 +21,12 @@
 
 ## 结果
 
-- 方法实现 commit：`d188ce170040037ec477d5ff398e1f2cf141608a`。
-- 待完成远端回归、训练与 8 例 QA 后补充数值结果。
+- 正式运行代码 commit：`d0c6aaa056b38e34e4cb929f85106cc90af05426`；远端完整回归测试 `39/39` 通过。
+- BF16 正式预检（零 optimizer update）通过：loss `1.069728`，梯度范数 `16.731850`，反向峰值显存 `23324.62 MiB`；checkpoint 恢复成功。
+- 预检 validation：`val/ema/total_loss=0.996760`，覆盖 `1032` patches、`73` subjects、`3207` 个有效类单元及全部 4 类。
+- 正式训练使用 GPU1，W&B：`exp010-p64-s20260805`。首次后台启动因登录 shell 丢失 conda PATH，在导入 `einops` 时以 step 0 退出；保留失败日志后改用已验证的 conda Python 绝对路径启动，未产生重复训练或 checkpoint。
+- step 500：`latest.pt` 与 `milestone-500.pt` 已落盘；`val/ema/total_loss=0.178548`，覆盖口径与预检一致。训练随后正常恢复，最近审计到 step 571，有限 loss 为 `0.113238 / 0.358248 / 0.121547`。
+- 训练与固定 8 例 QA 尚在进行，最终门槛结果待补充。
 
 ## 结论
 
@@ -30,7 +34,7 @@
 
 ## 下一步
 
-完成 tensor/GPU/W&B preflight 后，在不占用现有训练 GPU 的前提下运行到 step 5000。
+继续现有唯一串行队列到 step 5000；不得重复启动。完成后只运行固定 8 例五种 QA 变体。
 
 ## 输出路径
 
