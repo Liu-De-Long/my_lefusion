@@ -532,7 +532,6 @@ def _component_equalized_weight_map(
             raw = np.power(np.maximum(sizes[component_ids], 1.0), -float(power))
             raw /= max(float(raw.mean()), 1e-12)
             raw = np.minimum(raw, float(max_multiplier))
-            raw /= max(float(raw.mean()), 1e-12)
             result[batch_index][class_mask] = raw.astype(np.float32, copy=False)
     return torch.from_numpy(result).to(device=target.device, dtype=torch.float32)
 
