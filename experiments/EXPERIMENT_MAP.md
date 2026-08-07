@@ -14,5 +14,6 @@
 | `20260806_exp009_gli_p64_weak_supervision_classifier` | 方法实验 | 用 1000 个有标签 p64 patch 训练 T1c 与总 mask 的四类逐体素分类器 | 已完成 val；C0 focus mIoU 0.5436，未过 0.85 门禁，test 封存 |
 | `20260807_exp013_gli_p64_multiscale_semisupervised_classifier` | 方法实验 | 在同一 1000 patch 上训练多尺度残差 3D U-Net，并用剩余 train patch 做 mean-teacher 半监督 | 已完成 val；监督 0.5730 优于半监督 0.5727，未过 0.85，test 封存 |
 | `20260807_exp014_gli_p64_geometry_boundary_classifier` | 方法实验 | 在同一 1000 patch 上验证无泄漏几何通道、Lovász 与类间边界监督 | 已在 epoch 19 后方法级 early stop；最佳 focus mIoU 0.5922，小区域为主瓶颈，性能门禁失败，test 封存 |
+| `20260807_exp015_gli_p64_patient_component_balanced_classifier` | 方法实验 | 使患者、样本类别和连通组件训练权重与患者等权小区域指标对齐 | 本地实现草稿与静态编译完成；待远端 focused tests/CPU preflight，新 GPU 未授权，test 封存 |
 
 实验 ID 只描述研究目的。两种 patch 大小分别记录在同一实验目录的配置文件中，使用同一份裁剪代码和患者划分。

@@ -681,3 +681,22 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   <https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp014-geometry-boundary-s20260807>。
 - 后续不扩展 exp014 epoch；新实验优先考虑患者/patch 等权的小区域采样与 loss、
   component-aware/hierarchical head，以及严格 val-only 的小组件后处理审计。
+
+## 2026-08-07 — 建立 exp015 患者与组件等权方法草稿
+
+- 基于 exp014 提交 `19d3898c2c7dfe0df11d871e24d75dd23544d435` 创建独立本地分支/worktree：
+  `feature/20260807-exp015-gli-p64-patient-component-balanced`。
+- 审计确认 exp014 CNN 虽有 class weight，但 CE/Focal 仍按 batch 总体素归一，Dice/Lovász 跨
+  batch 聚合；同类大区域和多 patch 患者仍会主导 optimizer signal，与患者等权 val 不一致。
+- 新增每患者每 epoch 固定数量 patch 的确定性轮换；默认每患者一个 patch，跨 epoch 循环覆盖
+  其全部冻结 patch，sampler 不读取四分类 target。
+- 新增样本类别等权 CE/Focal、26 邻域连通组件等权、ET/RC 大小分带 `4/2/1`、偏召回
+  Tversky 与 top-32 patch presence；所有标签派生量只参与 loss，不进入模型 forward。
+- 扩展严格 warm-start，允许 exp015 从同构 exp014 `geometry_unet3d` best 加载；subset 或参数
+  shape 不一致时 fail closed。新增 sampler、组件 mass、梯度等权和 warm-start 单测。
+- 本地静态编译与 `git diff --check` 通过；本地 Python 缺少 PyTorch，无法执行 focused tests。
+  同期远端 SSH 在连接阶段超时，因此尚未同步或运行远端测试/CPU preflight，未使用 GPU、
+  未初始化 W&B、未读取 test。
+- 长期设计记录于 `docs/20260807_003_gli_p64_patient_component_balanced_classifier.md`；恢复远端后
+  必须先同步同一 commit 并完成 focused tests/CPU 零步 preflight。新的 GPU preflight 和正式
+  run 仍需用户授权。

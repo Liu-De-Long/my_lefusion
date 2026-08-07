@@ -18,6 +18,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import yaml
+from scipy.ndimage import label as connected_components
 from torch import nn
 
 from .data import (
@@ -137,17 +138,34 @@ def _load_geometry_warmstart(
     subset_path: Path,
     device: torch.device,
 ) -> str:
-    """Expand a two-channel U-Net checkpoint into the 18-channel geometry model."""
+    """Load an exact geometry checkpoint or expand a two-channel U-Net."""
 
     payload = torch.load(checkpoint_path, map_location=device)
-    if payload.get("model_kind") != "unet3d":
-        raise ValueError("geometry warm-start requires an unet3d checkpoint")
     if payload.get("subset_sha256") != sha256_file(subset_path):
         raise ValueError("geometry warm-start labeled subset mismatch")
     source_state = payload.get("model")
     if not isinstance(source_state, Mapping):
         raise ValueError("geometry warm-start checkpoint has no model state")
     target_state = model.state_dict()
+    source_kind = payload.get("model_kind")
+    if source_kind == "geometry_unet3d":
+        mismatched = sorted(
+            key
+            for key, target_value in target_state.items()
+            if key not in source_state or source_state[key].shape != target_value.shape
+        )
+        unexpected = sorted(set(source_state).difference(target_state))
+        if mismatched or unexpected:
+            raise ValueError(
+                "geometry warm-start architecture mismatch: "
+                f"mismatched={mismatched}, unexpected={unexpected}"
+            )
+        model.load_state_dict(source_state, strict=True)
+        return sha256_file(checkpoint_path)
+    if source_kind != "unet3d":
+        raise ValueError(
+            "geometry warm-start requires an unet3d or geometry_unet3d checkpoint"
+        )
     expandable = {"encoder0.body.0.weight", "encoder0.skip.weight"}
     mismatched: list[str] = []
     for key, target_value in target_state.items():
@@ -343,6 +361,47 @@ def _sample_rows(
     return rows[indices]
 
 
+def _patient_equal_epoch_records(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    patches_per_subject: int,
+    seed: int,
+    epoch: int,
+) -> list[dict[str, Any]]:
+    """Cycle a fixed number of patches per subject for patient-equal training.
+
+    Patch selection depends only on frozen paths and subject IDs. Class targets
+    remain unavailable to the sampler, and every subject contributes the same
+    number of records in each epoch.
+    """
+
+    if patches_per_subject <= 0:
+        raise ValueError("patches_per_subject must be positive")
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for record in _safe_records(records):
+        grouped.setdefault(str(record["subject_id"]), []).append(record)
+    if not grouped:
+        raise ValueError("patient-equal sampler requires records")
+
+    selected: list[dict[str, Any]] = []
+    for subject_id in sorted(grouped):
+        values = sorted(
+            grouped[subject_id],
+            key=lambda row: hashlib.sha256(
+                f"{seed}|{subject_id}|{row['relative_path']}".encode("utf-8")
+            ).hexdigest(),
+        )
+        start = (int(epoch) * int(patches_per_subject)) % len(values)
+        for offset in range(int(patches_per_subject)):
+            selected.append(dict(values[(start + offset) % len(values)]))
+
+    generator = torch.Generator().manual_seed(
+        int(seed) + 7_000_033 * int(epoch) + 97 * int(patches_per_subject)
+    )
+    order = torch.randperm(len(selected), generator=generator).tolist()
+    return [selected[index] for index in order]
+
+
 def _feature_rows_and_target(
     sample: Mapping[str, Any],
     *,
@@ -443,6 +502,168 @@ def _interclass_boundary_mask(target: torch.Tensor, mask: torch.Tensor) -> torch
     return (neighborhood_presence.sum(dim=1) > 1) & mask.to(torch.bool)
 
 
+def _component_equalized_weight_map(
+    target: torch.Tensor,
+    mask: torch.Tensor,
+    *,
+    power: float,
+    max_multiplier: float,
+) -> torch.Tensor:
+    """Give connected components comparable loss mass without changing inputs."""
+
+    if target.shape != mask.shape or target.ndim != 4:
+        raise ValueError("component weights require matching [B,D,H,W] target and mask")
+    if not 0.0 <= float(power) <= 1.0:
+        raise ValueError("component_equalization_power must be in [0,1]")
+    if float(max_multiplier) < 1.0:
+        raise ValueError("component_max_multiplier must be at least one")
+    target_np = target.detach().to("cpu", torch.int64).numpy()
+    mask_np = mask.detach().to("cpu", torch.bool).numpy()
+    result = np.zeros(mask_np.shape, dtype=np.float32)
+    structure = np.ones((3, 3, 3), dtype=np.uint8)
+    for batch_index in range(target_np.shape[0]):
+        for class_index in range(4):
+            class_mask = mask_np[batch_index] & (target_np[batch_index] == class_index)
+            if not np.any(class_mask):
+                continue
+            labels, count = connected_components(class_mask, structure=structure)
+            sizes = np.bincount(labels.ravel(), minlength=count + 1).astype(np.float64)
+            component_ids = labels[class_mask]
+            raw = np.power(np.maximum(sizes[component_ids], 1.0), -float(power))
+            raw /= max(float(raw.mean()), 1e-12)
+            raw = np.minimum(raw, float(max_multiplier))
+            raw /= max(float(raw.mean()), 1e-12)
+            result[batch_index][class_mask] = raw.astype(np.float32, copy=False)
+    return torch.from_numpy(result).to(device=target.device, dtype=torch.float32)
+
+
+def _region_unit_weights(
+    voxel_counts: torch.Tensor,
+    *,
+    settings: Mapping[str, Any],
+) -> torch.Tensor:
+    """Return [B,4] target-size weights; only ET/RC receive band emphasis."""
+
+    small_threshold, medium_threshold = settings["small_region_thresholds"]
+    small_weight, medium_weight, large_weight = settings["small_region_multipliers"]
+    weights = torch.ones_like(voxel_counts, dtype=torch.float32)
+    band_weights = torch.where(
+        voxel_counts <= int(small_threshold),
+        torch.as_tensor(small_weight, device=voxel_counts.device, dtype=torch.float32),
+        torch.where(
+            voxel_counts <= int(medium_threshold),
+            torch.as_tensor(medium_weight, device=voxel_counts.device, dtype=torch.float32),
+            torch.as_tensor(large_weight, device=voxel_counts.device, dtype=torch.float32),
+        ),
+    )
+    weights[:, 2:] = band_weights[:, 2:]
+    return weights
+
+
+def _reduce_sample_class_units(
+    units: torch.Tensor,
+    voxel_counts: torch.Tensor,
+    *,
+    settings: Mapping[str, Any],
+) -> torch.Tensor:
+    valid = voxel_counts > 0
+    region_weights = _region_unit_weights(voxel_counts, settings=settings).to(units.dtype)
+    weighted_valid = region_weights * valid.to(units.dtype)
+    class_denominator = weighted_valid.sum(dim=0)
+    class_losses = (units * weighted_valid).sum(dim=0) / class_denominator.clamp_min(1e-6)
+    class_valid = class_denominator > 0
+    class_weights = settings["class_multipliers"].to(units.device, units.dtype)
+    class_weights = class_weights * class_valid.to(units.dtype)
+    return (class_losses * class_weights).sum() / class_weights.sum().clamp_min(1e-6)
+
+
+def _sample_class_reduced_map(
+    loss_map: torch.Tensor,
+    target: torch.Tensor,
+    mask: torch.Tensor,
+    *,
+    voxel_weights: torch.Tensor,
+    component_weights: torch.Tensor,
+    settings: Mapping[str, Any],
+) -> torch.Tensor:
+    """Reduce voxels -> sample/class -> class so large regions cannot dominate."""
+
+    one_hot = F.one_hot(target.clamp(0, 3), 4).permute(0, 4, 1, 2, 3).to(loss_map.dtype)
+    one_hot = one_hot * mask[:, None].to(loss_map.dtype)
+    effective_weights = voxel_weights * component_weights.to(loss_map.dtype)
+    reduction_dims = (2, 3, 4)
+    weighted_truth = one_hot * effective_weights[:, None]
+    denominators = weighted_truth.sum(dim=reduction_dims)
+    numerators = (weighted_truth * loss_map[:, None]).sum(dim=reduction_dims)
+    units = numerators / denominators.clamp_min(1e-6)
+    voxel_counts = one_hot.sum(dim=reduction_dims)
+    return _reduce_sample_class_units(units, voxel_counts, settings=settings)
+
+
+def _samplewise_tversky_loss(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    mask: torch.Tensor,
+    *,
+    settings: Mapping[str, Any],
+    alpha: float,
+    beta: float,
+    gamma: float,
+) -> torch.Tensor:
+    probabilities = logits.softmax(dim=1)
+    safe_target = target.clamp(0, 3)
+    mask_float = mask.to(logits.dtype)
+    truth = F.one_hot(safe_target, 4).permute(0, 4, 1, 2, 3).to(logits.dtype)
+    truth = truth * mask_float[:, None]
+    prediction = probabilities * mask_float[:, None]
+    reduction_dims = (2, 3, 4)
+    true_positive = (prediction * truth).sum(dim=reduction_dims)
+    false_positive = (prediction * (mask_float[:, None] - truth)).sum(dim=reduction_dims)
+    false_negative = ((1.0 - prediction) * truth).sum(dim=reduction_dims)
+    score = (true_positive + 1e-6) / (
+        true_positive
+        + float(alpha) * false_positive
+        + float(beta) * false_negative
+        + 1e-6
+    )
+    units = (1.0 - score).clamp_min(0.0).pow(float(gamma))
+    voxel_counts = truth.sum(dim=reduction_dims)
+    return _reduce_sample_class_units(units, voxel_counts, settings=settings)
+
+
+def _patch_presence_loss(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    mask: torch.Tensor,
+    *,
+    settings: Mapping[str, Any],
+) -> torch.Tensor:
+    probabilities = logits.softmax(dim=1)
+    flat_probabilities = probabilities.flatten(start_dim=2)
+    flat_mask = mask.flatten(start_dim=1)
+    masked_probabilities = flat_probabilities.masked_fill(~flat_mask[:, None], -torch.inf)
+    topk = min(int(settings["presence_topk"]), int(masked_probabilities.shape[2]))
+    top_values = torch.topk(masked_probabilities, topk, dim=2).values
+    inside_count = flat_mask.sum(dim=1).clamp_min(1)
+    valid_top = torch.arange(topk, device=logits.device)[None, None] < inside_count[:, None, None]
+    presence_probability = torch.where(valid_top, top_values, torch.zeros_like(top_values)).sum(
+        dim=2
+    ) / inside_count.clamp_max(topk).to(logits.dtype)[:, None]
+    presence_probability = presence_probability.clamp(1e-6, 1.0 - 1e-6)
+    truth = F.one_hot(target.clamp(0, 3), 4).permute(0, 4, 1, 2, 3).to(logits.dtype)
+    truth = truth * mask[:, None].to(logits.dtype)
+    voxel_counts = truth.sum(dim=(2, 3, 4))
+    present = (voxel_counts > 0).to(logits.dtype)
+    units = -present * torch.log(presence_probability) - (1.0 - present) * torch.log1p(
+        -presence_probability
+    )
+    region_weights = _region_unit_weights(voxel_counts, settings=settings).to(logits.dtype)
+    region_weights = torch.where(present > 0, region_weights, torch.ones_like(region_weights))
+    class_losses = (units * region_weights).sum(dim=0) / region_weights.sum(dim=0).clamp_min(1e-6)
+    class_weights = settings["class_multipliers"].to(logits.device, logits.dtype)
+    return (class_losses * class_weights).sum() / class_weights.sum().clamp_min(1e-6)
+
+
 def _lovasz_gradient(sorted_foreground: torch.Tensor) -> torch.Tensor:
     count = sorted_foreground.numel()
     total = sorted_foreground.sum()
@@ -486,13 +707,43 @@ def _lovasz_softmax_loss(
 def _loss_settings(training_config: Mapping[str, Any], device: torch.device) -> dict[str, Any]:
     loss_config = training_config.get("loss", {})
     focus_multiplier = float(loss_config.get("focus_class_multiplier", 1.0))
+    thresholds = tuple(int(value) for value in loss_config.get("small_region_thresholds", [100, 1000]))
+    region_multipliers = tuple(
+        float(value) for value in loss_config.get("small_region_multipliers", [1.0, 1.0, 1.0])
+    )
+    if len(thresholds) != 2 or thresholds[0] <= 0 or thresholds[1] <= thresholds[0]:
+        raise ValueError("small_region_thresholds must contain two increasing positive values")
+    if len(region_multipliers) != 3 or any(value <= 0.0 for value in region_multipliers):
+        raise ValueError("small_region_multipliers must contain three positive values")
+    tversky_alpha = float(loss_config.get("tversky_alpha", 0.3))
+    tversky_beta = float(loss_config.get("tversky_beta", 0.7))
+    presence_topk = int(loss_config.get("presence_topk", 32))
+    if tversky_alpha <= 0.0 or tversky_beta <= 0.0:
+        raise ValueError("Tversky alpha and beta must be positive")
+    if presence_topk <= 0:
+        raise ValueError("presence_topk must be positive")
     return {
         "ce_weight": float(loss_config.get("ce_weight", 0.7)),
         "focal_weight": float(loss_config.get("focal_weight", 0.0)),
         "dice_weight": float(loss_config.get("dice_weight", 0.3)),
         "lovasz_weight": float(loss_config.get("lovasz_weight", 0.0)),
+        "tversky_weight": float(loss_config.get("tversky_weight", 0.0)),
+        "presence_weight": float(loss_config.get("presence_weight", 0.0)),
         "boundary_multiplier": float(loss_config.get("boundary_multiplier", 0.0)),
         "focal_gamma": float(loss_config.get("focal_gamma", 2.0)),
+        "sample_class_equalized": bool(loss_config.get("sample_class_equalized", False)),
+        "component_equalization_power": float(
+            loss_config.get("component_equalization_power", 0.0)
+        ),
+        "component_max_multiplier": float(
+            loss_config.get("component_max_multiplier", 16.0)
+        ),
+        "small_region_thresholds": thresholds,
+        "small_region_multipliers": region_multipliers,
+        "tversky_alpha": tversky_alpha,
+        "tversky_beta": tversky_beta,
+        "tversky_gamma": float(loss_config.get("tversky_gamma", 1.0)),
+        "presence_topk": presence_topk,
         "class_multipliers": torch.tensor(
             [1.0, 1.0, focus_multiplier, focus_multiplier], device=device
         ),
@@ -506,13 +757,14 @@ def _masked_supervised_loss(
     *,
     class_weights: torch.Tensor,
     settings: Mapping[str, Any],
+    component_weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     safe_target = target.clamp(0, 3)
     effective_class_weights = class_weights.to(logits.device) * settings["class_multipliers"]
     ce_map = F.cross_entropy(
         logits,
         safe_target,
-        weight=effective_class_weights,
+        weight=None if bool(settings["sample_class_equalized"]) else effective_class_weights,
         reduction="none",
     )
     boundary_multiplier = float(settings["boundary_multiplier"])
@@ -524,21 +776,61 @@ def _masked_supervised_loss(
     voxel_weights = mask.to(logits.dtype) * (
         1.0 + boundary_multiplier * boundary.to(logits.dtype)
     )
+    if component_weights is None:
+        component_weights = (
+            _component_equalized_weight_map(
+                safe_target,
+                mask,
+                power=float(settings["component_equalization_power"]),
+                max_multiplier=float(settings["component_max_multiplier"]),
+            )
+            if float(settings["component_equalization_power"]) > 0.0
+            else mask.to(logits.dtype)
+        )
+    component_weights = component_weights.to(device=logits.device, dtype=logits.dtype)
     denominator = voxel_weights.sum().clamp_min(1.0)
-    cross_entropy = (ce_map * voxel_weights).sum() / denominator
+    if bool(settings["sample_class_equalized"]):
+        cross_entropy = _sample_class_reduced_map(
+            ce_map,
+            safe_target,
+            mask,
+            voxel_weights=voxel_weights,
+            component_weights=component_weights,
+            settings=settings,
+        )
+    else:
+        cross_entropy = (ce_map * voxel_weights).sum() / denominator
     target_probability = logits.softmax(dim=1).gather(1, safe_target[:, None]).squeeze(1)
-    focal = (
+    focal_map = (
         ((1.0 - target_probability) ** float(settings["focal_gamma"]))
         * ce_map
-        * voxel_weights
-    ).sum()
-    focal = focal / denominator
-    dice = _soft_dice_loss(
-        logits,
-        target,
-        mask,
-        class_multipliers=settings["class_multipliers"],
     )
+    if bool(settings["sample_class_equalized"]):
+        focal = _sample_class_reduced_map(
+            focal_map,
+            safe_target,
+            mask,
+            voxel_weights=voxel_weights,
+            component_weights=component_weights,
+            settings=settings,
+        )
+        dice = _samplewise_tversky_loss(
+            logits,
+            safe_target,
+            mask,
+            settings=settings,
+            alpha=0.5,
+            beta=0.5,
+            gamma=1.0,
+        )
+    else:
+        focal = (focal_map * voxel_weights).sum() / denominator
+        dice = _soft_dice_loss(
+            logits,
+            target,
+            mask,
+            class_multipliers=settings["class_multipliers"],
+        )
     lovasz = (
         _lovasz_softmax_loss(
             logits,
@@ -549,17 +841,40 @@ def _masked_supervised_loss(
         if float(settings["lovasz_weight"]) > 0.0
         else logits.sum() * 0.0
     )
+    tversky = (
+        _samplewise_tversky_loss(
+            logits,
+            safe_target,
+            mask,
+            settings=settings,
+            alpha=float(settings["tversky_alpha"]),
+            beta=float(settings["tversky_beta"]),
+            gamma=float(settings["tversky_gamma"]),
+        )
+        if float(settings["tversky_weight"]) > 0.0
+        else logits.sum() * 0.0
+    )
+    presence = (
+        _patch_presence_loss(logits, safe_target, mask, settings=settings)
+        if float(settings["presence_weight"]) > 0.0
+        else logits.sum() * 0.0
+    )
     loss = (
         float(settings["ce_weight"]) * cross_entropy
         + float(settings["focal_weight"]) * focal
         + float(settings["dice_weight"]) * dice
         + float(settings["lovasz_weight"]) * lovasz
+        + float(settings["tversky_weight"]) * tversky
+        + float(settings["presence_weight"]) * presence
     )
     return loss, {
         "cross_entropy": float(cross_entropy.detach().cpu()),
         "focal": float(focal.detach().cpu()),
         "dice_loss": float(dice.detach().cpu()),
         "lovasz_loss": float(lovasz.detach().cpu()),
+        "tversky_loss": float(tversky.detach().cpu()),
+        "presence_loss": float(presence.detach().cpu()),
+        "component_weight_max": float(component_weights.max().detach().cpu()),
         "boundary_fraction": float(
             (boundary.sum() / mask.sum().clamp_min(1)).detach().cpu()
         ),
@@ -679,13 +994,24 @@ def _train_cnn_epoch(
 ) -> float:
     model.train()
     generator = torch.Generator().manual_seed(seed + 10_000_019 * epoch)
-    order = torch.randperm(len(records), generator=generator).tolist()
     losses: list[float] = []
     settings = _loss_settings(training_config, device)
+    patches_per_subject = int(training_config.get("patient_patches_per_epoch", 0))
+    epoch_records = (
+        _patient_equal_epoch_records(
+            records,
+            patches_per_subject=patches_per_subject,
+            seed=seed,
+            epoch=epoch,
+        )
+        if patches_per_subject > 0
+        else _safe_records(records)
+    )
+    order = torch.randperm(len(epoch_records), generator=generator).tolist()
     augmentation = training_config.get("augmentation", {})
     use_augmentation = bool(augmentation.get("enabled", False))
     for start in range(0, len(order), batch_size):
-        batch_records = [_safe_records([records[index]])[0] for index in order[start : start + batch_size]]
+        batch_records = [epoch_records[index] for index in order[start : start + batch_size]]
         dataset = GLIClassifierPatchDataset(dataset_root, batch_records, load_targets=True)
         samples = [dataset[index] for index in range(len(dataset))]
         image = torch.stack([sample["image"] for sample in samples])  # type: ignore[list-item]
@@ -705,9 +1031,21 @@ def _train_cnn_epoch(
             if target_augmented is None:
                 raise AssertionError("labeled augmentation lost its target")
             target = target_augmented
+        component_weights = (
+            _component_equalized_weight_map(
+                target.clamp(0, 3),
+                mask,
+                power=float(settings["component_equalization_power"]),
+                max_multiplier=float(settings["component_max_multiplier"]),
+            )
+            if float(settings["component_equalization_power"]) > 0.0
+            else None
+        )
         inputs = _build_spatial_inputs(image, mask, kind=kind).to(device)
         mask = mask.to(device)
         target = target.to(device)
+        if component_weights is not None:
+            component_weights = component_weights.to(device)
         optimizer.zero_grad(set_to_none=True)
         logits = model(inputs)
         loss, _ = _masked_supervised_loss(
@@ -716,6 +1054,7 @@ def _train_cnn_epoch(
             mask,
             class_weights=class_weights,
             settings=settings,
+            component_weights=component_weights,
         )
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
@@ -1158,6 +1497,14 @@ def _run_training_impl(
         "parameter_count": count_parameters(model),
         "device": str(device),
         "train_patches": len(train_records),
+        "train_subjects": len({record["subject_id"] for record in train_records}),
+        "patient_patches_per_epoch": int(training_config.get("patient_patches_per_epoch", 0)),
+        "effective_train_patches_per_epoch": (
+            len({record["subject_id"] for record in train_records})
+            * int(training_config.get("patient_patches_per_epoch", 0))
+            if int(training_config.get("patient_patches_per_epoch", 0)) > 0
+            else len(train_records)
+        ),
         "val_patches": len(val_records),
         "val_subjects": len({record["subject_id"] for record in val_records}),
         "feature_cache": "masked_rows_memory" if kind in FEATURE_CHANNELS else "none",
@@ -1867,8 +2214,20 @@ def run_gpu_preflight(
     if target is None:
         raise AssertionError("GPU preflight labeled batch has no target")
     inputs = _build_spatial_inputs(image, mask, kind=kind).to(device)
+    component_weights = (
+        _component_equalized_weight_map(
+            target.clamp(0, 3),
+            mask,
+            power=float(settings["component_equalization_power"]),
+            max_multiplier=float(settings["component_max_multiplier"]),
+        )
+        if float(settings["component_equalization_power"]) > 0.0
+        else None
+    )
     mask = mask.to(device)
     target = target.to(device)
+    if component_weights is not None:
+        component_weights = component_weights.to(device)
     logits = model(inputs)
     supervised_loss, _ = _masked_supervised_loss(
         logits,
@@ -1876,6 +2235,7 @@ def run_gpu_preflight(
         mask,
         class_weights=class_weights,
         settings=settings,
+        component_weights=component_weights,
     )
     loss = supervised_loss
     semi_result: dict[str, Any] = {}

@@ -12,12 +12,14 @@ import torch
 
 from LeFusion.classifier.engine import (
     _build_spatial_inputs,
+    _component_equalized_weight_map,
     _cyclic_epoch_records,
     _feature_rows_and_target,
     _interclass_boundary_mask,
     _load_geometry_warmstart,
     _loss_settings,
     _masked_supervised_loss,
+    _patient_equal_epoch_records,
     _select_balanced_pseudo_voxels,
     evaluate_model,
     update_selection_state,
@@ -228,6 +230,31 @@ class TestGLIClassifierFeaturesAndModels(unittest.TestCase):
                 torch.equal(target_state["head.weight"], source_state["head.weight"])
             )
 
+    def test_geometry_warmstart_accepts_exact_geometry_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            subset = root / "subset.json"
+            subset.write_text("{}", encoding="utf-8")
+            source = build_classifier("geometry_unet3d", unet_base_channels=8)
+            checkpoint = root / "best.pt"
+            torch.save(
+                {
+                    "model_kind": "geometry_unet3d",
+                    "subset_sha256": hashlib.sha256(b"{}").hexdigest(),
+                    "model": source.state_dict(),
+                },
+                checkpoint,
+            )
+            target = build_classifier("geometry_unet3d", unet_base_channels=8)
+            _load_geometry_warmstart(
+                target,
+                checkpoint,
+                subset_path=subset,
+                device=torch.device("cpu"),
+            )
+            for key, value in source.state_dict().items():
+                self.assertTrue(torch.equal(value, target.state_dict()[key]))
+
     def test_feature_row_cache_keeps_targets_separate_and_reuses_rows(self) -> None:
         image = torch.linspace(-1, 1, 4 * 5 * 6).reshape(1, 4, 5, 6)
         mask = torch.zeros((1, 4, 5, 6), dtype=torch.bool)
@@ -256,6 +283,117 @@ class TestGLIClassifierFeaturesAndModels(unittest.TestCase):
 
 
 class TestGLIClassifierMetrics(unittest.TestCase):
+    def test_patient_equal_sampler_cycles_patches_with_one_record_per_subject(self) -> None:
+        records = [
+            {
+                "relative_path": f"patches/a-{index}.npz",
+                "case_id": f"case-a-{index}",
+                "subject_id": "subject-a",
+            }
+            for index in range(3)
+        ] + [
+            {
+                "relative_path": f"patches/b-{index}.npz",
+                "case_id": f"case-b-{index}",
+                "subject_id": "subject-b",
+            }
+            for index in range(2)
+        ]
+        covered = set()
+        for epoch in range(6):
+            sampled = _patient_equal_epoch_records(
+                records,
+                patches_per_subject=1,
+                seed=5,
+                epoch=epoch,
+            )
+            self.assertEqual(len(sampled), 2)
+            self.assertEqual({item["subject_id"] for item in sampled}, {"subject-a", "subject-b"})
+            covered.update(item["relative_path"] for item in sampled)
+        self.assertEqual(covered, {item["relative_path"] for item in records})
+
+    def test_component_equalization_gives_components_equal_total_mass(self) -> None:
+        target = torch.zeros((1, 4, 4, 8), dtype=torch.int64)
+        mask = torch.zeros_like(target, dtype=torch.bool)
+        mask[0, 0, 0, 0] = True
+        mask[0, 2:4, 2:4, 5:7] = True
+        weights = _component_equalized_weight_map(
+            target,
+            mask,
+            power=1.0,
+            max_multiplier=64.0,
+        )
+        small_mass = float(weights[0, 0, 0, 0])
+        large_mass = float(weights[0, 2:4, 2:4, 5:7].sum())
+        self.assertAlmostEqual(small_mass, large_mass, places=5)
+        self.assertFalse(torch.any(weights[~mask]))
+
+    def test_sample_class_equalized_loss_balances_small_and_large_regions(self) -> None:
+        mask = torch.zeros((2, 2, 2, 4), dtype=torch.bool)
+        mask[0, 0, 0, 0] = True
+        mask[1] = True
+        target = torch.full_like(mask, 2, dtype=torch.int64)
+        logits = torch.zeros((2, 4, 2, 2, 4), requires_grad=True)
+        settings = _loss_settings(
+            {
+                "loss": {
+                    "ce_weight": 1.0,
+                    "focal_weight": 0.0,
+                    "dice_weight": 0.0,
+                    "lovasz_weight": 0.0,
+                    "sample_class_equalized": True,
+                    "small_region_multipliers": [1.0, 1.0, 1.0],
+                }
+            },
+            torch.device("cpu"),
+        )
+        loss, _ = _masked_supervised_loss(
+            logits,
+            target,
+            mask,
+            class_weights=torch.ones(4),
+            settings=settings,
+        )
+        loss.backward()
+        small_gradient = float(logits.grad[0, :, mask[0]].abs().sum())
+        large_gradient = float(logits.grad[1, :, mask[1]].abs().sum())
+        self.assertAlmostEqual(small_gradient, large_gradient, places=6)
+
+    def test_component_tversky_presence_loss_is_finite(self) -> None:
+        mask = torch.ones((2, 4, 6, 8), dtype=torch.bool)
+        target = torch.zeros_like(mask, dtype=torch.int64)
+        target[0, 1, 1, 1] = 2
+        target[1, :, :, 4:] = 3
+        logits = torch.randn((2, 4, 4, 6, 8), requires_grad=True)
+        settings = _loss_settings(
+            {
+                "loss": {
+                    "ce_weight": 0.2,
+                    "focal_weight": 0.1,
+                    "dice_weight": 0.2,
+                    "lovasz_weight": 0.0,
+                    "tversky_weight": 0.4,
+                    "presence_weight": 0.1,
+                    "sample_class_equalized": True,
+                    "component_equalization_power": 1.0,
+                    "small_region_multipliers": [4.0, 2.0, 1.0],
+                }
+            },
+            torch.device("cpu"),
+        )
+        loss, parts = _masked_supervised_loss(
+            logits,
+            target,
+            mask,
+            class_weights=torch.ones(4),
+            settings=settings,
+        )
+        loss.backward()
+        self.assertTrue(torch.isfinite(loss))
+        self.assertGreater(parts["tversky_loss"], 0.0)
+        self.assertGreater(parts["presence_loss"], 0.0)
+        self.assertGreater(parts["component_weight_max"], 1.0)
+
     def test_boundary_lovasz_loss_is_finite_and_target_only_affects_loss(self) -> None:
         mask = torch.ones((1, 4, 6, 8), dtype=torch.bool)
         target = torch.zeros_like(mask, dtype=torch.int64)
