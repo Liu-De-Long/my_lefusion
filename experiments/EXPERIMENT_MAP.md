@@ -10,6 +10,6 @@
 | `20260805_exp005_gli_formal_training_baseline` | 方法实验 | 实现分层 sampler、正式 validation、checkpoint/resume 与 W&B online 门禁 | 训练契约不适用于伪病灶生成；p64/p80 仅保留失败审计 |
 | `20260806_exp006_gli_official_repaint_alignment` | 方法实验 | 删除 GLI 额外 post-denoiser hard clamp，按原始 LeFusion 语义重跑冻结 val/test 子集 | 已完成，但因训练契约错误而失效 |
 | `20260806_exp007_gli_masked_input_qa` | 方法实验 | 仅用 8 例冻结 val QA 比较显式挖空输入的多标签与 anchor-union 单标签生成 | 已停止；QA 暴露旧 checkpoint 未学习条件式修复 |
-| `20260806_exp008_gli_conditional_inpainting_training` | 方法实验 | 以挖空 T1c、四通道 mask 与 hist 作为条件，重新训练 p64 病灶修复扩散模型 | 实施与验证中 |
+| `20260806_exp008_gli_conditional_inpainting_training` | 方法实验 | 以挖空 T1c、四通道 mask 与 hist 作为条件，重新训练 p64 病灶修复扩散模型 | 已完成 50,000 step 与两组 8 例 QA；生成退化到挖空值，仅保留失败审计 |
 
 实验 ID 只描述研究目的。两种 patch 大小分别记录在同一实验目录的配置文件中，使用同一份裁剪代码和患者划分。

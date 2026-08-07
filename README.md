@@ -43,7 +43,9 @@ BraTS2024 GLI 流程状态：
 8. exp005 已完成分层 sampler、正式 validation、完整 checkpoint/resume、early stopping、
    W&B online 和正式训练。
 9. exp008 将训练契约改为 `x_t + masked T1c + four-channel mask + hist -> noise`，
-   loss 仍只在对应病灶区域计算；当前重新训练 p64，旧 QA 不再作为有效方法结论。
+   p64 已完成 50,000 step；随后仅在冻结的 8 例 val patch 上做完整 `t_T=300` QA。
+   工程闭环通过，但生成病灶区几乎退化为挖空值 `0`，因此 exp008 也只保留为失败审计，
+   不作为有效伪病灶模型或全量 test 结论。
 
 ## 项目结构
 

@@ -44,12 +44,12 @@
 
 ## 结论
 
-条件式训练契约、真实数据、显存、validation、W&B 与 resume 门禁均通过，可以启动且只启动
-p64 seed `20260805` 正式训练。
+条件式训练契约、真实数据、显存、validation、W&B 与 resume 门禁均通过；但最终是否有效必须
+由完整反向采样 QA 判定，不能由 noise-prediction loss 单独判定。
 
 ## 下一步
 
-启动且只启动本实验的 p64 seed `20260805` 正式训练，并核验首批 loss、W&B 与 GPU 状态。
+先完成 p64 seed `20260805`，随后只在冻结的少量 val patch 上做完整采样 QA，不运行 test split。
 
 ## 输出路径
 
@@ -70,3 +70,62 @@ p64 seed `20260805` 正式训练。
   latest、每 5000 step milestone、每 2000 step validation/best 的冻结规则生成。
 - 首个 `latest.pt` 已于服务器时间 `08:31:55 UTC` 写入，文件约 `580.4 MB`；写入后训练进程
   与两张 GPU 均继续正常运行。
+
+## 正式训练完成记录
+
+- 训练在 step `50000` 正常完成，未 early stop；W&B 已完整同步。
+- 最后一次记录的 train loss 为 `0.056426`，最终 EMA validation total loss 为 `0.091035`；
+  NETC/SNFH/ET/RC validation loss 为 `0.103730/0.069262/0.116849/0.084226`。
+- 正式 `best.pt` 为 step `48000`、`ema` 权重，checkpoint SHA-256 为
+  `660e23533064eaf9f32310b42500a8067c476dbd2bddbfd88a88dbc0f2c64857`。
+- 最终保留 `milestone-40000.pt`、`milestone-45000.pt`、`milestone-50000.pt`、`latest.pt`
+  与 `best.pt`；训练结束后未发现残留训练进程。
+
+## 8 例完整采样 QA
+
+### 范围与配置
+
+- QA 配置 commit：`16d0a4e`；focused Hydra/checkpoint 配置测试 `1/1` 通过。
+- 只复用冻结的 8 个 val patch，selection manifest SHA-256 为
+  `51a67b56b0fc9a4d256994a880ca6676a34a8c9528ba1a026a9b8558bf7f4b79`。
+- `masked_multilabel`：保留原四通道 lesion mask，各标签使用对应的最近 train-only cluster hist。
+- `masked_anchor_union`：完整病灶 union 只写入 anchor label 通道，其他 mask 通道和 hist block 置零。
+- 两组均使用 step `48000` `best.pt/ema`、完整 `t_T=300`、每例 300 次模型调用；各完成
+  `8/8`、共 `2400` 次模型调用。未运行 519 例、test split 或任何全量 test。
+
+### 工程门禁
+
+- 两组均为 8 个唯一输入，生成 NPZ `8`、NIfTI `16`、五联 QA PNG `8`；所有数组和指标有限。
+- 病灶区挖空最大绝对值严格为 `0`；病灶均位于 explicit support 内。
+- 多标签 mask 与源 mask 逐体素一致；anchor-union 仅目标通道非空，其余 mask/hist block 为零。
+- 两组显存稳定，峰值约 `1095.80/1098.68 MiB`，耗时约 `166.15/166.31 s`。
+
+### 生成质量
+
+- `masked_multilabel` 病灶区生成绝对强度均值为 `0.00834`，`masked_anchor_union` 为
+  `0.00949`；对应原始病灶均值为 `0.32388`。生成值几乎等于挖空填充值 `0`。
+- 病灶区相对原图 MAE 为 `0.32359/0.32052`；两种 conditioning 的病灶区配对输出 MAE
+  仅 `0.00588`，说明 hist/mask 模式改变对结果影响很小。
+- 各标签生成 histogram 对目标 cluster 的 L1 约为 `1.49–1.98`，接近明显失配范围。
+- 病灶边界 jump p95 增量均值为 `0.24496/0.24166`，最大约 `0.51567/0.51564`。
+- 五联图目检一致显示：原始病灶被正确挖空，但生成输出仍是接近零的均匀灰色区域，没有恢复
+  可辨认的病灶强度或纹理。两种 QA 的图像几乎相同。
+
+### QA 输出
+
+- `outputs/patch_64x64x32/seed_20260805/val_qa_masked_multilabel_8cases/`
+- `outputs/patch_64x64x32/seed_20260805/val_qa_masked_anchor_union_8cases/`
+- 每个目录保留 `metrics.json`、`manifest.csv`、`run_contract.json`、逐例 NPZ/NIfTI、五联图和
+  `qa_contact_sheet.png`。
+
+## 最终结论
+
+exp008 的训练、checkpoint、条件输入和完整采样工程闭环均正确运行，但生成质量失败。低
+noise-prediction validation loss 没有转化为从随机噪声恢复病灶的能力；当前 checkpoint 在病灶区
+退化到接近挖空值 `0`，不能作为有效伪病灶生成模型，也不能扩展到 519 例或全量 test。
+
+## 后续建议
+
+先用少量 patch 做 timestep 分层诊断，比较 teacher-forced epsilon 预测、由预测 epsilon 反推的
+`x0` 误差和完整自由采样，定位训练目标与反向生成之间的失配；再决定是否增加 `x0`、histogram
+或边界重建约束。未经新方案确认，不启动新的训练、seed、p80 或扩大测试规模。

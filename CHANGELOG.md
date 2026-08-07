@@ -1,5 +1,21 @@
 # 实验变更记录
 
+## 2026-08-07 — exp008 完成训练并仅执行两组 8 例 QA
+
+- exp008 p64 seed `20260805` 正常完成 50,000 step；最终 EMA validation total loss 为
+  `0.091035`，W&B run `exp008-p64-s20260805` 已同步完成。
+- 正式 `best.pt` 为 step `48000`、EMA，SHA-256 为
+  `660e23533064eaf9f32310b42500a8067c476dbd2bddbfd88a88dbc0f2c64857`。
+- 新增 `masked_multilabel` 与 `masked_anchor_union` 两份 QA 配置，固定复用同一 8 例 val
+  manifest 和完整 `t_T=300`；focused 配置测试通过，配置 commit 为 `16d0a4e`。
+- 两组均完成 `8/8`、每组 2,400 次模型调用；没有运行 519 例、test split 或全量 test。
+- 工程门禁全部通过：挖空值严格为 0、mask/hist 契约正确、数组有限、显存稳定、逐例
+  NPZ/NIfTI/五联图和两张总览图齐全。
+- 质量验收失败：病灶区生成绝对强度均值仅 `0.00834/0.00949`，原始病灶为 `0.32388`；
+  histogram L1 为 `1.49–1.98`，目检显示输出基本退化到挖空后的均匀灰值。
+- exp008 降级为失败审计，不作为有效伪病灶 checkpoint；下一步只允许先做少量 timestep/
+  `x0` 重建诊断，未经授权不重新训练或扩大测试规模。
+
 ## 2026-08-06 — 记录 p64 少标签逐体素亚区分类方案
 
 - 新增长期方案 `docs/20260806_001_gli_p64_weak_supervision_classifier_plan.md`。
