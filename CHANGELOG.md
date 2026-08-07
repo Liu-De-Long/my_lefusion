@@ -714,3 +714,21 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   steps 为 0，峰值 allocated/reserved 显存为 `2865.985/3946 MiB`。GPU1 既存进程未被干扰。
 - subset/config/initial checkpoint SHA-256 与冻结契约一致；截至本记录尚未初始化正式 W&B run、
   未执行正式 optimizer step、未读取或运行 test。
+
+## 2026-08-08 — exp015 方法级 early stop 与最终 val 审计
+
+- 唯一 GPU0/W&B online 正式 run 完成 epoch 0–9；epoch 2–9 患者等权 focus mIoU 长期在
+  `0.54–0.56` 波动，学习率降至 `5e-5` 后仍无改善。用户在 epoch 10 训练中触发方法级
+  early stopping；精确终止 PID 后 GPU0 释放，epoch 10 未写入 history 或 checkpoint。
+- epoch 5 best 的最终患者等权 focus mIoU 为 `0.555747`，95% CI
+  `[0.510204,0.600693]`；ET/RC IoU 为 `0.503885/0.607609`。相对 exp014 best 下降
+  `0.036464`，三项性能门禁失败。
+- `1–100` 体素 ET/RC Dice 为 `0.167198/0.232198`，较 exp014 有局部提升，但未转化为总体收益；
+  结论是该配方重新分配错误而非提高可分性，不继续训练或叠加同类 loss 权重。
+- 两项空间门禁通过，冻结 test 未运行。best checkpoint SHA-256 为
+  `88684ad7e925641a26cba0fa22d4237f70bcaf36e30c7be3954f471cc1996451`，最终 val 审计文件
+  SHA-256 为 `39ab1b7296a5d920f79f9a11f1411a8c7861a1167a6a705b0287bc82256549e9`。
+- `SIGTERM` 后只恢复同一 W&B run，补记最终 val、五项门禁、`test/ran=0` 和
+  `user_triggered_method_early_stop` 后正常 finish；未恢复训练、未启动新 run。
+- 下一方法不重复 exp013 mean-teacher 或 exp015 重加权。若保持 T1c-only，优先患者多 patch
+  上下文与自监督表征；若允许增加输入信息，优先引入 T1n/T2f/T2w。新实验需用户确认。

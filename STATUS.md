@@ -107,8 +107,10 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
   新增每患者等量 patch 轮换、样本类别/组件等权 CE/Focal、偏召回 sample-wise Tversky 和
   top-32 patch presence；标签派生量仅进入 sampler/loss，18 通道输入不变。分支已推送并同步到
   远端独立 worktree；focused tests 20/20、CPU 与物理 GPU0 零 optimizer-step preflight 均通过。
-  GPU0 完整 p64 batch 8 峰值 allocated/reserved 显存为 `2865.985/3946 MiB`；GPU1 未被干扰。
-  尚未启动正式训练，冻结 test 未运行。
+  GPU0 完整 p64 batch 8 峰值 allocated/reserved 显存为 `2865.985/3946 MiB`。正式 W&B online
+  run 完成 epoch 0–9 后由用户触发方法级 early stopping；best 为 epoch 5，患者等权 ET/RC
+  focus mIoU `0.555747`，95% CI `[0.510204,0.600693]`，ET/RC IoU
+  `0.503885/0.607609`。相对 exp014 下降 `0.036464`，三项性能门禁失败；test 未运行。
 
 ## 失败尝试
 
@@ -153,4 +155,7 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
    或 hierarchical head，以及 val-only 小组件后处理审计；任何新训练使用新实验 ID。
 8. exp014 三项性能门禁失败，冻结 test 继续封存；不得因 pooled IoU 较高而绕过患者等权门禁。
 9. exp015 已获得 GPU0 与 val-only 正式训练授权，focused tests/CPU/GPU0 零步 preflight 已通过；
-   同步训练前文档并核验 W&B online、GPU0、HEAD 与输出目录后，只启动一个正式 run。test 继续封存。
+   唯一正式 run 已完成方法级 early stop 和最终 val/bootstrap 审计，W&B 已正常 finish，test 封存。
+10. exp015 证明患者/组件重加权只能局部改善小区域 Dice，不能提高患者等权总体可分性。下一步不再
+    叠加 loss 权重；优先由用户确认是保持 T1c-only 并转向患者多 patch 上下文/自监督表征，还是允许
+    引入 T1n/T2f/T2w 以增加真实影像信息。任何下一方法使用新实验 ID 并重新授权。

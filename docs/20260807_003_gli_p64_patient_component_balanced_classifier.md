@@ -62,4 +62,29 @@ presence 使用 mask 内每类 top-32 概率均值做二元辅助，显式区分
   `aa7cd9844550c826f17ebe4cb43718d5c8ff61759c3b0ae81b7935c79886fa3a`，config SHA-256 均为
   `66569653115af42e26667e3b3abe01120951704edfa87d0588c4dbfdcd259abd`，exp014 initial checkpoint
   SHA-256 均为 `b293e5d35b078f6a290a24695f0081e0ce0599154513bf6bcbf7372a007898c2`。
-- 截至本记录，尚未初始化 exp015 正式 W&B run、未执行 optimizer step、未读取或运行 test。
+- 截至该训练前验收节点，尚未初始化 exp015 正式 W&B run、未执行 optimizer step、未读取或运行 test；
+  后续正式结果见第 7 节。
+
+## 7. 正式结果与方法结论
+
+正式 run 完成 epoch 0–9；epoch 2–9 的患者等权 focus mIoU 长期在 `0.54–0.56` 波动，学习率
+降至 `5e-5` 后仍无改善。用户在 epoch 10 训练中触发方法级 early stopping，未形成 epoch 10
+history 或 checkpoint。最终只对 epoch 5 best 做完整 1032-patch、73-patient val 与 1000 次
+患者 bootstrap：
+
+- focus mIoU `0.555747`，95% CI `[0.510204,0.600693]`；
+- ET/RC IoU `0.503885/0.607609`；
+- `1–100` 体素 ET/RC patch Dice `0.167198/0.232198`；
+- outside nonzero `0`，union Dice `1`；
+- 三项性能门禁失败，冻结 test 未运行。
+
+相对 exp014 的 focus mIoU `0.592211`，exp015 下降 `0.036464`。小区域 Dice 的局部提高没有转化为
+患者等权总体收益，说明患者/组件重加权、偏召回 Tversky 和 patch presence 主要重新分配错误，
+并未提高 T1c+总 mask 对四类亚区的可分信息。继续训练或叠加同类 loss 权重不再是合理路径。
+
+## 8. 下一方法决策
+
+下一步必须改变表征或输入信息：若坚持 T1c-only，应先审计 train-fit 上限和小区域标签可辨识性，
+再考虑患者多 patch 联合上下文、全量 train T1c/mask 自监督预训练与 uncertainty-aware refinement；
+若允许扩展输入，则优先使用已对齐 T1n/T2f/T2w，构建 T1c+多模态+总 mask 的 p64 分割器。
+exp013 已证明当前 mean-teacher 配方无增益，不应原样重复。新路线必须使用新实验 ID 并由用户确认。
