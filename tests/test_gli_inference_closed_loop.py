@@ -412,6 +412,8 @@ class GLIInferenceClosedLoopTests(unittest.TestCase):
             ("gli_exp006_p64_test_subset50_shard1.yaml", [32, 64, 64]),
             ("gli_exp007_p64_val_qa_masked_multilabel.yaml", [32, 64, 64]),
             ("gli_exp007_p64_val_qa_masked_anchor_union.yaml", [32, 64, 64]),
+            ("gli_exp008_p64_val_qa_masked_multilabel.yaml", [32, 64, 64]),
+            ("gli_exp008_p64_val_qa_masked_anchor_union.yaml", [32, 64, 64]),
         ):
             cfg = OmegaConf.load(ROOT / "LeFusion" / "inference" / "confs" / name)
             OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
@@ -424,6 +426,12 @@ class GLIInferenceClosedLoopTests(unittest.TestCase):
                 self.assertFalse(bool(cfg.repaint.post_denoiser_hard_clamp))
             if name.startswith("gli_exp007"):
                 self.assertEqual(str(cfg.checkpoint.weights_key), "ema")
+                self.assertEqual(int(cfg.repaint.schedule_jump_params.t_T), 300)
+                self.assertTrue(bool(cfg.input_policy.mask_inside_lesion))
+                self.assertEqual(float(cfg.input_policy.fill_value), 0.0)
+            if name.startswith("gli_exp008"):
+                self.assertEqual(str(cfg.checkpoint.weights_key), "ema")
+                self.assertEqual(int(cfg.model.spatial_condition_channels), 5)
                 self.assertEqual(int(cfg.repaint.schedule_jump_params.t_T), 300)
                 self.assertTrue(bool(cfg.input_policy.mask_inside_lesion))
                 self.assertEqual(float(cfg.input_policy.fill_value), 0.0)
