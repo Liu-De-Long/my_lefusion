@@ -1,0 +1,31 @@
+defaults:
+  - gli_exp012_p64_short_qa
+  - _self_
+
+experiment_id: 20260808_exp014_gli_four_class_counterfactual_qa
+variant: exp012_step5000_ema_same_case_four_class
+device: cuda:1
+
+conditioning:
+  source: cluster
+  selection: first
+
+input_policy:
+  mask_inside_lesion: true
+  fill_value: 0.0
+  lesion_mode: union_single_label_fixed
+  target_label: 1
+
+repaint:
+  show_progress: false
+
+output:
+  root: /workspace/LeFusion_v2/my_experiment/experiments/20260808_exp014_gli_four_class_counterfactual_qa/outputs/target_1_netc
+  max_batches: null
+  overwrite: false
+  resume: true
+  memory_growth_tolerance_mib: 256
+
+hydra:
+  job: {chdir: false}
+  run: {dir: .}

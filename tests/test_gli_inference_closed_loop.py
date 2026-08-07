@@ -37,6 +37,7 @@ from inference.gli_utils import (  # noqa: E402
     load_cluster_centers,
     mask_input_inside_lesion,
     nearest_cluster_condition,
+    resolve_union_target_labels,
     union_label_cluster_condition,
     xyz_to_dhw,
 )
@@ -290,6 +291,26 @@ class GLIInferenceClosedLoopTests(unittest.TestCase):
         self.assertEqual(cycle_ids.tolist(), [[-1, 0, -1, -1]])
         self.assertEqual(float(cycle_condition[:, :16].sum()), 0.0)
         self.assertEqual(float(cycle_condition[:, 16:32].sum()), 1.0)
+
+        anchor_labels = torch.tensor([4, 1], dtype=torch.long)
+        cycled = resolve_union_target_labels(
+            anchor_labels, lesion_mode="union_single_label_cycle", batch_index=5
+        )
+        fixed = resolve_union_target_labels(
+            anchor_labels,
+            lesion_mode="union_single_label_fixed",
+            batch_index=5,
+            fixed_target_label=3,
+        )
+        self.assertEqual(cycled.tolist(), [2, 2])
+        self.assertEqual(fixed.tolist(), [3, 3])
+        with self.assertRaisesRegex(ValueError, "fixed_target_label"):
+            resolve_union_target_labels(
+                anchor_labels,
+                lesion_mode="union_single_label_fixed",
+                batch_index=0,
+                fixed_target_label=5,
+            )
 
     def test_single_state_repaint_uses_union_and_restores_exact_background(self) -> None:
         scalar = torch.zeros((1, 1, 1, 2, 3), dtype=torch.long)

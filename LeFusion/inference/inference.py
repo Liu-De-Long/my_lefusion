@@ -20,8 +20,9 @@ if __package__:
         indexed_cluster_condition,
         load_cluster_centers,
         mask_input_inside_lesion,
-        nearest_cluster_condition,
-        union_label_cluster_condition,
+    nearest_cluster_condition,
+    resolve_union_target_labels,
+    union_label_cluster_condition,
     )
     from inference.gli_selection import manifest_shard_paths
 else:
@@ -380,6 +381,7 @@ def run_gli(conf: DictConfig) -> None:
         "original_multilabel",
         "anchor_label_union",
         "union_single_label_cycle",
+        "union_single_label_fixed",
     }:
         raise ValueError(f"unsupported exp007 lesion mode: {lesion_mode}")
     lesion_fill_value = float(conf.input_policy.get("fill_value", 0.0))
@@ -446,7 +448,20 @@ def run_gli(conf: DictConfig) -> None:
             "single_target_label_source": (
                 "anchor_label"
                 if lesion_mode == "anchor_label_union"
-                else ("selection_order_cycle_1_to_4" if lesion_mode == "union_single_label_cycle" else None)
+                else (
+                    "selection_order_cycle_1_to_4"
+                    if lesion_mode == "union_single_label_cycle"
+                    else (
+                        "config_target_label"
+                        if lesion_mode == "union_single_label_fixed"
+                        else None
+                    )
+                )
+            ),
+            "target_label": (
+                int(conf.input_policy.target_label)
+                if lesion_mode == "union_single_label_fixed"
+                else None
             ),
         },
     }
@@ -528,9 +543,15 @@ def run_gli(conf: DictConfig) -> None:
                 raise ValueError(
                     "union_single_label_cycle requires cluster first/last conditioning"
                 )
-            target_labels = th.full_like(
+            target_labels = resolve_union_target_labels(
                 batch['anchor_label'].to(device=device, dtype=th.long),
-                (batch_index % 4) + 1,
+                lesion_mode=lesion_mode,
+                batch_index=batch_index,
+                fixed_target_label=(
+                    int(conf.input_policy.target_label)
+                    if lesion_mode == "union_single_label_fixed"
+                    else None
+                ),
             )
             conditioning_seg, lesion_mask, condition, cluster_ids = (
                 union_label_cluster_condition(

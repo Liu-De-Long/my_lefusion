@@ -13,6 +13,27 @@ LABEL_VALUES = (1, 2, 3, 4)
 HIST_BINS = 16
 
 
+def resolve_union_target_labels(
+    anchor_labels: torch.Tensor,
+    *,
+    lesion_mode: str,
+    batch_index: int,
+    fixed_target_label: int | None = None,
+) -> torch.Tensor:
+    """Resolve the union-as-single target without changing any other condition."""
+    if lesion_mode == "union_single_label_cycle":
+        target_label = (int(batch_index) % len(LABEL_VALUES)) + 1
+    elif lesion_mode == "union_single_label_fixed":
+        if fixed_target_label not in LABEL_VALUES:
+            raise ValueError(
+                f"fixed_target_label must be in {LABEL_VALUES}, got {fixed_target_label}"
+            )
+        target_label = int(fixed_target_label)
+    else:
+        raise ValueError(f"unsupported union target mode: {lesion_mode}")
+    return torch.full_like(anchor_labels.to(dtype=torch.long), target_label)
+
+
 def load_cluster_centers(path: str | Path, patch_size_xyz) -> list[torch.Tensor]:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if int(payload.get("schema_version", -1)) != 1:
