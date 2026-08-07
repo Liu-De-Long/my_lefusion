@@ -18,7 +18,7 @@ exp009 的 M0/M1/M2/C0 最高保存 checkpoint 的患者等权 ET/RC focus mIoU 
 ## 3. 监督阶段
 
 输入 `[B,2,32,64,64]`，两通道为归一化 T1c 与总病灶 mask。网络使用两级残差 3D U-Net，
-bottleneck 并行 dilation 1/2/4 多尺度上下文，GroupNorm 支持小 batch，输出
+bottleneck 并行 dilation 1/2/4 多尺度上下文，base channels 为 32，GroupNorm 支持小 batch，输出
 `[B,4,32,64,64]`。loss 为 class-balanced CE、focal 和 soft Dice 的组合，并对 ET/RC
 赋予 1.25 倍 focus 权重。训练加入一致的三轴翻转与 T1c 强度扰动。
 
@@ -35,6 +35,10 @@ bottleneck 并行 dilation 1/2/4 多尺度上下文，GroupNorm 支持小 batch�
 
 每 epoch 确定性选取 1000 个未标签 patch，循环偏移保证数个 epoch 内覆盖完整剩余池。验证使用
 teacher 权重，不使用未标签数据中实际存在的四分类标签。
+
+GPU0 初始 base 24、batch 2 完整 p64 零步 preflight 的峰值 allocated/reserved 显存仅为
+`609/804 MiB`，因此正式配置使用监督 batch 8、半监督 labeled/unlabeled batch 各 4，并将
+base channels 提高到 32；调整后仍必须重新通过完整图显存与梯度 preflight。
 
 ## 5. 训练与门禁
 

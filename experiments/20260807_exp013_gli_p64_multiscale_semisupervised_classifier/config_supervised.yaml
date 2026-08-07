@@ -5,7 +5,7 @@ data:
   labeled_subset: experiments/20260806_exp009_gli_p64_weak_supervision_classifier/labeled_subset_1000.json
 model:
   kind: unet3d
-  unet_base_channels: 24
+  unet_base_channels: 32
 training:
   mode: supervised
   seed: 20260807
@@ -14,7 +14,7 @@ training:
   learning_rate: 0.0003
   min_learning_rate: 0.000001
   weight_decay: 0.0001
-  batch_size: 2
+  batch_size: 8
   lr_patience: 3
   early_stopping_patience: 8
   early_stopping_min_delta: 0.005

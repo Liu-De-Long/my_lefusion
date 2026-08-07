@@ -617,3 +617,6 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
 - mean-teacher 未标签 loader 不返回 target，也不使用 anchor/per-class hist/类别体素量；高置信
   伪标签在总 mask 内按类限额，teacher 以 EMA 更新。
 - 当前只进入实现与测试阶段；尚未启动 GPU 训练，冻结 test 未运行。
+- GPU0 初始完整 p64 零 optimizer-step preflight 通过：base 24、batch 2 峰值 allocated/reserved
+  显存为 `609/804 MiB`；据此将正式监督配置调整为 base 32、batch 8，半监督为 labeled 与
+  unlabeled batch 各 4，调整后需重新 preflight。
