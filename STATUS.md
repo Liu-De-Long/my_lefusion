@@ -163,4 +163,9 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
     `feature/20260808-exp016-gli-p64-multimodal` 已建立；实现阶段只重建 train+val，test patch 不物化。
 12. exp016 复用同一冻结 1000 patch、患者级 split 和五项 test 门禁；模型使用四模态加总 mask 的
     5 通道多尺度残差 3D U-Net，从 exp014 best 映射 T1c/总 mask 权重，其余模态 stem 权重置 0。
-13. 当前只完成本地实现草稿和静态编译；尚未推送、尚未远端 preflight、尚未启动 W&B 或 optimizer step。
+13. 实现分支已推送，远端独立 worktree 与提交 `a5be708259a6c6860d962c3c6b23ef8ca31d4429` 对齐；
+    focused tests 31/31、单 case 真数据重放 smoke 与 CPU 零步 preflight 已通过。
+14. 正式四模态数据已物化 7772 train+1032 val；独立审计确认冻结 subset 缺失 0、test 1038 条物化 0、
+    六键输入无 hist，源/目标 manifest SHA 一致。正式 audit SHA 为
+    `cb34a00e963f77a0dd0df74c84d6937d635d2a4606dd585f4b0e118d7e3996d1`。
+15. 尚未执行 GPU0 preflight、尚未启动 W&B 或 optimizer step；GPU0 保持空闲，GPU1 既有任务未干扰。

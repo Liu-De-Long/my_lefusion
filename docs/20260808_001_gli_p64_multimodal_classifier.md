@@ -73,3 +73,14 @@ CUDA_VISIBLE_DEVICES=0 python scripts/gli_p64_classifier.py train --config exper
 ```
 
 上述命令中的 test 不属于默认流程；门禁通过前禁止调用 `evaluate --split test`。
+
+## 6. 2026-08-08 数据与 CPU 验收
+
+- focused tests 31/31 与单 case 真数据重放 smoke 通过。
+- 正式数据物化 8804 patch/1447 cases：train 7772、val 1032；四模态退化病例数均为 0。
+- 独立审计确认 train+val 文件集合与 split 完全一致，冻结 1000 subset 缺失 0，test 1038 条物化 0；随机
+  64 patch 内容契约与 T1c 复现通过。
+- 数据 audit SHA-256：`cb34a00e963f77a0dd0df74c84d6937d635d2a4606dd585f4b0e118d7e3996d1`。
+- CPU 零步 preflight 输入/输出为 `[1,5,8,16,16] -> [1,4,8,16,16]`，loss/梯度有限，冻结 SHA 全匹配；
+  preflight SHA-256：`9b75211a794f822f375e4556212c14afe13b026b2ee424b6c849e0282f378e99`。
+- 当前未执行 GPU0 preflight、未启动 W&B 或 optimizer step；test 继续封存。

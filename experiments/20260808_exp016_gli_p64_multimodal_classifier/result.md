@@ -27,8 +27,22 @@ T1c/T1n/T2f/T2w 四模态是否能突破 T1c-only 的可分性瓶颈，并将患
 ## 结果
 
 - 已获得用户对 exp016 四模态输入的明确授权。
-- 本地独立分支/worktree 已建立；实现、测试、远端数据重建与 preflight 正在进行。
-- 当前未启动正式 W&B run，未执行 optimizer step，未运行 test。
+- 本地静态编译与 `git diff --check` 通过；远端 `lefusion` 环境 focused tests 31/31 通过。
+- 单 case 真数据重放 smoke 通过：4 个 patch 的 T1c/seg/affine 与原数据一致，manifest SHA 不变，四模态
+  均非退化，且 `test_materialized=false`、`label_derived_input_keys=[]`；专用 smoke 目录已按规则删除。
+- 分支已推送，远端独立 worktree 与实现提交 `a5be708259a6c6860d962c3c6b23ef8ca31d4429` 对齐；
+  正式 train+val 四模态数据重建已完成。
+- 正式数据共 8804 patch/1447 cases：train 7772、val 1032；四个模态的退化病例均为 0。压缩字节总量约
+  12.98 GB，远端文件系统占用约 48 GiB。
+- 独立审计确认原 manifest 9842 条，其中 test 1038 条；train+val 缺失 0、额外文件 0、冻结 1000 subset
+  缺失 0、test 物化 0。随机 64 patch 的六键、shape/dtype/range、seg 标签和 T1c 复现均通过。
+- 数据 audit SHA-256 为 `cb34a00e963f77a0dd0df74c84d6937d635d2a4606dd585f4b0e118d7e3996d1`。
+- CPU 零 optimizer-step preflight 通过：参数量 3065600，输入/输出
+  `[1,5,8,16,16] -> [1,4,8,16,16]`，loss `0.606481`，梯度范数 `8.815803`，覆盖 8 个
+  `anchor×role` 分层；config/subset/initial checkpoint SHA 全匹配。CPU preflight 文件 SHA-256 为
+  `9b75211a794f822f375e4556212c14afe13b026b2ee424b6c849e0282f378e99`。
+- 一次性 `data_build.log` 已由正式 JSON audit 取代并删除；未删除数据集、audit 或 CPU preflight。
+- 当前未执行 GPU0 preflight，未启动正式 W&B run，未执行 optimizer step，未运行 test。
 
 ## 结论
 
@@ -37,11 +51,10 @@ T1c/T1n/T2f/T2w 四模态是否能突破 T1c-only 的可分性瓶颈，并将患
 
 ## 下一步
 
-1. focused tests 与单 case 重放 smoke；
-2. 物化 train+val 四模态 p64 并审计 manifest/subset/split、NPZ 键、轴序和 test 未物化状态；
-3. CPU 与物理 GPU0 零 optimizer-step preflight；
-4. W&B online val-only 正式训练；
-5. 门禁未通过则继续封存 test。
+1. 获得 GPU0 preflight 与 val-only 正式训练确认；
+2. 物理 GPU0 完整 p64 零 optimizer-step preflight；
+3. W&B online val-only 正式训练；
+4. 门禁未通过则继续封存 test。
 
 ## 输出路径
 

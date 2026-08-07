@@ -746,4 +746,16 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
 - 新增长期契约文档 `docs/20260808_001_gli_p64_multimodal_classifier.md` 和实验卡
   `experiments/20260808_exp016_gli_p64_multimodal_classifier/`。本地静态编译通过；本地环境缺少 PyTorch，
   focused tests 将在远端 `lefusion` 环境执行。
-- 当前尚未推送、未创建远端 worktree、未重建正式数据、未使用 GPU、未初始化 W&B，冻结 test 未运行。
+- 分支已推送，远端独立 worktree 与提交 `a5be708259a6c6860d962c3c6b23ef8ca31d4429` 对齐；focused
+  tests 31/31 通过。
+- 单 case 真数据重放 smoke 通过：4 个 patch 的 T1c/seg/affine 精确复现、manifest SHA 不变、四模态非退化、
+  test 未物化且无标签派生输入；随后删除专用 smoke 数据目录，不保留一次性产物。
+- 正式 train+val CPU 数据重建完成：8804 patch/1447 cases，其中 train 7772、val 1032，四模态退化病例
+  均为 0；manifest SHA 保持 `42f71687...83ad`。
+- 独立审计确认原 manifest 9842 条，train+val 缺失 0、额外文件 0、冻结 1000 subset 缺失 0、test 1038
+  条物化 0；随机 64 patch 的六键、shape/dtype/range、seg 标签与 T1c 复现通过。
+- CPU 零 optimizer-step preflight 通过：参数量 3065600，输入/输出
+  `[1,5,8,16,16] -> [1,4,8,16,16]`，loss `0.606481`，梯度范数 `8.815803`，8 个
+  `anchor×role` 分层全覆盖；config/subset/initial checkpoint SHA 匹配。
+- 删除已被 `multimodal_build_audit.json` 取代的一次性 `outputs/data_build.log`；保留正式数据、数据 audit 与
+  `cpu_preflight.json`。尚未执行 GPU0 preflight、未初始化 W&B、未执行 optimizer step，冻结 test 未运行。
