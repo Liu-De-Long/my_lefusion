@@ -57,6 +57,9 @@ BraTS2024 GLI 流程状态：
     偏召回 Tversky 与 patch presence 辅助；模型输入白名单和冻结 test 门禁保持不变。正式 run
     在 epoch 9 后由用户触发方法级 early stopping，最佳患者等权 ET/RC focus mIoU 仅 `0.5557`，
     低于 exp014 的 `0.5922`；三项性能门禁失败，冻结 test 未运行。
+14. exp016 在同一冻结 1000 patch 上引入 T1c/T1n/T2f/T2w 四模态；同一 W&B run 在暂停/恢复后
+    于 epoch 29 自然 early stop。最佳患者等权 focus mIoU 为 `0.6648`，较 exp014 提升
+    `0.0725`，但 ET/RC IoU `0.5893/0.7402` 与小区域仍未过门禁；冻结 test 未运行。
 
 ## 项目结构
 

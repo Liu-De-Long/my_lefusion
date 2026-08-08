@@ -22,6 +22,10 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
 已启动并完成首批 optimizer step，W&B 与双 GPU 状态正常。
 首个 `latest.pt` 已按 500-step 规则写入，训练继续运行。
 
+分类轨道当前最佳为 `20260808_exp016_gli_p64_multimodal_classifier`：四模态 best 在 epoch 24，
+患者等权 ET/RC focus mIoU `0.664752`，95% CI `[0.619226,0.706501]`，较 exp014 提升
+`0.072541`。ET/RC IoU `0.589268/0.740236` 与小区域仍未过门禁；冻结 test 未运行。
+
 ## 当前流程
 
 当前实验工作区包含一份 LeFusion 代码副本：
@@ -140,6 +144,8 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
   该问题不改变门禁失败，但必须在下一次训练前修复。
 - exp013 的 `/root/.netrc` 标准认证已由 `wandb login --verify` 在线验证；两阶段 W&B online
   均完成。监督与 mean-teacher 的 95% CI 高度重叠，后者的高置信伪标签未改善验证结果。
+- exp016 暂停前本地 epoch 21 checkpoint/history 完整，但 W&B 未在 SIGTERM 前刷新该 step；
+  最终线上 history 为 `0–20,22–29`，这是唯一正式日志缺口，已在实验记录中保留。
 
 ## 下一步
 
@@ -156,19 +162,11 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
 8. exp014 三项性能门禁失败，冻结 test 继续封存；不得因 pooled IoU 较高而绕过患者等权门禁。
 9. exp015 已获得 GPU0 与 val-only 正式训练授权，focused tests/CPU/GPU0 零步 preflight 已通过；
    唯一正式 run 已完成方法级 early stop 和最终 val/bootstrap 审计，W&B 已正常 finish，test 封存。
-10. exp015 证明患者/组件重加权只能局部改善小区域 Dice，不能提高患者等权总体可分性。下一步不再
-    叠加 loss 权重；优先由用户确认是保持 T1c-only 并转向患者多 patch 上下文/自监督表征，还是允许
-    引入 T1n/T2f/T2w 以增加真实影像信息。任何下一方法使用新实验 ID 并重新授权。
-11. 用户已授权 exp016 使用 T1c/T1n/T2f/T2w 四模态 p64。独立分支/worktree
-    `feature/20260808-exp016-gli-p64-multimodal` 已建立；实现阶段只重建 train+val，test patch 不物化。
-12. exp016 复用同一冻结 1000 patch、患者级 split 和五项 test 门禁；模型使用四模态加总 mask 的
-    5 通道多尺度残差 3D U-Net，从 exp014 best 映射 T1c/总 mask 权重，其余模态 stem 权重置 0。
-13. 实现分支已推送，远端独立 worktree 与提交 `a5be708259a6c6860d962c3c6b23ef8ca31d4429` 对齐；
-    focused tests 31/31、单 case 真数据重放 smoke 与 CPU 零步 preflight 已通过。
-14. 正式四模态数据已物化 7772 train+1032 val；独立审计确认冻结 subset 缺失 0、test 1038 条物化 0、
-    六键输入无 hist，源/目标 manifest SHA 一致。正式 audit SHA 为
-    `cb34a00e963f77a0dd0df74c84d6937d635d2a4606dd585f4b0e118d7e3996d1`。
-15. 用户已授权 GPU0 preflight 与唯一 W&B online、val-only 正式训练。物理 GPU0 完整 p64、batch 8
-    零 optimizer-step preflight 已通过：loss `0.190637`、梯度范数 `1.868516`、峰值 allocated/reserved
-    `2777.291/3920 MiB`；GPU1 既有任务未干扰。
-16. 正式 W&B run 尚未初始化、正式 optimizer step 尚未执行；完成 preflight 文档同步并核验 clean HEAD 后启动。
+10. exp016 已以提交 `ff288093578b4ade4c34a0318021574254225691` 完成唯一 W&B online、val-only
+    正式训练；epoch 21 后暂停并从同一 `latest.pt` 恢复，epoch 29 自然 early stop。
+11. exp016 best 为 epoch 24，focus mIoU `0.664752`，ET/RC IoU `0.589268/0.740236`；三项
+    性能门禁失败、两项空间门禁通过，冻结 test 继续封存。
+12. 下一分类方法先对 exp016 best 做 val-only 逐模态 occlusion；若确认新模态利用不足，则使用
+    独立模态 stem/平衡融合，并利用剩余 train patch 做无标签多模态自监督预训练。
+13. 不再重复 exp015 类型的单纯 loss/采样重加权。任何新正式训练使用新实验 ID，仍需
+    W&B online fail-closed、GPU0 零步 preflight、患者等权 val-only 选模，五项门禁前不运行 test。

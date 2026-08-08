@@ -47,19 +47,35 @@ T1c/T1n/T2f/T2w 四模态是否能突破 T1c-only 的可分性瓶颈，并将患
   allocated/reserved 显存 `2777.291/3920 MiB`；GPU1 既有任务未干扰。
 - GPU preflight 文件 SHA-256 为 `4ae883839b9912451c30a3d9f24bc9dfcaf0c2f6fd5bc48ef9d3d227ee530d00`，
   config/subset/initial checkpoint SHA 全匹配。
-- 用户已授权在 preflight 通过后启动唯一 W&B online、val-only 正式训练。当前尚未初始化正式 run、未执行正式
-  optimizer step、未运行 test。
+- 唯一 W&B online 正式 run
+  [exp016-multimodal-s20260808](https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp016-multimodal-s20260808)
+  使用代码提交 `ff288093578b4ade4c34a0318021574254225691`。用户在 epoch 21 后暂停，随后从完整
+  `latest.pt` 恢复同一 run；optimizer、scheduler、early-stopping 状态和 RNG 均连续。
+- 训练在 epoch 29、`bad_epochs=10` 时自然 early stop；绝对 best 为 epoch 24。最终患者等权 focus mIoU
+  为 `0.664752`，95% CI `[0.619226,0.706501]`；ET/RC IoU 为 `0.589268/0.740236`，macro IoU
+  `0.641886`，macro Dice `0.702504`，balanced accuracy `0.809577`，mask 内错误率 `0.051375`。
+- 仅作参考的 pooled ET/RC IoU 为 `0.858449/0.840951`；`>1000` 体素 ET/RC patch Dice 为
+  `0.905619/0.853121`，而 `1–100` 体素仅为 `0.131446/0.216415`。患者等权与小区域仍是主要瓶颈。
+- 三项性能门禁均失败；mask 外非零率 `0`、union Dice `1` 两项空间门禁通过。冻结 test 未运行，
+  `test_metrics.json` 不存在。
+- W&B 最终状态为 `finished`，线上 history 为 epoch `0–20,22–29`；暂停前 epoch 21 已完整写入本地
+  checkpoint/history，但未在 SIGTERM 前上传，是唯一在线日志缺口。本地 history 完整覆盖 `0–29`。
+- `best.pt` SHA-256 为 `3f460bbd245fd69ba6e2c6cf71f806bc28e4ebb3862a2e3fc5c411b7e66f3617`；
+  `latest.pt` 为 `50f086debed63226cbfc652e4f95f804cbf403ed29dd22909cb828f78f027328`；最终 val 指标文件为
+  `6069fe97e7ebb21f810d0bda89b9b04dd26f1e2cbfb649ccb5ca84c911333c5c`。
 
 ## 结论
 
-待 val-only 正式训练完成后填写。exp014 的患者等权 focus mIoU `0.592211` 是本实验的直接对照；只有五项门禁
-全部通过，才允许运行一次冻结 test。
+四模态将患者等权 focus mIoU 从 exp014 的 `0.592211` 提升到 `0.664752`，绝对增益 `0.072541`，证明新增
+模态提供了有效信息；但仍比 `0.85` 低 `0.185248`，且 ET 与小区域性能不足。当前共享 stem 从 T1c/总 mask
+warm-start、其余模态置零的融合方式没有充分利用 T1n/T2f/T2w，继续相同配方训练不具备达到门禁的合理预期。
 
 ## 下一步
 
-1. 从本地/远端一致的 clean commit 启动唯一 W&B online、val-only 正式训练；
-2. 仅按完整 p64 患者等权 val 选择 best，并监控 early stopping；
-3. 门禁未通过则继续封存 test。
+1. 保持冻结 test 封存，先对 exp016 best 做 val-only 逐模态 occlusion，量化四模态真实贡献；
+2. 下一方法使用各模态独立浅 stem 与平衡融合，避免新增模态长期受零初始化 stem 压制；
+3. 允许利用剩余 train patch 做无标签多模态自监督预训练，再在同一冻结 1000 patch 上微调；
+4. 仅在总 mask 几何触发的 component/ROI 小区域分支上验证局部 refinement，不再重复堆叠 loss 权重。
 
 ## 输出路径
 

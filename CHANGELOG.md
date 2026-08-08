@@ -766,3 +766,18 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   allocated/reserved 显存 `2777.291/3920 MiB`；GPU1 既有任务未干扰。
 - GPU preflight SHA-256 为 `4ae883839b9912451c30a3d9f24bc9dfcaf0c2f6fd5bc48ef9d3d227ee530d00`，
   config/subset/initial checkpoint SHA 全匹配。正式 W&B run 与 optimizer step 尚未启动，冻结 test 未运行。
+
+## 2026-08-08 — exp016 正式训练恢复、自然 early stop 与最终 val 审计
+
+- 代码提交 `ff288093578b4ade4c34a0318021574254225691` 在物理 GPU0 启动唯一 W&B online、
+  val-only 正式 run `exp016-multimodal-s20260808`。
+- 用户在 epoch 21 后暂停；`latest.pt` 的 model/optimizer/scheduler/early-stopping/RNG 与 config/subset/
+  warm-start SHA 完整，随后从 epoch 22 恢复同一 run，未启动第二个正式 run。
+- epoch 29 达到 `bad_epochs=10` 并自然 early stop；best 为 epoch 24，患者等权 focus mIoU
+  `0.664752`，95% CI `[0.619226,0.706501]`，ET/RC IoU `0.589268/0.740236`。
+- pooled ET/RC IoU `0.858449/0.840951` 与大区域 Dice 不能替代患者等权指标；`1–100` 体素
+  ET/RC Dice 仅 `0.131446/0.216415`，小区域仍是主要瓶颈。
+- focus、ET、RC 性能门禁失败，两项空间门禁通过；未运行冻结 test。W&B 正常
+  `finished`，线上唯一缺口为暂停前未刷新的 epoch 21，本地 history 完整为 `0–29`。
+- best/latest/val metrics SHA-256 分别为 `3f460bbd...617`、`50f086de...328`、`6069fe97...c5c`。
+  后续优先 val-only 逐模态 occlusion、独立模态 stem/平衡融合和无标签多模态自监督预训练。

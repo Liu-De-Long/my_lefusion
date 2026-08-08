@@ -70,6 +70,7 @@ CPU/GPU0 preflight 与正式训练继续使用统一入口：
 python scripts/gli_p64_classifier.py preflight --config experiments/20260808_exp016_gli_p64_multimodal_classifier/config.yaml
 CUDA_VISIBLE_DEVICES=0 python scripts/gli_p64_classifier.py gpu-preflight --config experiments/20260808_exp016_gli_p64_multimodal_classifier/config.yaml
 CUDA_VISIBLE_DEVICES=0 python scripts/gli_p64_classifier.py train --config experiments/20260808_exp016_gli_p64_multimodal_classifier/config.yaml
+CUDA_VISIBLE_DEVICES=0 python scripts/gli_p64_classifier.py train --config experiments/20260808_exp016_gli_p64_multimodal_classifier/config.yaml --resume
 ```
 
 上述命令中的 test 不属于默认流程；门禁通过前禁止调用 `evaluate --split test`。
@@ -86,4 +87,25 @@ CUDA_VISIBLE_DEVICES=0 python scripts/gli_p64_classifier.py train --config exper
 - 物理 GPU0 完整 p64 零步 preflight 输入/输出为 `[8,5,32,64,64] -> [8,4,32,64,64]`，loss
   `0.190637`、梯度范数 `1.868516`，峰值 allocated/reserved 显存 `2777.291/3920 MiB`；GPU1 未干扰。
 - GPU preflight SHA-256：`4ae883839b9912451c30a3d9f24bc9dfcaf0c2f6fd5bc48ef9d3d227ee530d00`。
-- 用户已授权唯一 W&B online、val-only 正式训练；正式 run 启动前 test 继续封存。
+- 用户已授权唯一 W&B online、val-only 正式训练；训练以同一 run 完成暂停、恢复与自然
+  early stop，test 始终封存。
+
+`--resume` 只允许对同一 config、subset、Git/W&B run ID 且包含完整 optimizer、scheduler、RNG 和
+early-stopping 状态的 `latest.pt` 使用；任一元数据不一致必须 fail closed。
+
+## 7. 2026-08-08 正式训练结论
+
+- 正式代码提交为 `ff288093578b4ade4c34a0318021574254225691`；唯一 W&B run 为
+  [exp016-multimodal-s20260808](https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp016-multimodal-s20260808)。
+- 用户在 epoch 21 后暂停；后续用 `--resume` 从同一 `latest.pt` 恢复 epoch 22，并在 epoch 29、
+  `bad_epochs=10` 时自然 early stop。本地 history 完整为 `0–29`；W&B 因暂停前缓冲未刷新缺失
+  epoch 21，其余 `0–20,22–29` 完整，run 最终为 `finished`。
+- best 为 epoch 24：患者等权 focus mIoU `0.664752`，95% CI `[0.619226,0.706501]`，ET/RC IoU
+  `0.589268/0.740236`。pooled ET/RC IoU 虽为 `0.858449/0.840951`，但 `1–100` 体素 ET/RC Dice
+  仅 `0.131446/0.216415`，不能替代患者等权门禁。
+- epoch 24 虽创绝对新高，但相对 early-stopping reference `0.662485` 的增量小于
+  `min_delta=0.003`，因此未重置 patience，这与绝对 best 保存分离的选模契约一致。
+- focus、ET、RC 三项性能门禁失败；mask 外非零率 `0`、union Dice `1` 通过。未运行冻结 test。
+- 相对 exp014 绝对提升 `0.072541`，证明四模态有效，但共享 stem 的 T1c/总 mask warm-start 与新模态
+  置零导致融合失衡。后续应优先逐模态 val-only occlusion、独立模态 stem/平衡融合与无标签
+  多模态自监督预训练，不再重复单纯 loss 重加权。
