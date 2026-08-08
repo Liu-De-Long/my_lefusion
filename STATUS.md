@@ -59,13 +59,16 @@ exp012，但不能把差异单独归因于 `λhist`，因为两模型的扩散�
 
 ## 当前流程
 
-exp010 的 50k 双 GPU 正式训练已启动并由 W&B online 监控：固定 seed `20260805`、完整
-train split、global batch 4、GPU0/1 DataParallel、最多 50,000 optimizer step，W&B run 为
-`exp010-p64-full50k-2gpu-s20260805`。该 run 从随机初始化开始并使用独立输出目录；exp012 本次不启动。
-preflight 的 GPU0/1 反向峰值显存为 `11855.53/11693.59 MiB`，optimizer update 为 `0`，完整
-validation loss 为 `0.996759`，checkpoint 恢复成功。
-正式 run 父 PID 为 `39061`；启动后已越过 step 500 并成功写入 `latest.pt`，两张 GPU 均有
-实际计算。exp012 继续只作为后续对照，本次没有启动。
+exp010 双 GPU 长程训练没有正常达到 50k：step `27838` 起训练 loss/grad 变为 NaN，step
+`28000` EMA validation 也为 NaN，有限性门禁抛错退出。W&B run
+`exp010-p64-full50k-2gpu-s20260805` 已结束，但该状态不能改写本地异常证据。step 28000
+`latest.pt` 的 model/EMA 各有 291 个含非有限值 tensor，已禁止使用；step `14000` 的
+`best.pt/EMA` 参数全有限，validation loss `0.126450`，是本次唯一冻结评估入口。exp012 未启动。
+
+当前按用户授权准备在 GPU0/1 对上述 step 14k best/EMA 运行 test 的确定性 50% 子集：固定
+manifest SHA-256 `295b20...c3698`，精确 `519/1038` patch，两个互斥 shard 为 `260/259`。
+输入继续使用挖空 T1c 加原始四通道 mask，条件为 nearest train-cluster hist，`t_T=300`、CFG
+scale `2.0`；每张 GPU 只运行一个推理进程和 4 个 DataLoader worker，不运行全量 test。
 
 当前实验工作区包含一份 LeFusion 代码副本：
 

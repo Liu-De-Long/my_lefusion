@@ -1,0 +1,12 @@
+defaults:
+  - gli_exp010_p64_full_best_test_subset50_shard0
+  - _self_
+
+variant: full_best_step14000_ema_test_subset50_shard1
+device: cuda:1
+
+selection:
+  shard_index: 1
+
+output:
+  root: /workspace/LeFusion_v2/my_experiment/experiments/20260807_exp010_gli_single_state_noise/outputs/full_50k_2gpu/seed_20260805/test_subset_50_best_step14000/shard_1

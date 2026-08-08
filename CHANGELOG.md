@@ -1,5 +1,18 @@
 # 实验变更记录
 
+## 2026-08-08 — exp010 长程训练数值失稳并冻结半量 test 入口
+
+- 终态审计确认正式训练未正常达到 50k：step 27838 首次记录 NaN，step 28000 EMA validation
+  为 NaN，随后因 early-stopping metric 非有限而异常退出；GPU0/1 已释放，没有重复训练进程。
+- W&B run 虽标记 `finished`，但本地 traceback、checkpoint 和 history 一致证明是数值异常终止；
+  `latest.pt` 的 model/EMA 各有 291 个含非有限值 tensor，禁止推理和 resume。
+- 冻结 step 14000 `best.pt/EMA`：validation total loss `0.1264500695`，checkpoint SHA-256
+  `58e939...07358`，model/EMA 参数逐 tensor 有限性审计通过。
+- 按用户授权准备运行 test 确定性 50% 子集：复用历史冻结 manifest（519/1038，shard
+  260/259，SHA-256 `295b20...c3698`），不重新抽样、不运行全量 test。
+- 新增 GPU0/1 输出互斥推理配置；每进程 4 个 DataLoader worker，绑定 step 14k EMA、
+  original-multilabel 挖空输入、nearest cluster hist、CFG 2.0 与 `t_T=300`。
+
 ## 2026-08-08 — 授权准备 exp010 50k 双 GPU 正式训练
 
 - 用户决定以 exp010 作为首个全量训练方法，exp012 仅保留为后续对照，本次不启动 exp012。

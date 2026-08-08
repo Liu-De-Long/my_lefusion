@@ -1,0 +1,29 @@
+variant: full_best_step14000_ema_test_subset50_2gpu
+status: ready_to_launch
+decision_date: 2026-08-08
+training_terminal_status: failed_nonfinite_at_step_28000
+first_nonfinite_train_step: 27838
+latest_checkpoint_step: 28000
+latest_checkpoint_usable: false
+best_checkpoint_step: 14000
+best_checkpoint_weights_key: ema
+best_checkpoint_sha256: 58e939798fc8d3427b70aafdd61877a14984d2478cb7a39796c6019407f07358
+best_validation_total_loss: 0.12645006954837223
+best_checkpoint_finite: true
+selection_manifest: experiments/20260805_exp005_gli_formal_training_baseline/outputs/patch_64x64x32/seed_20260805/test_subset_50/subset_manifest.json
+selection_manifest_sha256: 295b20a01327dcd0071058efd8fe854135688a843c1888ef33242a908b6c3698
+selection_seed: 20260806
+full_test_count: 1038
+selected_count: 519
+fraction: 0.5
+shard_counts: [260, 259]
+gpus: [0, 1]
+worker_model: one_output_exclusive_process_per_gpu
+dataloader_workers_per_process: 4
+sampling_seed: 20260806
+timesteps: 300
+cond_scale: 2.0
+conditioning_source: nearest_train_cluster
+input_policy: masked_t1c_plus_original_four_channel_masks
+full_test_forbidden: true
+output_dir: experiments/20260807_exp010_gli_single_state_noise/outputs/full_50k_2gpu/seed_20260805/test_subset_50_best_step14000

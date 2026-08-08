@@ -82,20 +82,42 @@ exp010 已证明单一完整 T1c 状态能在 5k 内学习挖空区域的非平�
 - 正式训练已于 `2026-08-07 19:58:48 UTC`（北京时间 `2026-08-08 03:58:48`）启动，父 PID
   `39061`，运行 HEAD `1392bffed5691fae7651e50d14a080b228fb7aff`。
 - 正式 W&B：
-  [exp010-p64-full50k-2gpu-s20260805](https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp010-p64-full50k-2gpu-s20260805)，状态 running。
+  [exp010-p64-full50k-2gpu-s20260805](https://wandb.ai/jinyuanbao719-xi-an-jiaotong-university-/lefusion-brats2024-gli/runs/exp010-p64-full50k-2gpu-s20260805)，远端状态为 `finished`。
 - 启动审计到 optimizer step `649`，最近 loss `0.280569`、grad norm `1.472375`，均为有限值；
   GPU0/1 显存约 `13369/13165 MiB`，两卡均有计算利用率。
 - step 500 的首个 `latest.pt` 已写入，约 554 MiB；首次观察 SHA-256 为
-  `4a80b4a3a472e99ae1787468223a660f4c51edd41961acb27cf33317238ce98c`。训练继续运行。
+  `4a80b4a3a472e99ae1787468223a660f4c51edd41961acb27cf33317238ce98c`。
+- 本次没有正常达到 50k 或 early stopping：训练 loss/grad 在 step `27838` 首次变为 NaN，
+  step `28000` 的 EMA validation 也为 NaN，随后有限性门禁以
+  `ValueError: early-stopping metric is not finite: nan` 退出。`latest.pt` 的 model/EMA 各有
+  `291` 个含非有限值的 tensor，禁止用于推理或恢复。
+- 最佳有限 checkpoint 为 step `14000` 的 `best.pt/EMA`，validation total loss
+  `0.12645006954837223`，SHA-256 为
+  `58e939798fc8d3427b70aafdd61877a14984d2478cb7a39796c6019407f07358`；model/EMA 共
+  `36,235,313` 个参数元素均为有限值。step 20000 虽得到略低绝对 loss `0.1263959`，但未满足
+  0.5% 相对改善门槛，因此正式 `best.pt` 仍冻结在 step 14000。
 
 ### 结论
 
-双 GPU、W&B、DataLoader、optimizer 和 checkpoint 正式闭环已进入稳定运行；模型质量结论等待
-后续 validation、50k 完成及冻结少量 QA。
+双 GPU训练在 28k 暴露后期数值失稳，不能记为“50k 成功完成”。step 14k 的 best/EMA 在失稳前、
+参数全有限且验证最优，保留为后续冻结评估入口；污染的 latest 不再使用。
 
 ### 下一步
 
-只启动这一份 exp010 正式训练并监控 W&B；exp012 保持未启动。
+不擅自恢复或补跑训练。按用户授权，仅用 step 14k best/EMA 在原冻结 test split 中运行确定性
+50% 子集（519/1038），GPU0/1 各一个输出互斥分片；不运行全量 test。
+
+## step 14k best/EMA 的 test 50% 评估
+
+- 复用已冻结的 test 50% manifest，SHA-256 为
+  `295b20a01327dcd0071058efd8fe854135688a843c1888ef33242a908b6c3698`。
+- 全 test 为 `1038` patch，本次只选 `519`，两个固定 shard 为 `260/259`；selection seed
+  `20260806`，不存在运行时重新抽样。
+- 输入为 union 病灶区严格置零的 T1c 加原始四通道 mask；hist 使用训练集 cluster 中与真实
+  四类 hist 最近的中心，CFG scale `2.0`，`t_T=300`，checkpoint 固定为 step 14k EMA。
+- GPU0/GPU1 各一个独立进程，每进程 4 个 DataLoader worker，输出目录互斥且启用严格 resume；
+  不允许第三个生成进程、重复病例或全量 test。
+- 运行状态与 PID 见 `config_test_subset50_2gpu.yaml`；最终指标和审计在两个 shard 完成后补记。
 
 ### 输出路径
 
