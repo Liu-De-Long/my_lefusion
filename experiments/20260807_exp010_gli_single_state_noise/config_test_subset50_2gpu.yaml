@@ -1,5 +1,5 @@
 variant: full_best_step14000_ema_test_subset50_2gpu
-status: running
+status: completed
 decision_date: 2026-08-08
 training_terminal_status: failed_nonfinite_at_step_28000
 first_nonfinite_train_step: 27838
@@ -10,6 +10,7 @@ best_checkpoint_weights_key: ema
 best_checkpoint_sha256: 58e939798fc8d3427b70aafdd61877a14984d2478cb7a39796c6019407f07358
 best_validation_total_loss: 0.12645006954837223
 best_checkpoint_finite: true
+inference_runtime_git_head: afe225ffa4b1ebe4004f319b15328eeb686fc5ab
 selection_manifest: experiments/20260805_exp005_gli_formal_training_baseline/outputs/patch_64x64x32/seed_20260805/test_subset_50/subset_manifest.json
 selection_manifest_sha256: 295b20a01327dcd0071058efd8fe854135688a843c1888ef33242a908b6c3698
 selection_seed: 20260806
@@ -43,3 +44,38 @@ first_runtime_audit_at_utc: 2026-08-08T03:10:03Z
 first_runtime_completed_counts: [2, 1]
 first_runtime_gpu_memory_mib: [1755, 1755]
 first_runtime_gpu_utilization_percent: [93, 92]
+completed_at_utc: 2026-08-08T05:47:19Z
+wall_elapsed_seconds: 9528
+completed_counts: [260, 259]
+completed_unique_samples: 519
+completed_subjects: 73
+shard_overlap: 0
+shard_union_matches_manifest: true
+traceback_counts: [0, 0]
+final_peak_memory_mib: [1087.12255859375, 1087.12255859375]
+final_memory_stable: [true, true]
+total_model_calls: 155700
+mean_lesion_mae: 0.15752437976341485
+median_lesion_mae: 0.15209075808525085
+mean_zero_fill_baseline_mae: 0.4061249653038951
+mean_per_case_improvement_fraction: 0.5537876617213476
+median_per_case_improvement_fraction: 0.5925559122807079
+improvement_ge_20pct_count: 493
+improvement_positive_count: 502
+worse_than_zero_fill_count: 17
+nonzero_nonflat_count: 519
+masked_input_lesion_max_abs: 0.0
+background_max_abs_change: 0.0
+mean_histogram_target_l1_by_label:
+  NETC: 0.6109692850580414
+  SNFH: 0.5733088369752876
+  ET: 0.5030103961244718
+  RC: 0.6277590581311361
+generated_closer_to_target_than_original_by_label:
+  NETC: [97, 243]
+  SNFH: [234, 519]
+  ET: [177, 402]
+  RC: [231, 408]
+audit_summary: experiments/20260807_exp010_gli_single_state_noise/outputs/full_50k_2gpu/seed_20260805/test_subset_50_best_step14000/audit/summary.json
+audit_summary_sha256: 24e80306e11d3d58d04886ec7c2e9bbcb7b90b3806d0d7f0cb2c68d12bdeb8c1
+visual_audit: learned_nonzero_nonflat_inpainting_with_residual_intensity_texture_mismatch

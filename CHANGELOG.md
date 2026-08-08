@@ -1,5 +1,28 @@
 # 实验变更记录
 
+## 2026-08-08 — exp010 step 14k 完成冻结 test 50% 效果审计
+
+- GPU0/1 两个输出互斥 worker 正常完成 `260/259`，共 519 个唯一 patch、73 个 subject；分片
+  交集为 0、并集严格等于冻结 manifest，日志无 traceback/error，没有运行剩余 50% 或全量 test。
+- 固定 step 14000 `best.pt/EMA`、nearest train-cluster hist、CFG 2.0、`t_T=300` 和逐例 seed；
+  共 155,700 次模型调用，墙钟约 2 小时 38 分 48 秒，两卡峰值显存约 1087.12 MiB。
+- 平均/中位 lesion MAE 为 `0.157524/0.152091`，零填洞基线平均为 `0.406125`；逐例改善平均
+  `55.38%`，`493/519` 至少改善 20%，`502/519` 为正改善，仍有 17 例负改善。
+- 519/519 输出非零且非平坦；mask 内输入严格为 0，mask 外最大误差为 0。背景严格保持来自
+  inference 的 post-sample restore 合同，不能单独作为模型学会背景的证据。
+- 生成 histogram 相对零填洞明显更接近请求 cluster，但相对原真实病灶，仅 NETC/SNFH/ET/RC
+  `97/243、234/519、177/402、231/408` 更近；因此只确认 paired 修复有效，不确认 histogram
+  或四类医学语义控制。
+- 目检最好/最差病例：模型普遍能填入 mask 对齐结构，但最差例仍有亮度偏差、局部过平滑和
+  纹理错配；低强度 SNFH/RC 中零填洞基线天然较强，是部分负改善的重要混杂因素。
+- 新增轻量审计输出 `summary.json`、`case_metrics.csv`、`histogram_target_comparison.csv` 和
+  `qa_best_worst_by_anchor.png`，位于
+  `experiments/20260807_exp010_gli_single_state_noise/outputs/full_50k_2gpu/seed_20260805/`
+  `test_subset_50_best_step14000/audit/`。
+- 删除一次性本地/远端审计 helper、本地目检副本和远端运行时 `.hydra/`；正式 QA、NPZ、NIfTI、
+  worker 日志和审计输出均保留。`summary.json` SHA-256 为
+  `24e80306e11d3d58d04886ec7c2e9bbcb7b90b3806d0d7f0cb2c68d12bdeb8c1`。
+
 ## 2026-08-08 — exp010 长程训练数值失稳并冻结半量 test 入口
 
 - 终态审计确认正式训练未正常达到 50k：step 27838 首次记录 NaN，step 28000 EMA validation

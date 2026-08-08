@@ -62,6 +62,10 @@ BraTS2024 GLI 流程状态：
 13. exp010 的完整 train split、双 GPU 正式训练在 step 27838 起出现 NaN，并在 step 28000
     validation 有限性门禁处退出，未正常达到 50k。step 14000 的 best/EMA 参数全有限、validation
     loss 为 `0.126450`，已冻结为 test 50% 评估入口；污染的 latest 禁止使用。exp012 仍未启动。
+14. exp010 step 14k best/EMA 已完成冻结 test 50%：精确 `519/1038` patch，双分片 `260/259`
+    无重叠。平均 lesion MAE `0.157524`，`493/519` 相对零填洞改善至少 20%，519/519 非零、
+    非平坦且 mask 外严格不变；仍有 17 例负改善，nearest-cluster histogram 控制和四类医学
+    语义均未证实。本结论不等同于全量 test。
 
 ## 项目结构
 

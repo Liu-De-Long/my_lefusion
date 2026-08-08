@@ -2,7 +2,7 @@
 
 ## 当前版本
 
-v0.11.0-gli-paired-four-class-comparison-complete
+v0.12.0-exp010-half-test-complete
 
 ## 当前最佳实验
 
@@ -57,6 +57,12 @@ union/目标 mask、条件 hist 和 sample seed 一致。exp010/exp012 的平均
 病例级胜负为 4:4，但 Top-1 为 `21/32` 对 `26/32`。两者背景最大误差均为 `0`。这支持优先继续
 exp012，但不能把差异单独归因于 `λhist`，因为两模型的扩散状态与预测目标也不同。
 
+exp010 step 14k best/EMA 的冻结 test 50% 已完成：519/1038 patch、73 subject、分片 `260/259`
+无交集且并集严格匹配 manifest。平均 lesion MAE 为 `0.157524`，零填洞基线平均为 `0.406125`；
+逐例改善平均 `55.38%`，`493/519` 至少改善 20%，但仍有 `17/519` 负改善。519 例均生成非零、
+非平坦结构，mask 外误差为 0。histogram 相对零填洞显著改善，但对 NETC/SNFH/ET 多数输出
+未比原始真实病灶更接近 nearest cluster，因此只能确认 paired 修复有效，不能确认四类语义控制。
+
 ## 当前流程
 
 exp010 双 GPU 长程训练没有正常达到 50k：step `27838` 起训练 loss/grad 变为 NaN，step
@@ -65,11 +71,12 @@ exp010 双 GPU 长程训练没有正常达到 50k：step `27838` 起训练 loss/
 `latest.pt` 的 model/EMA 各有 291 个含非有限值 tensor，已禁止使用；step `14000` 的
 `best.pt/EMA` 参数全有限，validation loss `0.126450`，是本次唯一冻结评估入口。exp012 未启动。
 
-当前已按用户授权在 GPU0/1 对上述 step 14k best/EMA 运行 test 的确定性 50% 子集：固定
+已按用户授权在 GPU0/1 完成上述 step 14k best/EMA 的 test 确定性 50% 子集：固定
 manifest SHA-256 `295b20...c3698`，精确 `519/1038` patch，两个互斥 shard 为 `260/259`。
 输入继续使用挖空 T1c 加原始四通道 mask，条件为 nearest train-cluster hist，`t_T=300`、CFG
-scale `2.0`；正式父 PID 为 `2679/2680`，每张 GPU 只运行一个推理父进程和 4 个 DataLoader
-worker。首轮进度为 `2/260、1/259`，GPU 利用率为 `93%/92%`；不运行全量 test。
+scale `2.0`；正式父 PID `2679/2680` 均已退出，无残留训练/推理进程。最终审计保存在
+`experiments/20260807_exp010_gli_single_state_noise/outputs/full_50k_2gpu/seed_20260805/`
+`test_subset_50_best_step14000/audit/`；本次没有运行剩余 50% 或全量 test。
 
 当前实验工作区包含一份 LeFusion 代码副本：
 
