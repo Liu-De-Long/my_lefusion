@@ -117,7 +117,13 @@ exp010 已证明单一完整 T1c 状态能在 5k 内学习挖空区域的非平�
   四类 hist 最近的中心，CFG scale `2.0`，`t_T=300`，checkpoint 固定为 step 14k EMA。
 - GPU0/GPU1 各一个独立进程，每进程 4 个 DataLoader worker，输出目录互斥且启用严格 resume；
   不允许第三个生成进程、重复病例或全量 test。
-- 运行状态与 PID 见 `config_test_subset50_2gpu.yaml`；最终指标和审计在两个 shard 完成后补记。
+- shard 0 的首例作为可恢复 smoke 完成：41.77 秒、300 次模型调用、峰值显存 1084.50 MiB，
+  mask 内输入最大绝对值与 mask 外输出误差均为 `0`；该例直接计入 shard，不会重复生成。
+- GPU0/GPU1 正式父 PID 为 `2679/2680`。首轮运行审计为 `2/260、1/259`，显存各约
+  `1755 MiB`、利用率 `93%/92%`；每个父进程派生 4 个 DataLoader worker，符合多线程配置，
+  没有第三个生成父进程。
+- 当前状态为“test 50% 双卡分片运行中”，不是全量 test，也不是已完成结果；最终指标和并集
+  审计在两个 shard 完成后补记。
 
 ### 输出路径
 

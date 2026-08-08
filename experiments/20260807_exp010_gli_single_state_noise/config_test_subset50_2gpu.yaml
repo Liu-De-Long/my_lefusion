@@ -1,5 +1,5 @@
 variant: full_best_step14000_ema_test_subset50_2gpu
-status: ready_to_launch
+status: running
 decision_date: 2026-08-08
 training_terminal_status: failed_nonfinite_at_step_28000
 first_nonfinite_train_step: 27838
@@ -27,3 +27,19 @@ conditioning_source: nearest_train_cluster
 input_policy: masked_t1c_plus_original_four_channel_masks
 full_test_forbidden: true
 output_dir: experiments/20260807_exp010_gli_single_state_noise/outputs/full_50k_2gpu/seed_20260805/test_subset_50_best_step14000
+smoke_completed_samples: 1
+smoke_shard: 0
+smoke_elapsed_seconds: 41.7722716727294
+smoke_model_calls: 300
+smoke_peak_memory_mib: 1084.49755859375
+smoke_masked_input_lesion_max_abs: 0.0
+smoke_background_max_abs_change: 0.0
+launched_at_utc: 2026-08-08T03:08:31Z
+parent_pids: [2679, 2680]
+worker_logs:
+  - experiments/20260807_exp010_gli_single_state_noise/outputs/full_50k_2gpu/seed_20260805/test_subset_50_best_step14000/worker_gpu0.log
+  - experiments/20260807_exp010_gli_single_state_noise/outputs/full_50k_2gpu/seed_20260805/test_subset_50_best_step14000/worker_gpu1.log
+first_runtime_audit_at_utc: 2026-08-08T03:10:03Z
+first_runtime_completed_counts: [2, 1]
+first_runtime_gpu_memory_mib: [1755, 1755]
+first_runtime_gpu_utilization_percent: [93, 92]

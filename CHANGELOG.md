@@ -12,6 +12,9 @@
   260/259，SHA-256 `295b20...c3698`），不重新抽样、不运行全量 test。
 - 新增 GPU0/1 输出互斥推理配置；每进程 4 个 DataLoader worker，绑定 step 14k EMA、
   original-multilabel 挖空输入、nearest cluster hist、CFG 2.0 与 `t_T=300`。
+- shard 0 单例可恢复 smoke 通过：300 次调用、mask 内输入严格为 0、mask 外误差为 0，随后以
+  父 PID `2679/2680` 启动 GPU0/1 正式分片。首轮进度 `2/260、1/259`，两卡利用率
+  `93%/92%`；当前仍是运行中，不记作完成或全量 test。
 
 ## 2026-08-08 — 授权准备 exp010 50k 双 GPU 正式训练
 

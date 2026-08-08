@@ -65,10 +65,11 @@ exp010 双 GPU 长程训练没有正常达到 50k：step `27838` 起训练 loss/
 `latest.pt` 的 model/EMA 各有 291 个含非有限值 tensor，已禁止使用；step `14000` 的
 `best.pt/EMA` 参数全有限，validation loss `0.126450`，是本次唯一冻结评估入口。exp012 未启动。
 
-当前按用户授权准备在 GPU0/1 对上述 step 14k best/EMA 运行 test 的确定性 50% 子集：固定
+当前已按用户授权在 GPU0/1 对上述 step 14k best/EMA 运行 test 的确定性 50% 子集：固定
 manifest SHA-256 `295b20...c3698`，精确 `519/1038` patch，两个互斥 shard 为 `260/259`。
 输入继续使用挖空 T1c 加原始四通道 mask，条件为 nearest train-cluster hist，`t_T=300`、CFG
-scale `2.0`；每张 GPU 只运行一个推理进程和 4 个 DataLoader worker，不运行全量 test。
+scale `2.0`；正式父 PID 为 `2679/2680`，每张 GPU 只运行一个推理父进程和 4 个 DataLoader
+worker。首轮进度为 `2/260、1/259`，GPU 利用率为 `93%/92%`；不运行全量 test。
 
 当前实验工作区包含一份 LeFusion 代码副本：
 
