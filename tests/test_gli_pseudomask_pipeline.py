@@ -3,6 +3,8 @@ from __future__ import annotations
 import csv
 import json
 import sys
+import tempfile
+import unittest
 from pathlib import Path
 
 import numpy as np
@@ -78,73 +80,76 @@ def _write_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     return source_root, overlay_root, split_file
 
 
-def test_overlay_loader_ignores_source_seg_and_hist(tmp_path: Path) -> None:
-    source_root, overlay_root, split_file = _write_fixture(tmp_path)
-    dataset = GLIDataset(
-        source_root,
-        (64, 64, 32),
-        split="train",
-        split_file=split_file,
-        mask_overlay_root=overlay_root,
-    )
-    first = dataset[0]
-    source_path = source_root / "patch_64x64x32" / "patches/case.npz"
-    with np.load(source_path, allow_pickle=False) as arrays:
-        t1c = np.asarray(arrays["t1c"])
-        affine = np.asarray(arrays["affine"])
-    replacement_seg = np.full((64, 64, 32), 2, dtype=np.uint8)
-    replacement_hist = np.full((4, 16), 123.0, dtype=np.float32)
-    np.savez_compressed(
-        source_path,
-        t1c=t1c,
-        seg=replacement_seg,
-        hist=replacement_hist,
-        affine=affine,
-    )
-    second = dataset[0]
-    for key in ("label", "lesion_mask", "masked_context", "hist"):
-        assert torch.equal(first[key], second[key])
-    assert first["mask_source"] == "overlay"
-    assert tuple(first["lesion_mask"].shape) == (4, 32, 64, 64)
-    assert torch.count_nonzero(first["lesion_mask"][0]) == 64
-    assert torch.count_nonzero(first["lesion_mask"][2]) == 144
-    union = first["lesion_mask"].bool().any(dim=0, keepdim=True)
-    assert torch.count_nonzero(first["masked_context"][union]) == 0
+class PseudoMaskPipelineTests(unittest.TestCase):
+    def test_overlay_loader_ignores_source_seg_and_hist(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source_root, overlay_root, split_file = _write_fixture(Path(directory))
+            dataset = GLIDataset(
+                source_root,
+                (64, 64, 32),
+                split="train",
+                split_file=split_file,
+                mask_overlay_root=overlay_root,
+            )
+            first = dataset[0]
+            source_path = source_root / "patch_64x64x32" / "patches/case.npz"
+            with np.load(source_path, allow_pickle=False) as arrays:
+                t1c = np.asarray(arrays["t1c"])
+                affine = np.asarray(arrays["affine"])
+            replacement_seg = np.full((64, 64, 32), 2, dtype=np.uint8)
+            replacement_hist = np.full((4, 16), 123.0, dtype=np.float32)
+            np.savez_compressed(
+                source_path,
+                t1c=t1c,
+                seg=replacement_seg,
+                hist=replacement_hist,
+                affine=affine,
+            )
+            second = dataset[0]
+            for key in ("label", "lesion_mask", "masked_context", "hist"):
+                self.assertTrue(torch.equal(first[key], second[key]))
+            self.assertEqual(first["mask_source"], "overlay")
+            self.assertEqual(tuple(first["lesion_mask"].shape), (4, 32, 64, 64))
+            self.assertEqual(int(torch.count_nonzero(first["lesion_mask"][0])), 64)
+            self.assertEqual(int(torch.count_nonzero(first["lesion_mask"][2])), 144)
+            union = first["lesion_mask"].bool().any(dim=0, keepdim=True)
+            self.assertEqual(int(torch.count_nonzero(first["masked_context"][union])), 0)
+
+    def test_component_filter_keeps_whole_components_and_falls_back(self) -> None:
+        seg = np.zeros((8, 8, 8), dtype=np.uint8)
+        seg[1:3, 1:3, 1:3] = 1
+        seg[5:7, 5:7, 5:7] = 3
+        confidence = np.zeros_like(seg, dtype=np.float16)
+        confidence[seg == 1] = np.float16(0.8)
+        confidence[seg == 3] = np.float16(0.6)
+        filtered, stats = filter_components(seg, confidence, 0.7)
+        self.assertTrue(np.array_equal(filtered == 1, seg == 1))
+        self.assertFalse(np.any(filtered == 3))
+        self.assertFalse(stats["fallback_kept_best_component"])
+        fallback, fallback_stats = filter_components(seg, confidence, 0.95)
+        self.assertTrue(np.array_equal(fallback == 1, seg == 1))
+        self.assertFalse(np.any(fallback == 3))
+        self.assertTrue(fallback_stats["fallback_kept_best_component"])
+
+    def test_intersection_tie_break_prefers_balanced_mean_then_lower_threshold(self) -> None:
+        curve = [
+            {"threshold": 0.4, "absolute_gap": 0.01, "balanced_mean": 0.7},
+            {"threshold": 0.6, "absolute_gap": 0.01, "balanced_mean": 0.8},
+            {"threshold": 0.5, "absolute_gap": 0.01, "balanced_mean": 0.8},
+        ]
+        self.assertEqual(select_intersection(curve)["threshold"], 0.5)
+
+    def test_training_configs_only_differ_by_variant_outputs_and_overlay(self) -> None:
+        config_dir = PROJECT_ROOT / "LeFusion/train/config/experiment"
+        direct = yaml.safe_load((config_dir / "gli_exp018_direct_mask_fp32_50k.yaml").read_text(encoding="utf-8"))
+        filtered = yaml.safe_load((config_dir / "gli_exp018_filtered_mask_fp32_50k.yaml").read_text(encoding="utf-8"))
+        direct["variant"] = filtered["variant"]
+        direct["dataset"]["mask_overlay"]["root"] = filtered["dataset"]["mask_overlay"]["root"]
+        direct["model"]["results_folder"] = filtered["model"]["results_folder"]
+        direct["wandb"] = filtered["wandb"]
+        direct["preflight"] = filtered["preflight"]
+        self.assertEqual(direct, filtered)
 
 
-def test_component_filter_keeps_whole_components_and_falls_back() -> None:
-    seg = np.zeros((8, 8, 8), dtype=np.uint8)
-    seg[1:3, 1:3, 1:3] = 1
-    seg[5:7, 5:7, 5:7] = 3
-    confidence = np.zeros_like(seg, dtype=np.float16)
-    confidence[seg == 1] = np.float16(0.8)
-    confidence[seg == 3] = np.float16(0.6)
-    filtered, stats = filter_components(seg, confidence, 0.7)
-    assert np.array_equal(filtered == 1, seg == 1)
-    assert not np.any(filtered == 3)
-    assert not stats["fallback_kept_best_component"]
-    fallback, fallback_stats = filter_components(seg, confidence, 0.95)
-    assert np.array_equal(fallback == 1, seg == 1)
-    assert not np.any(fallback == 3)
-    assert fallback_stats["fallback_kept_best_component"]
-
-
-def test_intersection_tie_break_prefers_balanced_mean_then_lower_threshold() -> None:
-    curve = [
-        {"threshold": 0.4, "absolute_gap": 0.01, "balanced_mean": 0.7},
-        {"threshold": 0.6, "absolute_gap": 0.01, "balanced_mean": 0.8},
-        {"threshold": 0.5, "absolute_gap": 0.01, "balanced_mean": 0.8},
-    ]
-    assert select_intersection(curve)["threshold"] == 0.5
-
-
-def test_training_configs_only_differ_by_variant_outputs_and_overlay() -> None:
-    config_dir = PROJECT_ROOT / "LeFusion/train/config/experiment"
-    direct = yaml.safe_load((config_dir / "gli_exp018_direct_mask_fp32_50k.yaml").read_text(encoding="utf-8"))
-    filtered = yaml.safe_load((config_dir / "gli_exp018_filtered_mask_fp32_50k.yaml").read_text(encoding="utf-8"))
-    direct["variant"] = filtered["variant"]
-    direct["dataset"]["mask_overlay"]["root"] = filtered["dataset"]["mask_overlay"]["root"]
-    direct["model"]["results_folder"] = filtered["model"]["results_folder"]
-    direct["wandb"] = filtered["wandb"]
-    direct["preflight"] = filtered["preflight"]
-    assert direct == filtered
+if __name__ == "__main__":
+    unittest.main()
