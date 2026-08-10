@@ -15,8 +15,11 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+LEFUSION_ROOT = PROJECT_ROOT / "LeFusion"
+if str(LEFUSION_ROOT) not in sys.path:
+    sys.path.insert(0, str(LEFUSION_ROOT))
 
-from LeFusion.dataset.gli_hist import GLIDataset
+from dataset.gli_hist import GLIDataset
 from scripts.gli_pseudomask_pipeline import (
     filter_components,
     lesion_histograms,
