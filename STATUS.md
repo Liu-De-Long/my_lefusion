@@ -170,3 +170,5 @@ mask 内计算。远端回归 `34/34` 与 online GPU preflight 已通过；exp00
     独立模态 stem/平衡融合，并利用剩余 train patch 做无标签多模态自监督预训练。
 13. 不再重复 exp015 类型的单纯 loss/采样重加权。任何新正式训练使用新实验 ID，仍需
     W&B online fail-closed、GPU0 零步 preflight、患者等权 val-only 选模，五项门禁前不运行 test。
+14. exp009–exp016 的数据契约、方法链、完整验证证据、失败结论和 exp017 分阶段建议已汇总到
+    `docs/20260811_001_gli_p64_lesion_subregion_classifier_complete_record.md`；该文档是分类轨道的长期总入口。

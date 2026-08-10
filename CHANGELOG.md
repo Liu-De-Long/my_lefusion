@@ -781,3 +781,16 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   `finished`，线上唯一缺口为暂停前未刷新的 epoch 21，本地 history 完整为 `0–29`。
 - best/latest/val metrics SHA-256 分别为 `3f460bbd...617`、`50f086de...328`、`6069fe97...c5c`。
   后续优先 val-only 逐模态 occlusion、独立模态 stem/平衡融合和无标签多模态自监督预训练。
+
+## 2026-08-11 — 汇总 p64 病灶亚区分类完整记录
+
+- 新增长期总入口 `docs/20260811_001_gli_p64_lesion_subregion_classifier_complete_record.md`，统一记录
+  exp009–exp016 的任务语义、轴顺序、输入白名单、冻结 1000 patch、正式患者 split、模型结果、W&B
+  追溯、五项 test 门禁和失败结论。
+- 重新只读审计原始 p64 manifest：9842 patch 中 9594 个至少包含两个亚区，占 `97.48%`；201 个涉及
+  padding。正式 split 仍为 train/val/test `7772/1032/1038` patch、`584/73/74` 患者，患者零交集。
+- 明确 anchor 250/类不等于体素平衡；冻结子集 NETC/SNFH/ET/RC 体素比例约
+  `4.13%/58.87%/19.13%/17.87%`。per-class manifest 字段和任何真实亚区标签派生特征仍禁止进入输入。
+- 将 exp017 记录为尚未实施的分阶段建议：先做 exp016 best 的 val-only 逐模态诊断，再考虑独立模态
+  stem、严格 train-only 多模态自监督和有条件的小区域 refiner。五项门禁前继续封存 test。
+- 本次只修改管理文档；未创建新实验、未修改训练代码、未运行 test、未启动训练、未占用 GPU。
