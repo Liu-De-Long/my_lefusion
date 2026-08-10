@@ -24,6 +24,7 @@ LABEL_VALUES = (1, 2, 3, 4)
 HIST_BINS = 16
 COND_DIM = len(LABEL_VALUES) * HIST_BINS
 REQUIRED_NPZ_KEYS = {"t1c", "seg", "hist", "affine"}
+REQUIRED_OVERLAY_KEYS = {"seg_xyz", "lesion_mask_xyz", "confidence_xyz", "hist"}
 
 
 def _parse_patch_size(value: Sequence[int] | str) -> tuple[int, int, int]:
@@ -71,6 +72,7 @@ class GLIDataset(Dataset):
         split_file: str | os.PathLike[str] | None = None,
         manifest_name: str = "manifest.csv",
         strict: bool = True,
+        mask_overlay_root: str | os.PathLike[str] | None = None,
     ) -> None:
         super().__init__()
         self.root_dir = Path(root_dir).expanduser()
@@ -80,6 +82,23 @@ class GLIDataset(Dataset):
         self.subject_split = self._read_subject_split()
         self.strict = strict
         self.size_root = self.root_dir / _patch_dir_name(self.patch_size_xyz)
+        self.mask_overlay_root = (
+            Path(mask_overlay_root).expanduser() if mask_overlay_root else None
+        )
+        self.mask_overlay_size_root = (
+            self.mask_overlay_root / _patch_dir_name(self.patch_size_xyz)
+            if self.mask_overlay_root is not None
+            else None
+        )
+        self.mask_overlay_contract_path = (
+            self.mask_overlay_root / "contract.json"
+            if self.mask_overlay_root is not None
+            else None
+        )
+        if self.mask_overlay_contract_path is not None and not self.mask_overlay_contract_path.is_file():
+            raise FileNotFoundError(
+                f"GLI mask overlay contract not found: {self.mask_overlay_contract_path}"
+            )
         self.manifest_path = self.size_root / manifest_name
         if not self.manifest_path.is_file():
             raise FileNotFoundError(f"GLI manifest not found: {self.manifest_path}")
@@ -176,9 +195,38 @@ class GLIDataset(Dataset):
             if keys != REQUIRED_NPZ_KEYS:
                 raise ValueError(f"invalid NPZ keys in {path}: {sorted(keys)}")
             t1c = np.asarray(arrays["t1c"])
-            seg = np.asarray(arrays["seg"])
-            hist = np.asarray(arrays["hist"])
             affine = np.asarray(arrays["affine"])
+            if self.mask_overlay_size_root is None:
+                seg = np.asarray(arrays["seg"])
+                hist = np.asarray(arrays["hist"])
+
+        if self.mask_overlay_size_root is not None:
+            overlay_path = (self.mask_overlay_size_root / relative_path).resolve()
+            if self.mask_overlay_size_root.resolve() not in overlay_path.parents:
+                raise ValueError(f"mask overlay path escapes root: {relative_path}")
+            if not overlay_path.is_file():
+                raise FileNotFoundError(overlay_path)
+            with np.load(overlay_path, allow_pickle=False) as overlay:
+                overlay_keys = set(overlay.files)
+                if overlay_keys != REQUIRED_OVERLAY_KEYS:
+                    raise ValueError(
+                        f"invalid mask overlay keys in {overlay_path}: {sorted(overlay_keys)}"
+                    )
+                seg = np.asarray(overlay["seg_xyz"])
+                lesion_mask_xyz = np.asarray(overlay["lesion_mask_xyz"])
+                confidence_xyz = np.asarray(overlay["confidence_xyz"])
+                hist = np.asarray(overlay["hist"])
+            if lesion_mask_xyz.shape != (4, *self.patch_size_xyz):
+                raise ValueError(
+                    f"invalid overlay lesion mask shape in {overlay_path}: {lesion_mask_xyz.shape}"
+                )
+            if lesion_mask_xyz.dtype != np.uint8 or confidence_xyz.shape != self.patch_size_xyz:
+                raise ValueError(f"invalid overlay mask/confidence contract in {overlay_path}")
+            derived_overlay = np.stack(
+                [(seg == value) for value in LABEL_VALUES], axis=0
+            ).astype(np.uint8, copy=False)
+            if not np.array_equal(derived_overlay, lesion_mask_xyz):
+                raise ValueError(f"overlay scalar and four-channel masks disagree: {overlay_path}")
 
         if t1c.shape != self.patch_size_xyz or seg.shape != self.patch_size_xyz:
             raise ValueError(
@@ -269,6 +317,7 @@ class GLIDataset(Dataset):
             "normalization_p995": float(record["normalization_p995"]),
             "normalization_degenerate": bool(int(record["normalization_degenerate"])),
             "cond_dim": self.cond_dim,
+            "mask_source": "overlay" if self.mask_overlay_size_root is not None else "ground_truth",
         }
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor | str | int | float]:

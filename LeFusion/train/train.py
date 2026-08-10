@@ -211,11 +211,15 @@ def build_checkpoint_metadata(cfg, train_dataset, spatial_shape):
     resolved = OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
     split_file = Path(str(cfg.dataset.split_file)).expanduser()
     run_id = cfg.wandb.get('run_id')
+    overlay_contract = getattr(train_dataset, 'mask_overlay_contract_path', None)
     return resolved, {
         'experiment_id': str(cfg.experiment_id),
         'git_sha': resolve_git_sha(),
         'config_hash': canonical_config_hash(resolved),
         'manifest_hash': sha256_file(train_dataset.manifest_path),
+        'mask_overlay_contract_hash': (
+            sha256_file(overlay_contract) if overlay_contract is not None else None
+        ),
         'split_hash': sha256_file(split_file),
         'data_type': str(cfg.dataset.data_type),
         'patch_size_xyz': [int(value) for value in cfg.dataset.patch_size_xyz],

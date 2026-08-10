@@ -4,6 +4,14 @@ from dataset import EMIDECDataset, EMIDECInDataset
 from dataset import GLIDataset, GLIInferenceDataset, GLIStratifiedSampler
 
 
+def _overlay_root_for_split(cfg, split):
+    overlay = cfg.dataset.get('mask_overlay')
+    if overlay is None or not bool(overlay.get('enabled', False)):
+        return None
+    apply_splits = [str(value) for value in overlay.get('apply_splits', ['train'])]
+    return str(overlay.root) if str(split) in apply_splits else None
+
+
 def get_inference_dataloader(
     dataset_root_dir,
     test_txt_dir='',
@@ -52,11 +60,13 @@ def get_train_dataset(cfg):
         train_dataset = EMIDECDataset(root_dir=cfg.dataset.root_dir)
         sampler = None
     elif cfg.dataset.data_type == 'gli':
+        split = cfg.dataset.get('split', 'train')
         train_dataset = GLIDataset(
             root_dir=cfg.dataset.root_dir,
             patch_size_xyz=cfg.dataset.patch_size_xyz,
-            split=cfg.dataset.get('split', 'train'),
+            split=split,
             split_file=cfg.dataset.get('split_file'),
+            mask_overlay_root=_overlay_root_for_split(cfg, split),
         )
         sampler_cfg = getattr(cfg, 'sampler', None)
         if sampler_cfg is not None and bool(sampler_cfg.get('enabled', False)):
@@ -88,4 +98,5 @@ def get_validation_dataset(cfg):
         patch_size_xyz=cfg.dataset.patch_size_xyz,
         split=split,
         split_file=cfg.dataset.get('split_file'),
+        mask_overlay_root=_overlay_root_for_split(cfg, split),
     )
