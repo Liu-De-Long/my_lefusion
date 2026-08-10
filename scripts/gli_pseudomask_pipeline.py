@@ -15,6 +15,7 @@ from typing import Any, Iterable, Mapping, Sequence
 import numpy as np
 import torch
 from scipy.ndimage import label as connected_components
+from torch.utils.data import DataLoader
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -143,16 +144,19 @@ def filter_components(
     candidates: list[tuple[float, int, np.ndarray]] = []
     kept = 0
     removed = 0
-    for row in component_records(seg_xyz, confidence_xyz):
-        label_value = int(row["label_value"])
-        labeled, _ = connected_components(seg_xyz == label_value, CONNECTIVITY_26)
-        component = labeled == int(row["component_id"])
-        candidates.append((float(row["mean_confidence"]), label_value, component))
-        if float(row["mean_confidence"]) >= float(threshold):
-            filtered[component] = label_value
-            kept += 1
-        else:
-            removed += 1
+    for label_value in LABEL_VALUES:
+        labeled, count = connected_components(seg_xyz == label_value, CONNECTIVITY_26)
+        for component_id in range(1, int(count) + 1):
+            component = labeled == component_id
+            mean_confidence = float(
+                confidence_xyz[component].astype(np.float32, copy=False).mean()
+            )
+            candidates.append((mean_confidence, label_value, component))
+            if mean_confidence >= float(threshold):
+                filtered[component] = label_value
+                kept += 1
+            else:
+                removed += 1
     fallback = False
     if not np.any(filtered):
         if not candidates:
@@ -239,22 +243,29 @@ def export_direct_masks(args: argparse.Namespace) -> dict[str, Any]:
                 dataset_root, records, load_targets=True, modalities=modalities
             )
             split_counts[split] = len(dataset)
-            for start in range(0, len(dataset), int(args.batch_size)):
-                samples = [
-                    dataset[index]
-                    for index in range(start, min(start + int(args.batch_size), len(dataset)))
-                ]
-                images = torch.stack([sample["image"] for sample in samples])
-                masks = torch.stack([sample["total_mask"][0] for sample in samples])
-                inputs = _build_spatial_inputs(images, masks, kind=kind).to(device)
+            loader = DataLoader(
+                dataset,
+                batch_size=int(args.batch_size),
+                shuffle=False,
+                drop_last=False,
+                num_workers=int(args.num_workers),
+                pin_memory=device.type == "cuda",
+                persistent_workers=int(args.num_workers) > 0,
+            )
+            for batch in loader:
+                images = batch["image"]
+                masks = batch["total_mask"][:, 0]
+                inputs = _build_spatial_inputs(images, masks, kind=kind).to(
+                    device, non_blocking=True
+                )
                 probabilities = model(inputs).softmax(dim=1).cpu()
-                for sample, probability in zip(samples, probabilities, strict=True):
-                    relative_path = str(sample["relative_path"])
+                for batch_index, probability in enumerate(probabilities):
+                    relative_path = str(batch["relative_path"][batch_index])
                     output_path = output_size_root / relative_path
                     if output_path.is_file() and args.resume:
                         validate_overlay(output_path)
                     else:
-                        total_mask = sample["total_mask"][0].numpy().astype(bool, copy=False)
+                        total_mask = masks[batch_index].numpy().astype(bool, copy=False)
                         max_confidence, class_index = probability.max(dim=0)
                         seg_dhw = np.zeros(total_mask.shape, dtype=np.uint8)
                         seg_dhw[total_mask] = (
@@ -266,7 +277,7 @@ def export_direct_masks(args: argparse.Namespace) -> dict[str, Any]:
                         confidence_xyz = np.transpose(confidence_dhw, (1, 2, 0)).astype(
                             np.float16, copy=False
                         )
-                        t1c_xyz = np.transpose(sample["image"][0].numpy(), (1, 2, 0)).copy()
+                        t1c_xyz = np.transpose(images[batch_index, 0].numpy(), (1, 2, 0)).copy()
                         if not np.array_equal(seg_xyz > 0, np.transpose(total_mask, (1, 2, 0))):
                             raise RuntimeError(f"direct mask union mismatch: {relative_path}")
                         _atomic_npz(
@@ -281,8 +292,8 @@ def export_direct_masks(args: argparse.Namespace) -> dict[str, Any]:
                         {
                             "relative_path": relative_path,
                             "split": split,
-                            "case_id": str(sample["case_id"]),
-                            "subject_id": str(sample["subject_id"]),
+                            "case_id": str(batch["case_id"][batch_index]),
+                            "subject_id": str(batch["subject_id"][batch_index]),
                             "sha256": sha256_file(output_path),
                         }
                     )
@@ -651,6 +662,7 @@ def parse_args() -> argparse.Namespace:
     export.add_argument("--output-root", type=Path, required=True)
     export.add_argument("--device", default=None)
     export.add_argument("--batch-size", type=int, default=8)
+    export.add_argument("--num-workers", type=int, default=8)
     export.add_argument("--resume", action="store_true")
 
     calibrate = subparsers.add_parser("calibrate-threshold")
