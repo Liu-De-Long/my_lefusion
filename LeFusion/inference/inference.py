@@ -413,6 +413,7 @@ def run_gli(conf: DictConfig) -> None:
         split_file=conf.dataset.split_file,
         raw_source_split=conf.dataset.get('raw_source_split', 'train'),
         selected_relative_paths=selected_relative_paths,
+        mask_overlay_root=conf.dataset.get('mask_overlay_root'),
     )
     provenance = selection_payload.get("provenance", {})
     dataset_object = loader.dataset
@@ -420,6 +421,10 @@ def run_gli(conf: DictConfig) -> None:
         raise ValueError("selection manifest dataset hash mismatch")
     if provenance.get("split_sha256") != sha256_file(conf.dataset.split_file):
         raise ValueError("selection manifest split hash mismatch")
+    overlay_contract_path = dataset_object.mask_overlay_contract_path
+    overlay_contract_sha256 = (
+        sha256_file(overlay_contract_path) if overlay_contract_path is not None else None
+    )
     output_root = _safe_output_root(
         conf.output.root,
         bool(conf.output.get('overwrite', False)),
@@ -431,6 +436,8 @@ def run_gli(conf: DictConfig) -> None:
         "checkpoint_weights_key": str(conf.checkpoint.weights_key),
         "cluster_sha256": sha256_file(conf.conditioning.clusters_path),
         "selection_manifest_sha256": sha256_file(selection_path),
+        "mask_source": "overlay" if overlay_contract_path is not None else "ground_truth",
+        "mask_overlay_contract_sha256": overlay_contract_sha256,
         "selection_shard_index": int(conf.selection.shard_index),
         "selection_shard_count": int(conf.selection.shard_count),
         "sampling_seed": int(conf.sampling.seed),
@@ -754,6 +761,8 @@ def run_gli(conf: DictConfig) -> None:
         "cluster_sha256": sha256_file(conf.conditioning.clusters_path),
         "selection_manifest": str(selection_path),
         "selection_manifest_sha256": sha256_file(selection_path),
+        "mask_source": run_contract["mask_source"],
+        "mask_overlay_contract_sha256": overlay_contract_sha256,
         "selection_shard_index": int(conf.selection.shard_index),
         "selection_shard_count": int(conf.selection.shard_count),
         "lesion_channel_label_values": [1, 2, 3, 4],

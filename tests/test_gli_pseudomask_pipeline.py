@@ -84,6 +84,40 @@ def _write_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
 
 
 class PseudoMaskPipelineTests(unittest.TestCase):
+    def test_inference_dataset_uses_overlay_conditioning(self) -> None:
+        try:
+            import nibabel as nib
+            from dataset.gli_hist_in import GLIInferenceDataset
+        except ModuleNotFoundError:
+            self.skipTest("nibabel is unavailable in the local CPU test environment")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root, overlay_root, split_file = _write_fixture(root)
+            raw_case = root / "raw/train/case"
+            raw_case.mkdir(parents=True)
+            shape = (64, 64, 32)
+            image = np.ones(shape, dtype=np.float32)
+            affine = np.eye(4)
+            for modality in ("t1c", "t1n", "t2f", "t2w"):
+                nib.save(nib.Nifti1Image(image, affine), raw_case / f"case-{modality}.nii.gz")
+            nib.save(
+                nib.Nifti1Image(np.zeros(shape, dtype=np.uint8), affine),
+                raw_case / "case-seg.nii.gz",
+            )
+            dataset = GLIInferenceDataset(
+                source_root,
+                root / "raw",
+                (64, 64, 32),
+                split="train",
+                split_file=split_file,
+                mask_overlay_root=overlay_root,
+            )
+            sample = dataset[0]
+            self.assertEqual(sample["mask_source"], "overlay")
+            self.assertTrue(torch.equal(sample["conditioning_seg"], sample["label"]))
+            self.assertEqual(int(torch.count_nonzero(sample["conditioning_seg"] == 1)), 64)
+            self.assertEqual(int(torch.count_nonzero(sample["conditioning_seg"] == 3)), 144)
+
     def test_overlay_loader_ignores_source_seg_and_hist(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source_root, overlay_root, split_file = _write_fixture(Path(directory))

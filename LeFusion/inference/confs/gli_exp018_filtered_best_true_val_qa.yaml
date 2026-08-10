@@ -1,0 +1,13 @@
+defaults:
+  - gli_exp018_direct_best_true_val_qa
+  - _self_
+
+variant: filtered_best_true_val_qa
+device: cuda:1
+
+checkpoint:
+  path: /workspace/LeFusion_v2/my_experiment/experiments/20260811_exp018_gli_exp016_pseudomask_lefusion/outputs/filtered_mask_fp32_50k/checkpoints/best.pt
+
+output:
+  root: /workspace/LeFusion_v2/my_experiment/experiments/20260811_exp018_gli_exp016_pseudomask_lefusion/outputs/filtered_mask_fp32_50k/best_validation/true_mask_qa
+

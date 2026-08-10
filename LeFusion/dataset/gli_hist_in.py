@@ -87,6 +87,7 @@ class GLIInferenceDataset(GLIDataset):
         split_file: str | Path | None = None,
         raw_source_split: str = "train",
         selected_relative_paths: Sequence[str] | None = None,
+        mask_overlay_root: str | Path | None = None,
     ) -> None:
         self.raw_root_dir = Path(raw_root_dir).expanduser()
         self.raw_source_split = raw_source_split
@@ -95,6 +96,7 @@ class GLIInferenceDataset(GLIDataset):
             patch_size_xyz=patch_size_xyz,
             split=split,
             split_file=split_file,
+            mask_overlay_root=mask_overlay_root,
         )
         if selected_relative_paths is not None:
             by_path = {str(record["relative_path"]): record for record in self.records}

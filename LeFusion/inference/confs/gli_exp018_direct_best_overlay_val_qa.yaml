@@ -1,0 +1,12 @@
+defaults:
+  - gli_exp018_direct_best_true_val_qa
+  - _self_
+
+variant: direct_best_overlay_val_qa
+
+dataset:
+  mask_overlay_root: /workspace/LeFusion_v2/dataset/brats2024_gli_exp016_pseudomasks/direct
+
+output:
+  root: /workspace/LeFusion_v2/my_experiment/experiments/20260811_exp018_gli_exp016_pseudomask_lefusion/outputs/direct_mask_fp32_50k/best_validation/overlay_mask_qa
+

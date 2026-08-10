@@ -1,0 +1,56 @@
+defaults:
+  - gli_exp010_p64_short_qa
+  - _self_
+
+experiment_id: 20260811_exp018_gli_exp016_pseudomask_lefusion
+variant: direct_best_true_val_qa
+device: cuda:0
+
+dataset:
+  root_dir: /workspace/LeFusion_v2/dataset/brats2024_gli_t1c_local_patches
+  raw_root_dir: /workspace/LeFusion-main/BraTS-2024-Complete/BraTS-GLI
+  raw_source_split: train
+  split: val
+  split_file: /workspace/LeFusion_v2/my_experiment/experiments/20260805_exp004_gli_inference_closed_loop/splits_v2.json
+  batch_size: 1
+  num_workers: 0
+
+model:
+  amp: false
+
+checkpoint:
+  path: /workspace/LeFusion_v2/my_experiment/experiments/20260811_exp018_gli_exp016_pseudomask_lefusion/outputs/direct_mask_fp32_50k/checkpoints/best.pt
+  weights_key: ema
+
+conditioning:
+  source: real
+  selection: nearest
+  hist_perturb_std: 0.0
+
+input_policy:
+  mask_inside_lesion: true
+  fill_value: 0.0
+  lesion_mode: original_multilabel
+
+selection:
+  manifest_path: /workspace/LeFusion_v2/my_experiment/experiments/20260811_exp018_gli_exp016_pseudomask_lefusion/outputs/best_validation/qa_subset_manifest.json
+  shard_index: 0
+  shard_count: 1
+
+sampling:
+  seed: 20260811
+  cond_scale: 2.0
+
+repaint:
+  show_progress: false
+
+output:
+  root: /workspace/LeFusion_v2/my_experiment/experiments/20260811_exp018_gli_exp016_pseudomask_lefusion/outputs/direct_mask_fp32_50k/best_validation/true_mask_qa
+  max_batches: null
+  overwrite: false
+  resume: true
+  memory_growth_tolerance_mib: 256
+
+hydra:
+  job: {chdir: false}
+  run: {dir: .}

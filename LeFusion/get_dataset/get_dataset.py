@@ -40,6 +40,7 @@ def get_inference_dataloader(
             split_file=dataset_kwargs.get('split_file'),
             raw_source_split=dataset_kwargs.get('raw_source_split', 'train'),
             selected_relative_paths=dataset_kwargs.get('selected_relative_paths'),
+            mask_overlay_root=dataset_kwargs.get('mask_overlay_root'),
         )
         loader = DataLoader(
             train_dataset,
