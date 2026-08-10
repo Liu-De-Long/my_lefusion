@@ -197,3 +197,12 @@ scale `2.0`；正式父 PID `2679/2680` 均已退出，无残留训练/推理进
    作为 paired 重建质量对照，exp012 只作为 histogram 响应起点。
 3. 在任何新增训练前建立新实验 ID、配置和 Git commit，并重新执行零更新 preflight；未经用户
    另行授权，不启动其他 seed、p80、519 例或全量 test，exp009 保持独立。
+
+### exp018 当前运行状态（2026-08-11）
+
+- `20260811_exp018_gli_exp016_pseudomask_lefusion` 已完成 8804 份 direct/filtered sidecar、
+  `0.964` CRR–ERR 阈值、train mask 审计和两路线 FP32 preflight。
+- direct 全 train focus mIoU 为 `0.671966`；filtered 覆盖率 `0.842106`，拒绝视为错误时 focus
+  mIoU `0.433933`。该差异只描述 mask，不代表 LeFusion 生成质量。
+- 当前正式执行顺序固定为 direct 50k（或原 early stop）后 filtered 50k（或原 early stop）；
+  两路线都只用真实 val mask 选模，test 保持封存。

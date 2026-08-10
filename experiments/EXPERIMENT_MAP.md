@@ -18,5 +18,6 @@
 | `20260807_exp013_gli_short_method_comparison` | 比较实验 | 统一比较 exp010–exp012 的固定 8 例五变体 QA、定量门槛与横向图 | 已完成；exp012 为 hist 响应候选，exp010 为 paired 重建最佳方法 |
 | `20260808_exp014_gli_four_class_counterfactual_qa` | QA 方法扩展 | 对同一冻结病例、union mask 和采样随机序列分别请求四类，检查 histogram 排名与无亮度泄漏纹理可分性 | 已完成 32 个结果；只证实亮暗/统计控制，四类视觉与医学语义控制未通过 |
 | `20260808_exp016_gli_exp010_exp012_four_class_comparison` | 配对 QA 比较 | 为 exp010 补充与 exp012 完全相同的冻结 8 例 × 4 类生成，并逐例比较 histogram、GLCM、margin 与背景保持 | 已完成；exp012 的 hist/GLCM 为 21/32、26/32，优于 exp010 的 18/32、21/32，保留语义未验证边界 |
+| `20260811_exp018_gli_exp016_pseudomask_lefusion` | 方法与对照实验 | 用 exp016 direct/置信度过滤四通道 mask 分别执行 exp010 FP32 全量训练 | mask、阈值、审计与双路线 preflight 已完成；direct 正式训练待启动 |
 
 实验 ID 只描述研究目的。两种 patch 大小分别记录在同一实验目录的配置文件中，使用同一份裁剪代码和患者划分。

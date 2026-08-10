@@ -1,0 +1,15 @@
+variant: direct_mask_fp32_50k
+hydra_config: LeFusion/train/config/experiment/gli_exp018_direct_mask_fp32_50k.yaml
+classifier_source_commit: 25f3a0680fe9440aa7ead25ffab44a6243094f2c
+classifier_checkpoint_sha256: 3f460bbd245fd69ba6e2c6cf71f806bc28e4ebb3862a2e3fc5c411b7e66f3617
+mask_overlay_root: /workspace/LeFusion_v2/dataset/brats2024_gli_exp016_pseudomasks/direct
+train_patches: 7772
+validation_mask_source: ground_truth
+seed: 20260805
+max_optimizer_steps: 50000
+precision: fp32
+global_batch_size: 4
+gpus: [0, 1]
+learning_rate: 0.0001
+sampler: gli_anchor_role_subject
+wandb_run_id: exp018-direct-mask-fp32-50k-s20260805

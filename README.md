@@ -227,3 +227,5 @@ GLI loss 对 batch 中所有非空 `(sample, lesion channel)` 单元等权平均
 - GLI lesion-aware 训练接入：`experiments/20260805_exp003_gli_lesion_aware_training/result.md`
 - GLI inference 闭环：`experiments/20260805_exp004_gli_inference_closed_loop/result.md`
 - exp010–exp012 统一比较：`experiments/20260807_exp013_gli_short_method_comparison/result.md`
+- exp016 伪 mask 驱动 exp010 的 direct/filtered 全量训练：
+  `experiments/20260811_exp018_gli_exp016_pseudomask_lefusion/result.md`

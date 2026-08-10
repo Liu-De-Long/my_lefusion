@@ -783,3 +783,17 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
 - exp010 首次 online preflight 在 0 optimizer update 时检测到 FP16 初始反向梯度范数非有限；
   临时 checkpoint 已清理，正式训练未启动。三个方法统一改用 A100 BF16 autocast 且不启用
   GradScaler，exp010 使用新的 `exp010-p64-preflight-s20260805-r2` 身份重跑。
+
+## 2026-08-11 — exp018 伪四通道 mask 与双路线训练预检
+
+- 从 exp010 全量分支建立 exp018，不合并会删除 exp010 文件的分类器分叉历史；仅引入 exp016
+  checkpoint-compatible 推理代码、overlay loader、可复用导出/阈值/过滤/审计脚本和回归测试。
+- exp016 best 在 train+val 生成 `8804` 份 direct sidecar；CRR–ERR 交点冻结为 `0.964`，并生成
+  `8804` 份 filtered sidecar。两套 contract 均记录文件、checkpoint、config、subset、split 与 manifest 哈希，未访问 test。
+- direct/filtered 全 train 患者等权 focus mIoU 为 `0.671966/0.433933`；filtered 保留覆盖率
+  `0.842106`，共有 `334` patch 使用空 mask 兜底。
+- 新增两份仅 mask overlay 与运行标识不同的 exp010 FP32 50k 配置；49 项相关回归通过、1 项远端数据环境测试按设计跳过。
+- direct/filtered online preflight 均通过零更新反向、完整真实-mask val 和 checkpoint resume；W&B run
+  分别为 `exp018-direct-mask-fp32-preflight-s20260805` 与
+  `exp018-filtered-mask-fp32-preflight-s20260805`。
+- 下一步严格顺序启动 direct、filtered 正式 run；任何 NaN/Inf 均 fail closed，不跳 batch、不自动改学习率。
