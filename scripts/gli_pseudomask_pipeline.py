@@ -528,6 +528,17 @@ def _metrics_from_patient_confusions(
         rc = float(np.nanmean([_class_metrics(value, 3)["iou"] for value in sampled]))
         boot.append((et + rc) / 2.0)
     pooled = np.sum(np.stack(confusions), axis=0)
+    normalized_confusions: list[np.ndarray] = []
+    for confusion in confusions:
+        row_sums = confusion.sum(axis=1, keepdims=True)
+        normalized_confusions.append(
+            np.divide(
+                confusion,
+                row_sums,
+                out=np.full_like(confusion, np.nan, dtype=np.float64),
+                where=row_sums > 0,
+            )
+        )
     return {
         "patient_count": len(subjects),
         "classes": classes,
@@ -537,6 +548,9 @@ def _metrics_from_patient_confusions(
         "focus_miou": focus,
         "focus_miou_bootstrap_95ci": [float(np.percentile(boot, 2.5)), float(np.percentile(boot, 97.5))],
         "pooled_confusion_true4_by_pred4plus_abstain": pooled.tolist(),
+        "patient_normalized_confusion_true4_by_pred4plus_abstain": np.nanmean(
+            np.stack(normalized_confusions), axis=0
+        ).tolist(),
         "retained_coverage": _safe_ratio(float(pooled[:, :4].sum()), float(pooled.sum())),
         "abstention_rate": _safe_ratio(float(pooled[:, 4].sum()), float(pooled.sum())),
     }
@@ -582,8 +596,7 @@ def audit_masks(args: argparse.Namespace) -> dict[str, Any]:
             groups[group_name][subject] += confusion
         correct = int(np.count_nonzero((prediction == truth) & total_mask))
         retained = int(np.count_nonzero(prediction))
-        patch_rows.append(
-            {
+        patch_row: dict[str, Any] = {
                 "relative_path": relative_path,
                 "subject_id": subject,
                 "sample_role": str(record["sample_role"]),
@@ -596,7 +609,15 @@ def audit_masks(args: argparse.Namespace) -> dict[str, Any]:
                 "accuracy_with_abstention_as_error": _safe_ratio(correct, int(total_mask.sum())),
                 "mean_confidence_inside": float(overlay["confidence_xyz"][total_mask].astype(np.float32).mean()),
             }
-        )
+        for class_index, class_name in enumerate(LABEL_NAMES, start=1):
+            truth_class = truth == class_index
+            predicted_class = prediction == class_index
+            intersection = int(np.count_nonzero(truth_class & predicted_class))
+            union = int(np.count_nonzero(truth_class | predicted_class))
+            denominator = int(np.count_nonzero(truth_class) + np.count_nonzero(predicted_class))
+            patch_row[f"{class_name.lower()}_iou"] = _safe_ratio(intersection, union)
+            patch_row[f"{class_name.lower()}_dice"] = _safe_ratio(2 * intersection, denominator)
+        patch_rows.append(patch_row)
         for row in component_records(prediction, overlay["confidence_xyz"], truth):
             row = dict(row)
             row.update({"relative_path": relative_path, "subject_id": subject})
@@ -626,6 +647,43 @@ def audit_masks(args: argparse.Namespace) -> dict[str, Any]:
         writer = csv.DictWriter(handle, fieldnames=list(patient_rows[0]))
         writer.writeheader()
         writer.writerows(patient_rows)
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import ListedColormap
+
+        worst = sorted(
+            patch_rows,
+            key=lambda row: (float(row["accuracy_with_abstention_as_error"]), str(row["relative_path"])),
+        )[:4]
+        worst_paths = {str(row["relative_path"]) for row in worst}
+        remaining = sorted(
+            (row for row in patch_rows if str(row["relative_path"]) not in worst_paths),
+            key=lambda row: hashlib.sha256(
+                f"{args.seed}|{row['relative_path']}".encode("utf-8")
+            ).hexdigest(),
+        )[:4]
+        selected = worst + remaining
+        figure, axes = plt.subplots(len(selected), 3, figsize=(9, 3 * len(selected)))
+        label_cmap = ListedColormap(["black", "#3b82f6", "#22c55e", "#ef4444", "#eab308"])
+        for row_index, row in enumerate(selected):
+            relative_path = str(row["relative_path"])
+            t1c, truth = _load_source_arrays(source_root, relative_path)
+            prediction = validate_overlay(overlay_root / PATCH_DIR / relative_path)["seg_xyz"]
+            slice_index = int(np.argmax(np.count_nonzero(truth > 0, axis=(0, 1))))
+            axes[row_index, 0].imshow(t1c[:, :, slice_index].T, cmap="gray", origin="lower", vmin=-1, vmax=1)
+            axes[row_index, 1].imshow(truth[:, :, slice_index].T, cmap=label_cmap, origin="lower", vmin=0, vmax=4)
+            axes[row_index, 2].imshow(prediction[:, :, slice_index].T, cmap=label_cmap, origin="lower", vmin=0, vmax=4)
+            axes[row_index, 0].set_ylabel(Path(relative_path).stem, fontsize=7)
+            for axis in axes[row_index]:
+                axis.set_xticks([])
+                axis.set_yticks([])
+        for column, title in enumerate(("T1c", "true mask", "pseudo mask")):
+            axes[0, column].set_title(title)
+        figure.tight_layout()
+        figure.savefig(output_dir / "qa_contact_sheet.png", dpi=160)
+        plt.close(figure)
+    except ImportError:
+        pass
     summary = {
         "schema_version": 1,
         "split": args.split,
