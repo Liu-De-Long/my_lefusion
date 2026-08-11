@@ -49,6 +49,15 @@ def _expected_model_metadata(cfg: DictConfig) -> dict:
         "spatial_shape_dhw": [int(value) for value in cfg.model.spatial_shape_dhw],
         "timesteps": int(cfg.model.timesteps),
         "temporal_max_distance": int(cfg.model.temporal_max_distance),
+        "spatial_condition_channels": int(
+            cfg.model.get("spatial_condition_channels", 0)
+        ),
+        "objective": str(
+            cfg.get("lesion_generation", {}).get("objective", "pred_noise")
+        ),
+        "gli_state_mode": str(
+            cfg.get("lesion_generation", {}).get("state_mode", "full_t1c")
+        ),
     }
 
 
@@ -64,6 +73,12 @@ def _validate_provenance(cfg: DictConfig, dataset, checkpoint: dict) -> None:
         raise ValueError("current dataset manifest does not match checkpoint")
     if sha256_file(cfg.dataset.split_file) != str(metadata["split_hash"]):
         raise ValueError("current split file does not match checkpoint")
+    overlay_contract = getattr(dataset, "mask_overlay_contract_path", None)
+    overlay_hash = (
+        sha256_file(overlay_contract) if overlay_contract is not None else None
+    )
+    if overlay_hash != metadata.get("mask_overlay_contract_hash"):
+        raise ValueError("current mask overlay contract does not match checkpoint")
 
 
 def _create_resume_trainer(

@@ -29,6 +29,7 @@ from scripts.gli_formal_training_preflight import (  # noqa: E402
     build_preflight_cfg,
     resolve_preflight_parallelism,
 )
+from scripts.gli_formal_checkpoint_gate import _expected_model_metadata  # noqa: E402
 
 
 def _records():
@@ -110,6 +111,30 @@ def _metadata():
 
 
 class GLIFormalTrainingTests(unittest.TestCase):
+    def test_checkpoint_gate_uses_conditional_model_metadata(self):
+        cfg = OmegaConf.create(
+            {
+                "model": {
+                    "diffusion_num_channels": 1,
+                    "cond_dim": 64,
+                    "base_dim": 64,
+                    "diffusion_img_size": 64,
+                    "spatial_shape_dhw": [32, 64, 64],
+                    "timesteps": 300,
+                    "temporal_max_distance": 128,
+                    "spatial_condition_channels": 5,
+                },
+                "lesion_generation": {
+                    "objective": "pred_noise",
+                    "state_mode": "full_t1c",
+                },
+            }
+        )
+        metadata = _expected_model_metadata(cfg)
+        self.assertEqual(metadata["spatial_condition_channels"], 5)
+        self.assertEqual(metadata["objective"], "pred_noise")
+        self.assertEqual(metadata["gli_state_mode"], "full_t1c")
+
     def test_sampler_balances_strata_and_subjects_deterministically(self):
         records = _records()
         sampler = GLIStratifiedSampler(records, seed=17, num_samples=80)
