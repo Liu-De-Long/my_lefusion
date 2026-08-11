@@ -52,18 +52,22 @@ run_pair() {
 START_EPOCH=${EXP019_START_EPOCH:-$(date +%s)}
 log_phase "formal_start_commit_$(git -C "$REPO" rev-parse HEAD)"
 
-log_phase preflight_start
-"$PYTHON" "$INFER" --config-name gli_exp019_exp010_test200_shard0 \
-  output.root="$OUT/preflight_batch8/exp010" output.max_batches=1 >"$OUT/preflight_batch8_exp010.log" 2>&1 &
-preflight0=$!
-"$PYTHON" "$INFER" --config-name gli_exp019_direct_test200_shard1 \
-  output.root="$OUT/preflight_batch8/direct" output.max_batches=1 >"$OUT/preflight_batch8_direct.log" 2>&1 &
-preflight1=$!
-wait "$preflight0"
-wait "$preflight1"
-"$PYTHON" "$INFER" --config-name gli_exp019_filtered_test200_shard0 \
-  output.root="$OUT/preflight_batch8/filtered" output.max_batches=1 >"$OUT/preflight_batch8_filtered.log" 2>&1
-log_phase "preflight_complete_elapsed_$(elapsed)s"
+if [[ "${EXP019_REUSE_PREFLIGHT:-0}" == 1 ]]; then
+  log_phase "preflight_reused_from_initial_chain"
+else
+  log_phase preflight_start
+  "$PYTHON" "$INFER" --config-name gli_exp019_exp010_test200_shard0 \
+    dataset.batch_size=1 output.root="$OUT/preflight_batch1/exp010" output.max_batches=1 >"$OUT/preflight_batch1_exp010.log" 2>&1 &
+  preflight0=$!
+  "$PYTHON" "$INFER" --config-name gli_exp019_direct_test200_shard1 \
+    dataset.batch_size=1 output.root="$OUT/preflight_batch1/direct" output.max_batches=1 >"$OUT/preflight_batch1_direct.log" 2>&1 &
+  preflight1=$!
+  wait "$preflight0"
+  wait "$preflight1"
+  "$PYTHON" "$INFER" --config-name gli_exp019_filtered_test200_shard0 \
+    dataset.batch_size=1 output.root="$OUT/preflight_batch1/filtered" output.max_batches=1 >"$OUT/preflight_batch1_filtered.log" 2>&1
+  log_phase "preflight_complete_elapsed_$(elapsed)s"
+fi
 
 run_pair exp010 gli_exp019_exp010_test200_shard0 gli_exp019_exp010_test200_shard1
 run_pair direct gli_exp019_direct_test200_shard0 gli_exp019_direct_test200_shard1
