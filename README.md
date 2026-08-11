@@ -229,7 +229,14 @@ GLI loss 对 batch 中所有非空 `(sample, lesion channel)` 单元等权平均
 - exp010–exp012 统一比较：`experiments/20260807_exp013_gli_short_method_comparison/result.md`
 - exp016 伪 mask 驱动 exp010 的 direct/filtered 全量训练：
   `experiments/20260811_exp018_gli_exp016_pseudomask_lefusion/result.md`
+- exp010/direct/filtered 冻结 200 例配对 test 对比：
+  `experiments/20260811_exp019_gli_exp010_pseudomask_test200_comparison/result.md`
 
 exp018 已完成 direct/filtered 两次 FP32 50k 正式训练；best step 分别为 44000/46000，真实-mask
 val loss 为 `0.1126854883/0.1122985579`。checkpoint/resume gate、完整 real/overlay val 和固定
 8-patch paired QA 均通过，全程未访问 test。
+
+exp019 已在同一组 200 个真实-mask test patch 上完成三模型 FP32、300-step 配对比较。filtered
+取得最佳 lesion PSNR/SSIM/MAE（`21.8071/0.7277/0.12087`）和 FID/SwAV-FSD
+（`47.0280/2.4970`）；direct 的 Hist-W1 最低（`0.06749`）。三模型各只访问冻结的 200 例，
+端到端用时 `3:24:36`。

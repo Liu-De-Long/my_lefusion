@@ -1,5 +1,19 @@
 # 实验变更记录
 
+## 2026-08-12 — exp019 完成三种 exp010 模型的冻结 200 例配对 test
+
+- 精确分层冻结 200/1038 个 test patch、66 个 patient，manifest SHA-256 为
+  `b7c2802dd24193e950e505700eeeb374435c19eac539b6e263b470283210ebae`；三模型使用同一真实 mask、
+  真实 histogram、sampling seed `20260806`、FP32 和 300-step RePaint。
+- 原始 exp010、direct、filtered 各完成 100/100 双 shard，共 600 个唯一结果；没有访问未选择的
+  838 个 patch，背景外变化严格为 0，所有输出和指标有限。
+- filtered 的 lesion PSNR/SSIM/MAE 为 `21.8071/0.7277/0.12087`，优于 direct 的
+  `21.5548/0.7053/0.12628` 和 exp010 的 `19.9992/0.6451/0.15482`。
+- FID/SwAV-FSD 为 exp010 `60.4132/3.3253`、direct `49.7290/2.6669`、filtered
+  `47.0280/2.4970`；Hist-W1 macro 则 direct 最低：`0.06749`。
+- batch=1 正式链在 14+14 后因预算外推安全停止并隔离保留；最终采用 batch=8，端到端
+  `12276` 秒（`3:24:36`），满足四小时约束。固定 8 例 QA 补齐三模型绝对误差图。
+
 ## 2026-08-08 — exp010 step 14k 完成冻结 test 50% 效果审计
 
 - GPU0/1 两个输出互斥 worker 正常完成 `260/259`，共 519 个唯一 patch、73 个 subject；分片

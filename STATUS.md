@@ -2,7 +2,15 @@
 
 ## 当前版本
 
-v0.12.0-exp010-half-test-complete
+v0.14.0-exp019-test200-complete
+
+## exp019 配对 test200
+
+原始 exp010 step 14000、direct step 44000 和 filtered step 46000 的 best/EMA 已完成冻结 200 例
+真实-mask 配对 test。三模型各 200 个唯一结果、共同交集 200，未访问其余 838 个 test patch；
+端到端 `3:24:36`。filtered 的 lesion PSNR/SSIM/MAE 和 FID/SwAV-FSD 最佳，分别为
+`21.8071/0.7277/0.12087` 与 `47.0280/2.4970`；direct 的 Hist-W1 最低，为 `0.06749`。
+完整结论见 `experiments/20260811_exp019_gli_exp010_pseudomask_test200_comparison/result.md`。
 
 ## 当前最佳实验
 

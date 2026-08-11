@@ -22,9 +22,12 @@ models:
     checkpoint_sha256: 5ddd8f112e0d63fc671f641351010cd2fe0fe11a5009f25f3df4e31cf617ff6c
 runtime:
   gpus: [0, 1]
+  inference_batch_size: 8
   hard_no_new_stage_after_seconds: 13500
   save_nifti: false
   save_qa_during_inference: false
+  wall_time_seconds: 12276
+  status: complete
 metrics:
   intensity_range: [-1.0, 1.0]
   histogram_bins: 16
