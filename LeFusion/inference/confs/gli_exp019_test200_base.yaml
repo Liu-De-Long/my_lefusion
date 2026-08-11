@@ -19,7 +19,7 @@ dataset:
   patch_size_xyz: [64, 64, 32]
   split: test
   split_file: /workspace/LeFusion_v2/my_experiment/experiments/20260805_exp004_gli_inference_closed_loop/splits_v2.json
-  batch_size: 4
+  batch_size: 8
   num_workers: 4
   hist_bins: 16
 
