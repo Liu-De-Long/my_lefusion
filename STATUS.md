@@ -201,8 +201,10 @@ scale `2.0`；正式父 PID `2679/2680` 均已退出，无残留训练/推理进
 ### exp018 当前运行状态（2026-08-11）
 
 - `20260811_exp018_gli_exp016_pseudomask_lefusion` 已完成 8804 份 direct/filtered sidecar、
-  `0.964` CRR–ERR 阈值、train mask 审计和两路线 FP32 preflight。
+  `0.964` CRR–ERR 阈值、全量 train mask 审计和两路线 FP32 50k 正式训练。
+- direct/filtered best 分别为 step `44000/46000`，完整真实-mask val loss 为
+  `0.1126854883/0.1122985579`；两者 checkpoint gate 与零更新 resume 审计均通过。
 - direct 全 train focus mIoU 为 `0.671966`；filtered 覆盖率 `0.842106`，拒绝视为错误时 focus
   mIoU `0.433933`。该差异只描述 mask，不代表 LeFusion 生成质量。
-- 当前正式执行顺序固定为 direct 50k（或原 early stop）后 filtered 50k（或原 early stop）；
-  两路线都只用真实 val mask 选模，test 保持封存。
+- 完整 real/overlay val、固定 8-patch QA 和聚合均完成，背景精确不变率为 1；审计 gate 修复提交为
+  `3ffc9bae421ec9747741507f446e4cacf0ec43bb`，test 始终封存。

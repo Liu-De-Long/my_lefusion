@@ -797,3 +797,14 @@ exp005 已具备进入独立 preflight 的代码基础，但仍不允许正式�
   分别为 `exp018-direct-mask-fp32-preflight-s20260805` 与
   `exp018-filtered-mask-fp32-preflight-s20260805`。
 - 下一步严格顺序启动 direct、filtered 正式 run；任何 NaN/Inf 均 fail closed，不跳 batch、不自动改学习率。
+
+## 2026-08-11 — exp018 双路线 50k 与最终审计完成
+
+- direct/filtered 均以 FP32 到达 50k；best 分别为 step `44000/46000`，真实-mask val loss 为
+  `0.1126854883/0.1122985579`，训练期间未出现 NaN/Inf。
+- 修正正式 checkpoint gate 对条件模型 metadata 的错误默认值，并增加 objective、GLI state mode
+  与 overlay contract hash 校验；修复提交为 `3ffc9bae421ec9747741507f446e4cacf0ec43bb`。
+- 修复后两份 checkpoint 数值复算、零 optimizer-update resume、下一 batch 可复现性均通过；相关
+  远端测试 `14/14` 通过。
+- 完成 7772-patch direct/filtered mask 复审、完整 1032-patch real/overlay val、固定 8-patch
+  paired QA 和最终 montage/summary 聚合；审计链正常结束且未访问 test。
