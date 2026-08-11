@@ -45,6 +45,7 @@ from inference.gli_selection import (  # noqa: E402
     build_selection_manifest,
     manifest_shard_paths,
     select_stratified_fraction,
+    select_stratified_count,
     select_val_qa,
 )
 
@@ -543,6 +544,42 @@ class GLIInferenceClosedLoopTests(unittest.TestCase):
         shard1 = manifest_shard_paths(payload, shard_index=1, shard_count=2)
         self.assertFalse(set(shard0).intersection(shard1))
         self.assertEqual(set(shard0).union(shard1), set(payload["selected_relative_paths"]))
+
+    def test_deterministic_exact_count_selection_and_equal_shards(self) -> None:
+        records = []
+        for label in (1, 2, 3, 4):
+            for role in ("interior", "boundary"):
+                for index in range(31):
+                    records.append(
+                        {
+                            "relative_path": f"{label}/{role}/{index}.npz",
+                            "case_id": f"case-{label}-{role}-{index}",
+                            "subject_id": f"subject-{label}-{index}",
+                            "anchor_label": str(label),
+                            "sample_role": role,
+                        }
+                    )
+        selected, selection = select_stratified_count(
+            records, count=200, seed=20260806
+        )
+        repeated, _ = select_stratified_count(records, count=200, seed=20260806)
+        self.assertEqual(selected, repeated)
+        self.assertEqual(len(selected), 200)
+        self.assertEqual(sum(selection["stratum_quotas"].values()), 200)
+        payload = build_selection_manifest(
+            records,
+            selected,
+            selection=selection,
+            split="test",
+            patch_size_xyz=(64, 64, 32),
+            shard_count=2,
+            provenance={"dataset_manifest_sha256": "a", "split_sha256": "b"},
+        )
+        shard0 = manifest_shard_paths(payload, shard_index=0, shard_count=2)
+        shard1 = manifest_shard_paths(payload, shard_index=1, shard_count=2)
+        self.assertEqual([len(shard0), len(shard1)], [100, 100])
+        self.assertFalse(set(shard0) & set(shard1))
+        self.assertEqual(set(shard0) | set(shard1), set(payload["selected_relative_paths"]))
 
     def test_val_qa_selection_covers_label_role_and_prefers_multilabel(self) -> None:
         records = []

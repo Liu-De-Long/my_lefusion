@@ -1,0 +1,11 @@
+defaults:
+  - gli_exp019_test200_base
+  - _self_
+variant: filtered_best_step46000_test200_shard0
+device: cuda:0
+checkpoint:
+  path: /workspace/LeFusion_v2/my_experiment/experiments/20260811_exp018_gli_exp016_pseudomask_lefusion/outputs/filtered_mask_fp32_50k/checkpoints/best.pt
+selection:
+  shard_index: 0
+output:
+  root: /workspace/LeFusion_v2/my_experiment/experiments/20260811_exp019_gli_exp010_pseudomask_test200_comparison/outputs/inference/filtered/shard_0

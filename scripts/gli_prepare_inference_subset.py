@@ -19,6 +19,7 @@ from checkpointing import sha256_file  # noqa: E402
 from dataset.gli_hist import GLIDataset  # noqa: E402
 from inference.gli_selection import (  # noqa: E402
     build_selection_manifest,
+    select_stratified_count,
     select_stratified_fraction,
     select_val_qa,
 )
@@ -51,6 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", choices=("val", "test"), required=True)
     parser.add_argument("--mode", choices=("val-qa", "fraction"), required=True)
     parser.add_argument("--fraction", type=float, default=0.5)
+    parser.add_argument("--count", type=int)
     parser.add_argument("--seed", type=int, default=20260806)
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--output", required=True)
@@ -74,9 +76,14 @@ def main() -> None:
     else:
         if args.split != "test":
             raise ValueError("fraction mode is reserved for the held-out test split")
-        indices, selection = select_stratified_fraction(
-            dataset.records, fraction=args.fraction, seed=args.seed
-        )
+        if args.count is not None:
+            indices, selection = select_stratified_count(
+                dataset.records, count=args.count, seed=args.seed
+            )
+        else:
+            indices, selection = select_stratified_fraction(
+                dataset.records, fraction=args.fraction, seed=args.seed
+            )
     split_file = Path(args.split_file).expanduser()
     payload = build_selection_manifest(
         dataset.records,

@@ -54,6 +54,20 @@ def select_stratified_fraction(
     target = math.floor(len(records) * float(fraction))
     if target <= 0:
         raise ValueError("fraction selects zero records")
+    selected, payload = select_stratified_count(records, count=target, seed=seed)
+    payload.update(mode="stratified_fraction", fraction=float(fraction))
+    return selected, payload
+
+
+def select_stratified_count(
+    records: Sequence[Mapping[str, object]], *, count: int, seed: int
+) -> tuple[list[int], dict[str, object]]:
+    """Select an exact count with largest-remainder label/role quotas."""
+    if not records:
+        raise ValueError("cannot select from empty records")
+    target = int(count)
+    if not 0 < target <= len(records):
+        raise ValueError("count must be in [1, len(records)]")
     grouped: dict[tuple[int, str], list[int]] = defaultdict(list)
     for index, record in enumerate(records):
         grouped[_record_key(record)].append(index)
@@ -81,8 +95,8 @@ def select_stratified_fraction(
     )
     selected_records = [records[index] for index in selected]
     payload = {
-        "mode": "stratified_fraction",
-        "fraction": float(fraction),
+        "mode": "stratified_count",
+        "count": target,
         "seed": int(seed),
         "target_count": target,
         "full_distribution": _distribution(records),

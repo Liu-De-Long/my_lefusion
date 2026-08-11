@@ -473,6 +473,14 @@ def run_gli(conf: DictConfig) -> None:
             ),
         },
     }
+    save_nifti = bool(conf.output.get("save_nifti", True))
+    save_qa = bool(conf.output.get("save_qa", True))
+    if not save_nifti or not save_qa:
+        run_contract["output_artifacts"] = {
+            "save_npz": True,
+            "save_nifti": save_nifti,
+            "save_qa": save_qa,
+        }
     contract_path = output_root / "run_contract.json"
     if contract_path.is_file():
         existing_contract = json.loads(contract_path.read_text(encoding="utf-8"))
@@ -661,12 +669,13 @@ def run_gli(conf: DictConfig) -> None:
                     int(target_labels[index].item()), dtype=np.uint8
                 ),
             )
-            nib.save(nib.Nifti1Image(generated_xyz, affine), nifti_path)
-            nib.save(nib.Nifti1Image(seg_xyz, affine), seg_path)
-            reloaded = nib.load(str(nifti_path))
-            expected_xyz = tuple(int(value) for value in conf.dataset.patch_size_xyz)
-            if reloaded.shape != expected_xyz or not np.allclose(reloaded.affine, affine):
-                raise RuntimeError(f"NIfTI round-trip failed for {stem}")
+            if save_nifti:
+                nib.save(nib.Nifti1Image(generated_xyz, affine), nifti_path)
+                nib.save(nib.Nifti1Image(seg_xyz, affine), seg_path)
+                reloaded = nib.load(str(nifti_path))
+                expected_xyz = tuple(int(value) for value in conf.dataset.patch_size_xyz)
+                if reloaded.shape != expected_xyz or not np.allclose(reloaded.affine, affine):
+                    raise RuntimeError(f"NIfTI round-trip failed for {stem}")
             metrics = _region_metrics(
                 generated_dhw, input_dhw, seg_dhw, support_dhw, condition_np
             )
@@ -689,19 +698,24 @@ def run_gli(conf: DictConfig) -> None:
                     "sample_seed": sample_seed,
                 }
             )
-            _save_qa(
-                output_root / "qa" / f"{stem}.png",
-                input_dhw,
-                masked_input_dhw,
-                generated_dhw,
-                seg_dhw,
-            )
+            if save_qa:
+                _save_qa(
+                    output_root / "qa" / f"{stem}.png",
+                    input_dhw,
+                    masked_input_dhw,
+                    generated_dhw,
+                    seg_dhw,
+                )
             manifest_record = {
                 "case_id": str(batch['case_id'][index]),
                 "source_relative_path": str(batch['relative_path'][index]),
                 "generated_npz": str(npz_path.relative_to(output_root)),
-                "generated_nifti": str(nifti_path.relative_to(output_root)),
-                "conditioning_seg_nifti": str(seg_path.relative_to(output_root)),
+                "generated_nifti": (
+                    str(nifti_path.relative_to(output_root)) if save_nifti else ""
+                ),
+                "conditioning_seg_nifti": (
+                    str(seg_path.relative_to(output_root)) if save_nifti else ""
+                ),
                 "cluster_ids": ",".join(map(str, cluster_np.tolist())),
                 "checkpoint_git_sha": checkpoint_git_sha,
                 "checkpoint_step": checkpoint_step,

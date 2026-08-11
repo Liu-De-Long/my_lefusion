@@ -1,0 +1,34 @@
+experiment_id: 20260811_exp019_gli_exp010_pseudomask_test200_comparison
+split: test
+full_test_count: 1038
+selected_count: 200
+selection_seed: 20260806
+shard_count: 2
+shard_counts: [100, 100]
+sampling_seed: 20260806
+timesteps: 300
+weights_key: ema
+mask_source: ground_truth
+histogram_source: ground_truth
+models:
+  exp010:
+    checkpoint_step: 14000
+    checkpoint_sha256: 58e939798fc8d3427b70aafdd61877a14984d2478cb7a39796c6019407f07358
+  direct:
+    checkpoint_step: 44000
+    checkpoint_sha256: 3e3c30585ef27c3540a8f3e3bf0bc3f4b48e1c1fb84ac7b85c06adfac3f70e0a
+  filtered:
+    checkpoint_step: 46000
+    checkpoint_sha256: 5ddd8f112e0d63fc671f641351010cd2fe0fe11a5009f25f3df4e31cf617ff6c
+runtime:
+  gpus: [0, 1]
+  hard_no_new_stage_after_seconds: 13500
+  save_nifti: false
+  save_qa_during_inference: false
+metrics:
+  intensity_range: [-1.0, 1.0]
+  histogram_bins: 16
+  lesion_crop_margin_pixels: 8
+  orthogonal_slices_per_patch: 3
+  bootstrap_repeats: 2000
+  kid_subsets: 100

@@ -121,6 +121,7 @@ tifffile==2022.8.3
 timm==1.0.8
 toml==0.10.2
 torch==2.1.2
+torch-fidelity==0.3.0
 torch-tb-profiler==0.4.0
 torchio==0.18.80
 torchmetrics==0.9.1
