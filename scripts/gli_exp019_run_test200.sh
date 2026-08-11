@@ -9,6 +9,8 @@ PYTHON=/opt/conda/envs/lefusion/bin/python
 STATUS=$OUT/formal_chain.log
 LIMIT_SECONDS=13500
 mkdir -p "$OUT"
+export PYTHONPATH="/workspace/LeFusion_v2/python_deps${PYTHONPATH:+:$PYTHONPATH}"
+export TORCH_HOME=/workspace/LeFusion_v2/model_cache/torch
 
 log_phase() {
   printf '%s phase=%s\n' "$(date --iso-8601=seconds)" "$1" | tee -a "$STATUS"
