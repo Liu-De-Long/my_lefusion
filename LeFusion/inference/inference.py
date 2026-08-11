@@ -400,12 +400,13 @@ def run_gli(conf: DictConfig) -> None:
         shard_index=int(conf.selection.shard_index),
         shard_count=int(conf.selection.shard_count),
     )
-    if int(conf.dataset.batch_size) != 1:
-        raise ValueError("formal GLI selected inference requires dataset.batch_size=1")
+    inference_batch_size = int(conf.dataset.batch_size)
+    if inference_batch_size < 1:
+        raise ValueError("formal GLI selected inference requires dataset.batch_size>=1")
     loader = get_inference_dataloader(
         dataset_root_dir=conf.dataset.root_dir,
         data_type="gli",
-        batch_size=int(conf.dataset.batch_size),
+        batch_size=inference_batch_size,
         num_workers=int(conf.dataset.num_workers),
         raw_root_dir=conf.dataset.raw_root_dir,
         patch_size_xyz=conf.dataset.patch_size_xyz,
@@ -473,6 +474,8 @@ def run_gli(conf: DictConfig) -> None:
             ),
         },
     }
+    if inference_batch_size != 1:
+        run_contract["dataset_batch_size"] = inference_batch_size
     save_nifti = bool(conf.output.get("save_nifti", True))
     save_qa = bool(conf.output.get("save_qa", True))
     if not save_nifti or not save_qa:
@@ -511,10 +514,21 @@ def run_gli(conf: DictConfig) -> None:
     for batch_index, batch in enumerate(loader):
         if max_batches is not None and batch_index >= max_batches:
             break
-        relative_path = str(batch['relative_path'][0])
-        if relative_path in completed_paths:
+        batch_relative_paths = [str(value) for value in batch['relative_path']]
+        completed_in_batch = [path in completed_paths for path in batch_relative_paths]
+        if all(completed_in_batch):
             continue
-        sample_seed = _sampling_seed(sampling_seed, relative_path)
+        if any(completed_in_batch):
+            raise RuntimeError(
+                "cannot resume a partially completed inference batch; use the frozen "
+                "batch size and remove or complete the partial batch explicitly"
+            )
+        seed_key = (
+            batch_relative_paths[0]
+            if len(batch_relative_paths) == 1
+            else "\n".join(batch_relative_paths)
+        )
+        sample_seed = _sampling_seed(sampling_seed, seed_key)
         th.manual_seed(sample_seed)
         th.cuda.manual_seed_all(sample_seed)
         for key, value in list(batch.items()):
@@ -609,13 +623,14 @@ def run_gli(conf: DictConfig) -> None:
         th.cuda.synchronize(device)
         memory_trace.append(
             {
-                "source_relative_path": relative_path,
+                "source_relative_path": batch_relative_paths[0],
                 "allocated_mib": th.cuda.memory_allocated(device) / (1024 ** 2),
                 "reserved_mib": th.cuda.memory_reserved(device) / (1024 ** 2),
                 "peak_allocated_mib": th.cuda.max_memory_allocated(device) / (1024 ** 2),
             }
         )
         for index in range(output.shape[0]):
+            relative_path = batch_relative_paths[index]
             stem = str(batch['GT_name'][index])
             generated_dhw = output[index, 0].numpy()
             input_dhw = original_input[index, 0].float().cpu().numpy()

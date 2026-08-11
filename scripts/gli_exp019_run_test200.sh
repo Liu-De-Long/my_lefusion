@@ -49,20 +49,20 @@ run_pair() {
   log_phase "${name}_complete_elapsed_$(elapsed)s"
 }
 
-START_EPOCH=$(date +%s)
+START_EPOCH=${EXP019_START_EPOCH:-$(date +%s)}
 log_phase "formal_start_commit_$(git -C "$REPO" rev-parse HEAD)"
 
 log_phase preflight_start
 "$PYTHON" "$INFER" --config-name gli_exp019_exp010_test200_shard0 \
-  output.root="$OUT/preflight/exp010" output.max_batches=1 >"$OUT/preflight_exp010.log" 2>&1 &
+  output.root="$OUT/preflight_batch4/exp010" output.max_batches=1 >"$OUT/preflight_batch4_exp010.log" 2>&1 &
 preflight0=$!
 "$PYTHON" "$INFER" --config-name gli_exp019_direct_test200_shard1 \
-  output.root="$OUT/preflight/direct" output.max_batches=1 >"$OUT/preflight_direct.log" 2>&1 &
+  output.root="$OUT/preflight_batch4/direct" output.max_batches=1 >"$OUT/preflight_batch4_direct.log" 2>&1 &
 preflight1=$!
 wait "$preflight0"
 wait "$preflight1"
 "$PYTHON" "$INFER" --config-name gli_exp019_filtered_test200_shard0 \
-  output.root="$OUT/preflight/filtered" output.max_batches=1 >"$OUT/preflight_filtered.log" 2>&1
+  output.root="$OUT/preflight_batch4/filtered" output.max_batches=1 >"$OUT/preflight_batch4_filtered.log" 2>&1
 log_phase "preflight_complete_elapsed_$(elapsed)s"
 
 run_pair exp010 gli_exp019_exp010_test200_shard0 gli_exp019_exp010_test200_shard1

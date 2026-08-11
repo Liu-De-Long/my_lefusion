@@ -99,6 +99,7 @@ class Exp019MetricTests(unittest.TestCase):
         baseline = remove_allowed(configs[0])
         self.assertTrue(all(remove_allowed(config) == baseline for config in configs[1:]))
         self.assertTrue(all(config["model"]["amp"] is False for config in configs))
+        self.assertTrue(all(config["dataset"]["batch_size"] == 4 for config in configs))
         self.assertTrue(all(config["conditioning"]["source"] == "real" for config in configs))
         self.assertTrue(all(config["output"]["save_nifti"] is False for config in configs))
         self.assertTrue(all(config["output"]["save_qa"] is False for config in configs))
