@@ -311,22 +311,38 @@ def _build_montage(rows: list[dict], paths: dict[str, dict[str, Path]], output: 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    chosen = {}
+    candidates: dict[tuple[int, str], list[str]] = defaultdict(list)
     for row in rows:
         key = (int(row["anchor_label"]), str(row["sample_role"]))
-        chosen.setdefault(key, str(row["relative_path"]))
+        candidates[key].append(str(row["relative_path"]))
+    chosen = {
+        key: min(values, key=lambda value: hashlib.sha256(value.encode("utf-8")).hexdigest())
+        for key, values in candidates.items()
+    }
     selected = [chosen[(label, role)] for label in (1, 2, 3, 4) for role in ("interior", "boundary")]
-    fig, axes = plt.subplots(8, 6, figsize=(18, 24))
+    fig, axes = plt.subplots(8, 9, figsize=(27, 24))
     for row_index, relative in enumerate(selected):
         arrays = {name: np.load(paths[name][relative], allow_pickle=False) for name in MODEL_NAMES}
         reference = np.asarray(arrays["exp010"]["original_input_t1c_xyz"], dtype=np.float32)
         masked = np.asarray(arrays["exp010"]["masked_input_t1c_xyz"], dtype=np.float32)
         seg = np.asarray(arrays["exp010"]["conditioning_seg_xyz"], dtype=np.uint8)
         z = int(np.argmax((seg > 0).sum(axis=(0, 1))))
-        panels = [reference[:, :, z], masked[:, :, z]] + [np.asarray(arrays[name]["generated_t1c_xyz"])[:, :, z] for name in MODEL_NAMES] + [(seg[:, :, z] > 0).astype(float)]
-        titles = ["original", "masked", "exp010", "direct", "filtered", "true mask"]
-        for axis, image, title in zip(axes[row_index], panels, titles):
-            axis.imshow(image.T, cmap="gray", origin="lower", vmin=-1, vmax=1)
+        generated = {
+            name: np.asarray(arrays[name]["generated_t1c_xyz"], dtype=np.float32)
+            for name in MODEL_NAMES
+        }
+        panels = (
+            [(reference[:, :, z], "gray", -1, 1), (masked[:, :, z], "gray", -1, 1)]
+            + [(generated[name][:, :, z], "gray", -1, 1) for name in MODEL_NAMES]
+            + [(np.abs(generated[name][:, :, z] - reference[:, :, z]), "magma", 0, 2) for name in MODEL_NAMES]
+            + [((seg[:, :, z] > 0).astype(float), "gray", 0, 1)]
+        )
+        titles = [
+            "original", "masked", "exp010", "direct", "filtered",
+            "|exp010-error|", "|direct-error|", "|filtered-error|", "true mask",
+        ]
+        for axis, (image, cmap, vmin, vmax), title in zip(axes[row_index], panels, titles):
+            axis.imshow(image.T, cmap=cmap, origin="lower", vmin=vmin, vmax=vmax)
             axis.set_title(title if row_index == 0 else "")
             axis.axis("off")
         axes[row_index, 0].set_ylabel(Path(relative).stem, fontsize=7)
