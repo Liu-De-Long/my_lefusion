@@ -1,0 +1,7 @@
+defaults:
+  - gli_exp019_test200_base
+  - _self_
+
+experiment_id: 20260813_exp020_gli_exp010_pseudomask_conditioned_test200
+variant: exp020_overlay_test200_base
+

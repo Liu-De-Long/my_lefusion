@@ -21,6 +21,8 @@ if str(LEFUSION_ROOT) not in sys.path:
 
 from dataset.gli_hist import GLIDataset
 from scripts.gli_pseudomask_pipeline import (
+    _restrict_records,
+    _selection_paths,
     filter_components,
     lesion_histograms,
     select_intersection,
@@ -84,6 +86,37 @@ def _write_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
 
 
 class PseudoMaskPipelineTests(unittest.TestCase):
+    def test_test_export_requires_and_exactly_applies_selection_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(ValueError, "requires --selection-manifest"):
+                _selection_paths(None, split="test")
+            manifest = root / "selection.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "split": "test",
+                        "patch_size_xyz": [64, 64, 32],
+                        "selected_count": 2,
+                        "selected_relative_paths": ["patches/a.npz", "patches/c.npz"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            paths, digest = _selection_paths(manifest, split="test")
+            records = [
+                {"relative_path": "patches/a.npz"},
+                {"relative_path": "patches/b.npz"},
+                {"relative_path": "patches/c.npz"},
+            ]
+            selected = _restrict_records(records, paths)
+            self.assertEqual(
+                [row["relative_path"] for row in selected],
+                ["patches/a.npz", "patches/c.npz"],
+            )
+            self.assertEqual(len(digest), 64)
+
     def test_inference_dataset_uses_overlay_conditioning(self) -> None:
         try:
             import nibabel as nib

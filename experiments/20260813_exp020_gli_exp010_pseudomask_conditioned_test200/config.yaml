@@ -1,0 +1,20 @@
+experiment_id: 20260813_exp020_gli_exp010_pseudomask_conditioned_test200
+manifest: experiments/20260811_exp019_gli_exp010_pseudomask_test200_comparison/outputs/test200_manifest.json
+manifest_sha256: b7c2802dd24193e950e505700eeeb374435c19eac539b6e263b470283210ebae
+selected_count: 200
+sampling_seed: 20260806
+timesteps: 300
+precision: fp32
+inference_batch_size: 8
+mask_sources:
+  exp010: ground_truth
+  direct: exp016_direct_overlay
+  filtered: exp016_filtered_overlay_threshold_0.964
+models:
+  exp010: {step: 14000, reuse_exp019: true}
+  direct: {step: 44000}
+  filtered: {step: 46000}
+filtered_semantics:
+  hole_and_generation_region: filtered_union
+  rejected_gt_voxels: exact_copy
+

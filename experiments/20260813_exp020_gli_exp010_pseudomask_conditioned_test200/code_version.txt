@@ -1,0 +1,4 @@
+branch: feature/20260813-exp020-pseudomask-conditioned-test200
+status: implementation
+manifest_sha256: b7c2802dd24193e950e505700eeeb374435c19eac539b6e263b470283210ebae
+

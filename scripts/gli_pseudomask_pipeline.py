@@ -204,6 +204,44 @@ def _write_manifest(path: Path, rows: Sequence[Mapping[str, Any]]) -> str:
     return sha256_file(path)
 
 
+def _selection_paths(
+    selection_manifest: Path | None,
+    *,
+    split: str,
+) -> tuple[set[str] | None, str | None]:
+    if selection_manifest is None:
+        if split == "test":
+            raise ValueError("test pseudo-mask export requires --selection-manifest")
+        return None, None
+    payload = json.loads(selection_manifest.read_text(encoding="utf-8"))
+    if int(payload.get("schema_version", -1)) != 1:
+        raise ValueError("unsupported selection manifest schema")
+    if str(payload.get("split")) != split:
+        raise ValueError("selection manifest split mismatch")
+    paths = [str(value) for value in payload.get("selected_relative_paths", [])]
+    if not paths or len(paths) != len(set(paths)):
+        raise ValueError("selection manifest paths must be non-empty and unique")
+    if int(payload.get("selected_count", -1)) != len(paths):
+        raise ValueError("selection manifest count mismatch")
+    if tuple(int(value) for value in payload.get("patch_size_xyz", [])) != PATCH_SIZE_XYZ:
+        raise ValueError("selection manifest patch shape mismatch")
+    return set(paths), sha256_file(selection_manifest)
+
+
+def _restrict_records(
+    records: Sequence[Mapping[str, Any]],
+    selected_paths: set[str] | None,
+) -> list[Mapping[str, Any]]:
+    if selected_paths is None:
+        return list(records)
+    selected = [row for row in records if str(row["relative_path"]) in selected_paths]
+    actual = {str(row["relative_path"]) for row in selected}
+    if actual != selected_paths:
+        missing = sorted(selected_paths.difference(actual))
+        raise ValueError(f"selection contains paths outside source split: {missing[:3]}")
+    return selected
+
+
 def export_direct_masks(args: argparse.Namespace) -> dict[str, Any]:
     config = load_config(args.config)
     checkpoint = Path(args.checkpoint)
@@ -233,12 +271,20 @@ def export_direct_masks(args: argparse.Namespace) -> dict[str, Any]:
     output_size_root = output_root / PATCH_DIR
     manifest_rows: list[dict[str, Any]] = []
     split_counts: dict[str, int] = {}
+    selection_sha256: str | None = None
     kind = str(config["model"]["kind"]).lower()
     with torch.no_grad():
         for split in args.split:
+            selected_paths, current_selection_sha = _selection_paths(
+                args.selection_manifest, split=split
+            )
+            if selection_sha256 is not None and current_selection_sha != selection_sha256:
+                raise ValueError("one export may use only one selection manifest")
+            selection_sha256 = current_selection_sha or selection_sha256
             records, source_manifest = load_manifest_records(
                 dataset_root, split_file, split=split
             )
+            records = _restrict_records(records, selected_paths)
             dataset = GLIClassifierPatchDataset(
                 dataset_root, records, load_targets=True, modalities=modalities
             )
@@ -310,7 +356,9 @@ def export_direct_masks(args: argparse.Namespace) -> dict[str, Any]:
         "splits": split_counts,
         "file_count": len(manifest_rows),
         "files_manifest_sha256": manifest_sha,
-        "test_accessed": False,
+        "selection_manifest_sha256": selection_sha256,
+        "test_accessed": "test" in split_counts,
+        "unselected_test_accessed": False,
     }
     _json(output_root / "contract.json", contract)
     return contract
@@ -431,8 +479,16 @@ def derive_filtered_masks(args: argparse.Namespace) -> dict[str, Any]:
     fallback_count = 0
     kept_components = 0
     removed_components = 0
+    selection_sha256: str | None = None
     for split in args.split:
+        selected_paths, current_selection_sha = _selection_paths(
+            args.selection_manifest, split=split
+        )
+        if selection_sha256 is not None and current_selection_sha != selection_sha256:
+            raise ValueError("one export may use only one selection manifest")
+        selection_sha256 = current_selection_sha or selection_sha256
         records, source_manifest = load_manifest_records(source_root, args.split_file, split=split)
+        records = _restrict_records(records, selected_paths)
         split_counts[split] = len(records)
         for record in records:
             relative_path = str(record["relative_path"])
@@ -484,7 +540,9 @@ def derive_filtered_masks(args: argparse.Namespace) -> dict[str, Any]:
         "kept_component_count": kept_components,
         "removed_component_count": removed_components,
         "files_manifest_sha256": manifest_sha,
-        "test_accessed": False,
+        "selection_manifest_sha256": selection_sha256,
+        "test_accessed": "test" in split_counts,
+        "unselected_test_accessed": False,
     }
     _json(output_root / "contract.json", contract)
     return contract
@@ -716,7 +774,8 @@ def parse_args() -> argparse.Namespace:
     export.add_argument("--config", type=Path, required=True)
     export.add_argument("--checkpoint", type=Path, required=True)
     export.add_argument("--expected-checkpoint-sha256", required=True)
-    export.add_argument("--split", nargs="+", choices=("train", "val"), default=["train", "val"])
+    export.add_argument("--split", nargs="+", choices=("train", "val", "test"), default=["train", "val"])
+    export.add_argument("--selection-manifest", type=Path)
     export.add_argument("--output-root", type=Path, required=True)
     export.add_argument("--device", default=None)
     export.add_argument("--batch-size", type=int, default=8)
@@ -735,7 +794,8 @@ def parse_args() -> argparse.Namespace:
     filtered.add_argument("--output-root", type=Path, required=True)
     filtered.add_argument("--split-file", type=Path, required=True)
     filtered.add_argument("--threshold-json", type=Path, required=True)
-    filtered.add_argument("--split", nargs="+", choices=("train", "val"), default=["train", "val"])
+    filtered.add_argument("--split", nargs="+", choices=("train", "val", "test"), default=["train", "val"])
+    filtered.add_argument("--selection-manifest", type=Path)
     filtered.add_argument("--resume", action="store_true")
 
     audit = subparsers.add_parser("audit")
