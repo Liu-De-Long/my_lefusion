@@ -4,10 +4,10 @@ set -euo pipefail
 REPO=/workspace/LeFusion_v2/my_experiment
 PYTHON=/opt/conda/envs/lefusion/bin/python
 MANIFEST=$REPO/experiments/20260811_exp019_gli_exp010_pseudomask_test200_comparison/outputs/test200_manifest.json
-CONFIG=$REPO/experiments/20260808_exp016_gli_p64_multimodal_classifier/config.yaml
-CHECKPOINT=$REPO/experiments/20260808_exp016_gli_p64_multimodal_classifier/outputs/supervised/best.pt
+CONFIG=/workspace/LeFusion_v2/my_experiment_exp016/experiments/20260808_exp016_gli_p64_multimodal_classifier/config.yaml
+CHECKPOINT=/workspace/LeFusion_v2/my_experiment_exp016/experiments/20260808_exp016_gli_p64_multimodal_classifier/outputs/supervised/best.pt
 CHECKPOINT_SHA=3f460bbd245fd69ba6e2c6cf71f806bc28e4ebb3862a2e3fc5c411b7e66f3617
-THRESHOLD=/workspace/LeFusion_v2/dataset/brats2024_gli_exp016_pseudomasks/threshold/threshold.json
+THRESHOLD=$REPO/experiments/20260811_exp018_gli_exp016_pseudomask_lefusion/outputs/masks/threshold/threshold.json
 ROOT=/workspace/LeFusion_v2/dataset/brats2024_gli_exp020_test200_pseudomasks
 EXP=$REPO/experiments/20260813_exp020_gli_exp010_pseudomask_conditioned_test200
 mkdir -p "$EXP/outputs"
@@ -69,4 +69,3 @@ start_keepalive
 
 sha256sum "$ROOT/direct/contract.json" "$ROOT/filtered/contract.json" \
   | tee "$EXP/outputs/mask_contract_hashes.txt"
-
