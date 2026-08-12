@@ -1,5 +1,14 @@
 # 实验变更记录
 
+## 2026-08-13 — exp020 完成 direct/filtered Test 伪 Mask 条件配对重评
+
+- 仅为 exp019 冻结的 200 例按原 crop origin 重建 exp016 多模态输入；direct/filtered sidecar 均精确覆盖 selection manifest，未访问其余 838 例。
+- direct/filtered 各完成两个 100 例 shard、EMA、FP32、300-step 推理；exp010 只读复用 exp019 GT 条件输出。
+- 新增 GT 四类、GT union、脑内 union 外/安全区、common filtered-retained、每类 retained 交集和 rejected copied-region 的 3D SSIM-map 与区域 PSNR 统计。
+- direct union Dice/IoU 为 1；filtered union coverage 0.8090。共同 retained 区域 pooled PSNR/SSIM 为 `19.1322/0.4988`、`20.7710/0.5977`、`21.4968/0.6636`。
+- 增加 GT-union 与 common-retained 两套 FID/SwAV-FSD/KID、Hist-W1 双 mask 口径、患者 bootstrap、配对差值 CSV 和固定 8 例 QA。
+- 修正保活恢复时工作目录漂移与 NumPy scalar JSON 序列化；所有 GPU 任务结束后恢复双卡保活 PID `806844/806845`。
+
 ## 2026-08-12 — exp019 完成三种 exp010 模型的冻结 200 例配对 test
 
 - 精确分层冻结 200/1038 个 test patch、66 个 patient，manifest SHA-256 为

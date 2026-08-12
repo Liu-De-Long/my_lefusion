@@ -22,3 +22,5 @@
 | `20260811_exp019_gli_exp010_pseudomask_test200_comparison` | 配对 test 比较 | 在冻结 200 例上比较原始 exp010、direct 和 filtered 的真实-mask 300-step 重建及分布指标 | 已完成；filtered 的 PSNR/SSIM/MAE/FID/FSD 最佳，direct 的 Hist-W1 最佳；端到端 3:24:36 |
 
 实验 ID 只描述研究目的。两种 patch 大小分别记录在同一实验目录的配置文件中，使用同一份裁剪代码和患者划分。
+
+补充：`20260813_exp020_gli_exp010_pseudomask_conditioned_test200` 已完成。该配对 test 重评中 exp010 使用 GT 条件，direct/filtered 使用各自 test 伪 mask/hist；共同 retained 区域 pooled PSNR/SSIM 为 `19.1322/0.4988`、`20.7710/0.5977`、`21.4968/0.6636`，filtered coverage 为 80.9007%。exp019 明确归档为统一 GT 推理条件的历史对照。

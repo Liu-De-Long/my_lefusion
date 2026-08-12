@@ -1,5 +1,11 @@
 # 当前状态
 
+## exp020 伪 mask 条件 test200 重评
+
+exp020 已完成：exp010 复用 exp019 的 GT 条件输出，direct/filtered 分别使用 exp016 direct 与阈值 0.964 filtered test sidecar 重跑 200 例。direct union 精确等于 GT total；filtered 覆盖率 80.9007%，被拒绝的 19.0993% GT lesion 为 exact-copy 区域，不计入 generated-only 排名。共同 retained 区域的 pooled PSNR/SSIM 为 exp010 `19.1322/0.4988`、direct `20.7710/0.5977`、filtered `21.4968/0.6636`。三模型 GT union 外 MSE 均为 0、PSNR 为 +∞。完整记录见 `experiments/20260813_exp020_gli_exp010_pseudomask_conditioned_test200/result.md`。
+
+exp019 保留为“三种训练 mask、统一 GT 推理条件”的历史对照，不再作为伪 mask 条件测试结论。
+
 ## 当前版本
 
 v0.14.0-exp019-test200-complete

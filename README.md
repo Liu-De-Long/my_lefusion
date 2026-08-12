@@ -1,5 +1,7 @@
 # LeFusion 迁移到 BraTS2024 GLI 实验
 
+> 最新配对评估：exp020 已改为让 direct/filtered 在 test 时真正使用各自的 exp016 伪四通道 mask 与重算 histogram。冻结 200 例上，direct union 精确等于 GT total，filtered coverage 为 80.9007%；共同 filtered-retained 生成区域的 pooled PSNR/SSIM 分别为 exp010 19.1322/0.4988、direct 20.7710/0.5977、filtered 21.4968/0.6636。exp019 仅保留为统一 GT 推理条件的历史对照。
+
 本目录是将 LeFusion 方法迁移到 BraTS2024 GLI 数据集的实验工作区。
 
 ## 项目目标

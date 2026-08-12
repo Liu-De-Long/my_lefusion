@@ -1,5 +1,7 @@
 # exp019：三种 exp010 模型的 200 例配对 test 对比
 
+> 历史对照说明（2026-08-13）：本实验比较的是三种“训练 mask 路线”，但推理时三模型统一使用 GT mask 与 GT histogram。它不能回答 direct/filtered test 伪 mask 条件下的实际性能；该问题已由 exp020 修正并重评。exp019 数字仅保留为统一 GT 推理条件的历史对照。
+
 ## 结论
 
 原始 exp010、direct 伪四通道训练和 filtered 伪四通道训练的 best/EMA checkpoint 已在同一组
