@@ -9,6 +9,7 @@ CHECKPOINT=/workspace/LeFusion_v2/my_experiment_exp016/experiments/20260808_exp0
 CHECKPOINT_SHA=3f460bbd245fd69ba6e2c6cf71f806bc28e4ebb3862a2e3fc5c411b7e66f3617
 THRESHOLD=$REPO/experiments/20260811_exp018_gli_exp016_pseudomask_lefusion/outputs/masks/threshold/threshold.json
 ROOT=/workspace/LeFusion_v2/dataset/brats2024_gli_exp020_test200_pseudomasks
+MULTIMODAL_ROOT=/workspace/LeFusion_v2/dataset/brats2024_gli_exp020_test200_multimodal_inputs
 EXP=$REPO/experiments/20260813_exp020_gli_exp010_pseudomask_conditioned_test200
 mkdir -p "$EXP/outputs"
 
@@ -50,11 +51,22 @@ stop_keepalive() {
 trap start_keepalive EXIT
 cd "$REPO"
 sha256sum "$MANIFEST" "$CHECKPOINT" | tee "$EXP/outputs/mask_input_hashes.txt"
+# CPU-only replay of the frozen crop origins. Only the selected 200 test paths
+# are materialized; the keepalive stays active throughout this phase.
+"$PYTHON" scripts/brats_gli_rebuild_multimodal_p64.py \
+  --raw-root /workspace/LeFusion-main/BraTS-2024-Complete/BraTS-GLI \
+  --raw-split train \
+  --source-dataset-root /workspace/LeFusion_v2/dataset/brats2024_gli_t1c_local_patches \
+  --split-file "$REPO/experiments/20260805_exp004_gli_inference_closed_loop/splits_v2.json" \
+  --output-root "$MULTIMODAL_ROOT" --include-split test \
+  --selection-manifest "$MANIFEST" --workers 8 --resume \
+  >"$EXP/outputs/multimodal_test200_rebuild.log" 2>&1
 stop_keepalive
 "$PYTHON" scripts/gli_pseudomask_pipeline.py export-direct \
   --config "$CONFIG" --checkpoint "$CHECKPOINT" \
   --expected-checkpoint-sha256 "$CHECKPOINT_SHA" \
   --split test --selection-manifest "$MANIFEST" \
+  --dataset-root "$MULTIMODAL_ROOT" \
   --output-root "$ROOT/direct" --device cuda:0 --batch-size 8 --num-workers 8 --resume \
   >"$EXP/outputs/direct_mask_export.log" 2>&1
 

@@ -23,6 +23,36 @@ SPEC.loader.exec_module(MODULE)
 
 
 class MultimodalReplayTests(unittest.TestCase):
+    def test_test_materialization_requires_and_validates_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = root / "selection.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "split": "test",
+                        "patch_size_xyz": [64, 64, 32],
+                        "selected_count": 2,
+                        "selected_relative_paths": ["a.npz", "b.npz"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                MODULE._selection_paths(manifest, include_splits=("test",)),
+                {"a.npz", "b.npz"},
+            )
+            with self.assertRaisesRegex(ValueError, "requires selection_manifest"):
+                MODULE.build_multimodal_p64(
+                    raw_root=root,
+                    raw_split="train",
+                    source_dataset_root=root,
+                    split_file=root / "missing.json",
+                    output_root=root / "output",
+                    include_splits=("test",),
+                )
+
     def test_replay_preserves_manifest_and_omits_histogram(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

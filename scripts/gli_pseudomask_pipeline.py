@@ -252,7 +252,7 @@ def export_direct_masks(args: argparse.Namespace) -> dict[str, Any]:
             f"{args.expected_checkpoint_sha256}"
         )
     device = resolve_device(args.device or config["training"].get("device", "auto"))
-    dataset_root = Path(config["data"]["dataset_root"])
+    dataset_root = Path(args.dataset_root or config["data"]["dataset_root"])
     split_file = Path(config["data"]["split_file"])
     subset_path = Path(config["data"]["labeled_subset"])
     modalities = _modalities_from_config(config)
@@ -353,6 +353,7 @@ def export_direct_masks(args: argparse.Namespace) -> dict[str, Any]:
         "subset_sha256": sha256_file(subset_path),
         "split_file_sha256": sha256_file(split_file),
         "source_manifest_sha256": sha256_file(source_manifest),
+        "source_dataset_root": str(dataset_root.resolve()),
         "splits": split_counts,
         "file_count": len(manifest_rows),
         "files_manifest_sha256": manifest_sha,
@@ -776,6 +777,11 @@ def parse_args() -> argparse.Namespace:
     export.add_argument("--expected-checkpoint-sha256", required=True)
     export.add_argument("--split", nargs="+", choices=("train", "val", "test"), default=["train", "val"])
     export.add_argument("--selection-manifest", type=Path)
+    export.add_argument(
+        "--dataset-root",
+        type=Path,
+        help="Override only the classifier input dataset root; model config remains frozen.",
+    )
     export.add_argument("--output-root", type=Path, required=True)
     export.add_argument("--device", default=None)
     export.add_argument("--batch-size", type=int, default=8)

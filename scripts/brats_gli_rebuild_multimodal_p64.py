@@ -45,6 +45,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split-file", required=True, type=Path)
     parser.add_argument("--output-root", required=True, type=Path)
     parser.add_argument(
+        "--selection-manifest",
+        type=Path,
+        help="Optional frozen p64 selection manifest; required when materializing test.",
+    )
+    parser.add_argument(
         "--include-split",
         action="append",
         choices=("train", "val", "test"),
@@ -60,6 +65,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--workers must be positive")
     if args.max_cases < 0:
         parser.error("--max-cases cannot be negative")
+    if "test" in args.include_splits and args.selection_manifest is None:
+        parser.error("test materialization requires --selection-manifest")
     return args
 
 
@@ -87,6 +94,23 @@ def _read_manifest(path: Path) -> tuple[list[dict[str, str]], tuple[str, ...]]:
     if any(row["patch_size_xyz"] != "64x64x32" for row in rows):
         raise ValueError("source manifest contains a non-p64 record")
     return rows, fields
+
+
+def _selection_paths(path: Path, *, include_splits: Sequence[str]) -> set[str]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if int(payload.get("schema_version", -1)) != 1:
+        raise ValueError("unsupported selection manifest schema")
+    split = str(payload.get("split", ""))
+    if split not in set(include_splits):
+        raise ValueError("selection manifest split is not included")
+    paths = [str(value) for value in payload.get("selected_relative_paths", [])]
+    if not paths or len(paths) != len(set(paths)):
+        raise ValueError("selection manifest paths must be non-empty and unique")
+    if int(payload.get("selected_count", -1)) != len(paths):
+        raise ValueError("selection manifest count mismatch")
+    if tuple(int(value) for value in payload.get("patch_size_xyz", [])) != PATCH_SIZE_XYZ:
+        raise ValueError("selection manifest patch shape mismatch")
+    return set(paths)
 
 
 def _validate_output_patch(path: Path) -> int:
@@ -214,18 +238,35 @@ def build_multimodal_p64(
     split_file: Path,
     output_root: Path,
     include_splits: Sequence[str] = ("train", "val"),
+    selection_manifest: Path | None = None,
     workers: int = 4,
     max_cases: int = 0,
     resume: bool = False,
 ) -> dict[str, Any]:
+    include = set(include_splits)
+    if "test" in include and selection_manifest is None:
+        raise ValueError("test materialization requires selection_manifest")
     source_size_root = source_dataset_root / "patch_64x64x32"
     source_manifest = source_size_root / "manifest.csv"
     rows, _ = _read_manifest(source_manifest)
     subject_split = load_subject_split(split_file)
-    include = set(include_splits)
     selected = [
         row for row in rows if subject_split.get(row["subject_id"]) in include
     ]
+    selection_paths: set[str] | None = None
+    if selection_manifest is not None:
+        selection_paths = _selection_paths(
+            selection_manifest, include_splits=include_splits
+        )
+        selected = [
+            row for row in selected if str(row["relative_path"]) in selection_paths
+        ]
+        actual_paths = {str(row["relative_path"]) for row in selected}
+        if actual_paths != selection_paths:
+            missing = sorted(selection_paths.difference(actual_paths))
+            raise ValueError(
+                f"selection contains paths outside source split: {missing[:3]}"
+            )
     grouped: dict[str, list[dict[str, str]]] = defaultdict(list)
     for row in selected:
         grouped[row["case_id"]].append(row)
@@ -309,6 +350,11 @@ def build_multimodal_p64(
         "output_manifest_sha256": sha256_file(output_size_root / "manifest.csv"),
         "split_sha256": sha256_file(split_file),
         "label_derived_input_keys": [],
+        "selection_manifest_sha256": (
+            sha256_file(selection_manifest) if selection_manifest is not None else None
+        ),
+        "selection_path_count": len(selection_paths) if selection_paths is not None else None,
+        "unselected_test_accessed": False,
     }
     if payload["source_manifest_sha256"] != payload["output_manifest_sha256"]:
         raise AssertionError("copied manifest hash changed")
@@ -328,6 +374,7 @@ def main() -> int:
         split_file=args.split_file,
         output_root=args.output_root,
         include_splits=args.include_splits,
+        selection_manifest=args.selection_manifest,
         workers=args.workers,
         max_cases=args.max_cases,
         resume=args.resume,
