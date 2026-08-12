@@ -31,8 +31,21 @@ from gli_exp019_test200_metrics import (
 
 
 def _json(path: Path, payload: object) -> None:
+    def normalize(value: object) -> object:
+        if isinstance(value, np.generic):
+            return value.item()
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
     path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            indent=2,
+            allow_nan=False,
+            default=normalize,
+        ) + "\n",
         encoding="utf-8",
     )
 

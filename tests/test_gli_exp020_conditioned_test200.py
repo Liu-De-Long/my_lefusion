@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import math
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -13,10 +15,21 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from gli_exp020_test200_metrics import _region_rows, _summarize_region
+from gli_exp020_test200_metrics import _json, _region_rows, _summarize_region
 
 
 class Exp020ConditionedTest200Tests(unittest.TestCase):
+    def test_json_writer_normalizes_numpy_scalars_without_allowing_nan(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "summary.json"
+            _json(output, {"count": np.int64(3), "values": np.asarray([1, 2])})
+            self.assertEqual(
+                json.loads(output.read_text(encoding="utf-8")),
+                {"count": 3, "values": [1, 2]},
+            )
+            with self.assertRaises(ValueError):
+                _json(output, {"invalid": float("nan")})
+
     def test_region_metrics_split_generated_rejected_and_safe_outside(self) -> None:
         shape = (16, 16, 16)
         reference = np.zeros(shape, dtype=np.float32)
