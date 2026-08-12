@@ -52,6 +52,7 @@ def _load_runs(
     manifest: dict,
     *,
     expected_mask_source: str,
+    expected_overlay_sha256: str | None = None,
 ) -> tuple[dict[str, Path], list[dict]]:
     expected_step, expected_sha = EXPECTED[name]
     paths: dict[str, Path] = {}
@@ -68,8 +69,9 @@ def _load_runs(
             raise ValueError(f"{name} mask/weights contract mismatch")
         if int(summary["model_calls_per_sample"]) != 300 or not bool(summary["memory_stable"]):
             raise ValueError(f"{name} sampling or memory contract mismatch")
-        if expected_mask_source == "overlay" and not summary.get("mask_overlay_contract_sha256"):
-            raise ValueError(f"{name} overlay contract hash is missing")
+        if expected_mask_source == "overlay":
+            if summary.get("mask_overlay_contract_sha256") != expected_overlay_sha256:
+                raise ValueError(f"{name} overlay contract hash mismatch")
         for relative in expected_paths:
             paths[relative] = root / "generated_npz" / f"{Path(relative).stem}.npz"
         summaries.append(summary)
@@ -119,16 +121,24 @@ def _summarize_region(rows: list[dict]) -> dict:
         for patient, count in patient_voxels.items()
     }
     patient_ssim_mean = {key: float(np.mean(value)) for key, value in patient_ssim.items()}
+    patient_psnr_finite = [value for value in patient_psnr.values() if np.isfinite(value)]
+    changed_voxels = sum(
+        float(row["changed_voxel_fraction"]) * int(row["voxel_count"])
+        for row in rows
+    )
     return {
         "patch_count": len(rows),
         "patient_count": len(patient_voxels),
         "voxel_count": voxels,
         "pooled": _psnr_payload(pooled_mse),
         "patch_psnr_finite_mean": float(np.mean(finite_psnr)) if finite_psnr else None,
+        "patch_psnr_finite_median": float(np.median(finite_psnr)) if finite_psnr else None,
         "patch_psnr_infinite_count": len(rows) - len(finite_psnr),
         "patient_equal_psnr_finite_mean": (
-            float(np.mean([value for value in patient_psnr.values() if np.isfinite(value)]))
-            if any(np.isfinite(value) for value in patient_psnr.values()) else None
+            float(np.mean(patient_psnr_finite)) if patient_psnr_finite else None
+        ),
+        "patient_equal_psnr_finite_median": (
+            float(np.median(patient_psnr_finite)) if patient_psnr_finite else None
         ),
         "patient_psnr_infinite_count": sum(np.isinf(value) for value in patient_psnr.values()),
         "patient_equal_psnr_finite_bootstrap_95ci": _patient_bootstrap(patient_psnr),
@@ -136,7 +146,11 @@ def _summarize_region(rows: list[dict]) -> dict:
             sum(float(row["ssim_region_mean"]) * int(row["voxel_count"]) for row in rows) / voxels
         ) if voxels else None,
         "patient_equal_ssim_mean": float(np.mean(list(patient_ssim_mean.values()))) if patient_ssim_mean else None,
+        "patient_equal_ssim_median": float(np.median(list(patient_ssim_mean.values()))) if patient_ssim_mean else None,
         "patient_equal_ssim_bootstrap_95ci": _patient_bootstrap(patient_ssim_mean),
+        "max_abs_change": max(float(row["max_abs_change"]) for row in rows),
+        "changed_voxel_fraction": float(changed_voxels / voxels) if voxels else None,
+        "exact_copy_voxel_fraction": float(1.0 - changed_voxels / voxels) if voxels else None,
     }
 
 
@@ -289,12 +303,17 @@ def main() -> None:
         if int(contract.get("file_count", -1)) != 200 or bool(contract.get("unselected_test_accessed", True)):
             raise ValueError(f"{name} overlay access contract mismatch")
     roots = {name: list(getattr(args, f"{name}_shard")) for name in MODEL_NAMES}
+    overlay_shas = {
+        "direct": sha256_file(args.direct_overlay_contract),
+        "filtered": sha256_file(args.filtered_overlay_contract),
+    }
     paths = {}
     run_summaries = {}
     for name in MODEL_NAMES:
         paths[name], run_summaries[name] = _load_runs(
             name, roots[name], manifest,
             expected_mask_source="ground_truth" if name == "exp010" else "overlay",
+            expected_overlay_sha256=overlay_shas.get(name),
         )
 
     region_rows: list[dict] = []
@@ -420,10 +439,18 @@ def main() -> None:
                     "patient_bootstrap_95ci": _patient_bootstrap(patient_values),
                 }
     mask_audit = {name: _mask_metrics(matrix) for name, matrix in confusion.items()}
-    truth_voxels = float(confusion["filtered"][1:, :].sum())
-    mask_audit["filtered"]["union_coverage"] = float(confusion["filtered"][1:, 1:].sum() / truth_voxels)
-    mask_audit["filtered"]["union_rejection_rate"] = 1.0 - mask_audit["filtered"]["union_coverage"]
-    mask_audit["direct"]["union_coverage"] = 1.0
+    for name, matrix in confusion.items():
+        union_tp = float(matrix[1:, 1:].sum())
+        union_fn = float(matrix[1:, 0].sum())
+        union_fp = float(matrix[0, 1:].sum())
+        mask_audit[name]["union"] = {
+            "dice": 2 * union_tp / (2 * union_tp + union_fp + union_fn),
+            "iou": union_tp / (union_tp + union_fp + union_fn),
+            "precision": union_tp / (union_tp + union_fp),
+            "recall": union_tp / (union_tp + union_fn),
+            "coverage": union_tp / (union_tp + union_fn),
+            "rejection_rate": union_fn / (union_tp + union_fn),
+        }
 
     feature_cache = output / "feature_cache"
     feature_cache.mkdir(exist_ok=True)
@@ -432,7 +459,7 @@ def main() -> None:
         ("gt_union_composite", real_composite, fake_composite),
         ("common_filtered_retained", real_retained, fake_retained),
     ):
-        distribution[mode] = {"models": {}}
+        distribution[mode] = {"models": {}, "real_split_baseline": {}}
         real_inc_path = feature_cache / f"{mode}_real_inception.npz"
         real_swav_path = feature_cache / f"{mode}_real_swav.npz"
         real_inc = np.load(real_inc_path)["features"] if real_inc_path.is_file() else _inception_features(real, args.device, args.batch_size)
@@ -451,6 +478,17 @@ def main() -> None:
                 "fsd_swav": frechet_distance(real_swv, swv),
                 "kid": kid_repeated(real_inc, inc),
             }
+        split_a = np.concatenate(
+            [np.arange(index * 3, index * 3 + 3) for index in range(0, 200, 2)]
+        )
+        split_b = np.concatenate(
+            [np.arange(index * 3, index * 3 + 3) for index in range(1, 200, 2)]
+        )
+        distribution[mode]["real_split_baseline"] = {
+            "fid": frechet_distance(real_inc[split_a], real_inc[split_b]),
+            "fsd_swav": frechet_distance(real_swv[split_a], real_swv[split_b]),
+            "kid": kid_repeated(real_inc[split_a], real_inc[split_b]),
+        }
     _json(output / "distribution_metrics.json", distribution)
     hist_summary = {}
     for name in MODEL_NAMES:
@@ -481,8 +519,8 @@ def main() -> None:
         "unselected_test_accessed": False,
         "mask_sources": {"exp010": "ground_truth", "direct": "overlay", "filtered": "overlay"},
         "overlay_contract_sha256": {
-            "direct": sha256_file(args.direct_overlay_contract),
-            "filtered": sha256_file(args.filtered_overlay_contract),
+            "direct": overlay_shas["direct"],
+            "filtered": overlay_shas["filtered"],
         },
         "regions": region_summary,
         "paired_region_differences": paired_summary,

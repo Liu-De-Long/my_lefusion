@@ -12,13 +12,21 @@ KEEPALIVE=/workspace/LeFusion_v2/.gpu_keepalive_adaptive.py
 GPU0_UUID=GPU-b8da5535-9296-908f-419b-949bb0215754
 GPU1_UUID=GPU-3813e464-a69e-ed3e-b477-2c319dbbb1ed
 START=$(date +%s)
-LIMIT=14400
+LIMIT=13500
 mkdir -p "$OUT"
 export PYTHONPATH="/workspace/LeFusion_v2/python_deps${PYTHONPATH:+:$PYTHONPATH}"
 export TORCH_HOME=/workspace/LeFusion_v2/model_cache/torch
 
 log_phase() { printf '%s phase=%s\n' "$(date --iso-8601=seconds)" "$1" | tee -a "$OUT/formal_chain.log"; }
 elapsed() { printf '%s' "$(( $(date +%s) - START ))"; }
+allow_new_stage() {
+  local seconds
+  seconds=$(elapsed)
+  if (( seconds >= LIMIT )); then
+    log_phase "deadline_no_new_stage_elapsed_${seconds}s"
+    exit 75
+  fi
+}
 
 start_keepalive() {
   if pgrep -f "^/opt/conda/envs/lefusion/bin/python $KEEPALIVE$" >/dev/null; then return; fi
@@ -44,6 +52,7 @@ stop_keepalive() {
 
 run_pair() {
   local name=$1 config0=$2 config1=$3 status0=0 status1=0
+  allow_new_stage
   log_phase "${name}_start"
   "$PYTHON" "$INFER" --config-name "$config0" >"$OUT/${name}_gpu0.log" 2>&1 & local pid0=$!
   "$PYTHON" "$INFER" --config-name "$config1" >"$OUT/${name}_gpu1.log" 2>&1 & local pid1=$!
@@ -70,7 +79,7 @@ log_phase "preflight_complete_elapsed_$(elapsed)s"
 
 run_pair direct gli_exp020_direct_test200_shard0 gli_exp020_direct_test200_shard1
 run_pair filtered gli_exp020_filtered_test200_shard0 gli_exp020_filtered_test200_shard1
-if (( $(elapsed) >= LIMIT )); then log_phase "deadline_before_metrics_elapsed_$(elapsed)s"; exit 75; fi
+allow_new_stage
 
 log_phase metrics_start
 "$PYTHON" scripts/gli_exp020_test200_metrics.py \
