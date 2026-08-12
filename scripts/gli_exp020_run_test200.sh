@@ -22,11 +22,13 @@ elapsed() { printf '%s' "$(( $(date +%s) - START ))"; }
 
 start_keepalive() {
   if pgrep -f "^/opt/conda/envs/lefusion/bin/python $KEEPALIVE$" >/dev/null; then return; fi
+  local caller_dir=$PWD
   cd /workspace/LeFusion_v2
   CUDA_VISIBLE_DEVICES=0 KEEPALIVE_GPU_UUID=$GPU0_UUID nohup "$PYTHON" "$KEEPALIVE" \
     >.gpu_keepalive_gpu0.log 2>&1 </dev/null &
   CUDA_VISIBLE_DEVICES=1 KEEPALIVE_GPU_UUID=$GPU1_UUID nohup "$PYTHON" "$KEEPALIVE" \
     >.gpu_keepalive_gpu1.log 2>&1 </dev/null &
+  cd "$caller_dir"
 }
 
 stop_keepalive() {
@@ -82,4 +84,3 @@ log_phase metrics_start
   --swav-weights /workspace/LeFusion_v2/model_cache/swav_800ep_pretrain.pth.tar \
   --device cuda:0 --output "$OUT/metrics" >"$OUT/metrics.log" 2>&1
 log_phase "complete_elapsed_$(elapsed)s"
-

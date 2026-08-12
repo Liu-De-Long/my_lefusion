@@ -21,11 +21,13 @@ start_keepalive() {
   if pgrep -f "^/opt/conda/envs/lefusion/bin/python $KEEPALIVE$" >/dev/null; then
     return
   fi
+  local caller_dir=$PWD
   cd /workspace/LeFusion_v2
   CUDA_VISIBLE_DEVICES=0 KEEPALIVE_GPU_UUID=$GPU0_UUID nohup "$PYTHON" "$KEEPALIVE" \
     >.gpu_keepalive_gpu0.log 2>&1 </dev/null &
   CUDA_VISIBLE_DEVICES=1 KEEPALIVE_GPU_UUID=$GPU1_UUID nohup "$PYTHON" "$KEEPALIVE" \
     >.gpu_keepalive_gpu1.log 2>&1 </dev/null &
+  cd "$caller_dir"
 }
 
 stop_keepalive() {
