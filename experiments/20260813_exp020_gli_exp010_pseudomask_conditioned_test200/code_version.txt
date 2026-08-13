@@ -1,5 +1,5 @@
 branch: feature/20260813-exp020-pseudomask-conditioned-test200
 status: complete
 manifest_sha256: b7c2802dd24193e950e505700eeeb374435c19eac539b6e263b470283210ebae
-implementation_commit: 4116840401c46a80e010dcbf2779e73932fb04d9
-summary_sha256: 3ab3946a8a94e4de8ede392c33e6131cb892a1754ca96ba10ceb8ebfc4fb4781
+implementation_commit: b8697c5d
+summary_sha256: 1ee07848a4eebffe9c806d1c012c23c3ac9002303d95bab34d7c681d181cf236

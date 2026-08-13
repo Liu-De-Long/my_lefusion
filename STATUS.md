@@ -6,6 +6,8 @@ exp020 已完成：exp010 复用 exp019 的 GT 条件输出，direct/filtered �
 
 exp019 保留为“三种训练 mask、统一 GT 推理条件”的历史对照，不再作为伪 mask 条件测试结论。
 
+完整 `64×64×32` patch 的逐 patch PSNR 均值为 exp010/direct/filtered `26.6975/28.4252/32.1061`；完整 3D SSIM-map 的患者等权均值为 `0.8501/0.8826/0.9154`。这些辅助指标被精确复制背景以及 filtered copied region 抬高，模型比较以 common filtered-retained 结果为主。
+
 ## 当前版本
 
 v0.14.0-exp019-test200-complete

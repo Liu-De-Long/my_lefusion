@@ -30,6 +30,18 @@ common filtered-retained 是三模型在同一真正生成区域上的比较。f
 
 三模型在有效脑区内 GT-union 外均精确不改变：MSE 0、PSNR +∞、变化体素率 0、最大绝对变化 0。全部脑内 union 外的 pooled SSIM 分别为 0.9653、0.9753、0.9846；距 GT union 至少 3 体素的安全区为 0.9973、0.9982、0.9990。
 
+## 完整 64×64×32 patch 指标
+
+完整 patch 包含固定恢复的病灶外体素，因此只作为辅助指标。`patch PSNR mean` 是先逐 patch 计算 PSNR 再取均值；`pooled PSNR` 是汇总全部 26,214,400 个体素的 SSE/MSE 后再换算，两者不可混用。SSIM 使用完整 3D SSIM map（win_size=7、data range=2）。
+
+| 模型 | patch PSNR mean / median | pooled PSNR | patient-equal PSNR mean [95% CI] | pooled SSIM | patient-equal SSIM mean [95% CI] |
+|---|---:|---:|---:|---:|---:|
+| exp010 | 26.6975 / 26.1221 | 24.4695 | 26.5953 [25.5376, 27.7810] | 0.8439 | 0.8501 [0.8267, 0.8706] |
+| direct | 28.4252 / 27.5442 | 26.2027 | 28.4751 [27.3733, 29.7770] | 0.8768 | 0.8826 [0.8647, 0.8990] |
+| filtered | 32.1061 / 30.5484 | 28.1318 | 30.9005 [29.6025, 32.3484] | 0.9145 | 0.9154 [0.9006, 0.9296] |
+
+filtered 的完整 patch 指标最高不能单独解释为生成质量最高：其过滤后未挖空区域和全部 mask 外区域被精确复制。公平的 generated-only 比较仍应使用上一节的 common filtered-retained 指标。
+
 ## 伪 mask 审计
 
 - selection manifest SHA-256：`b7c2802dd24193e950e505700eeeb374435c19eac539b6e263b470283210ebae`。
@@ -61,8 +73,8 @@ GT-union 与 retained 口径的 real-vs-real split baseline 分别为 FID 92.248
 - preflight：direct step 44000 与 filtered step 46000 均为 EMA、FP32、每例 300 calls、背景精确不变、memory stable。
 - 正式推理：direct 58:03，filtered 58:04；各 shard 100/100，三模型共同交集 200。
 - sidecar、推理与指标入口均核验 selection SHA、checkpoint SHA、overlay contract SHA、路径与 sample seed。
-- 最终汇总、CSV、分布指标和固定 8 例 QA 已生成；`summary.json` SHA-256 为 `3ab3946a8a94e4de8ede392c33e6131cb892a1754ca96ba10ceb8ebfc4fb4781`。
+- 最终汇总、CSV、分布指标和固定 8 例 QA 已生成；加入完整 patch 指标后的 `summary.json` SHA-256 为 `1ee07848a4eebffe9c806d1c012c23c3ac9002303d95bab34d7c681d181cf236`。
 - GPU 任务结束后双卡保活已恢复为 PID `806844/806845`；PID 仅记录本次运行，不作为未来固定值。
 - 大型 sidecar、推理 NPZ、特征缓存、checkpoint、日志和 QA 图不进入 Git。
 
-实现版本：`4116840401c46a80e010dcbf2779e73932fb04d9`。
+完整 patch 指标实现版本：`b8697c5d`。

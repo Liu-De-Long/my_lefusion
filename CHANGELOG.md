@@ -8,6 +8,7 @@
 - direct union Dice/IoU 为 1；filtered union coverage 0.8090。共同 retained 区域 pooled PSNR/SSIM 为 `19.1322/0.4988`、`20.7710/0.5977`、`21.4968/0.6636`。
 - 增加 GT-union 与 common-retained 两套 FID/SwAV-FSD/KID、Hist-W1 双 mask 口径、患者 bootstrap、配对差值 CSV 和固定 8 例 QA。
 - 修正保活恢复时工作目录漂移与 NumPy scalar JSON 序列化；所有 GPU 任务结束后恢复双卡保活 PID `806844/806845`。
+- 补充完整 `64×64×32` patch PSNR 与 3D SSIM-map：逐 patch PSNR 均值为 `26.6975/28.4252/32.1061`，患者等权 SSIM 均值为 `0.8501/0.8826/0.9154`；明确其受精确复制区域抬高，仅作辅助指标。
 
 ## 2026-08-12 — exp019 完成三种 exp010 模型的冻结 200 例配对 test
 
