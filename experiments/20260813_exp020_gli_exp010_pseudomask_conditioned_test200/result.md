@@ -1,5 +1,20 @@
 # exp020：direct/filtered Test 伪 Mask 条件下的配对重评
 
+## filtered：retained mask 与完整 patch 两种口径
+
+冻结样本不变：200 个 patch、66 名患者；完整 patch 为 `200 × 64 × 64 × 32 = 26,214,400` 个体素。PSNR/SSIM 使用 200-patch 等权均值；KID 括号内为 100 个确定性子集的标准差。
+
+| 评价范围 | FSD ↓ | KID ↓ | PSNR ↑ | SSIM ↑ | Hist-W1 ↓ | Rad-MMD ↓ |
+|---|---:|---:|---:|---:|---:|---:|
+| filtered retained union（5,689,098 体素） | 2.07373 | 0.002084 ± 0.001711 | 23.81970 | 0.700319 | 0.044225 | 0.016664 |
+| 完整 64×64×32 patch（26,214,400 体素） | 1.87414 | 0.000332 ± 0.001342 | 32.10614 | 0.914547 | 0.010399 | 0.001912 |
+
+FSD/KID 在每个 3D patch 的三个正交最大病灶切面上计算。retained-union 口径将 mask 外置为中性值并使用 bbox+8 crop；完整 patch 口径保留相同切面位置但使用完整二维视野。Hist-W1 是对应 scope 内 16 bins、`[-1,1]` 的强度分布 W1。
+
+Rad-MMD 严格复用 `/workspace/LeFusion-main/LeFusion-main/tools/t1c_main_20k/compute_rad_mmd.py` 的 PyRadiomics 类别、`binWidth=0.05`、train z-score、seed `20260729` median-distance RBF 和 biased MMD² 定义；数据仍为本实验冻结数据。完整 patch 使用 200/200 配对；retained mask 中 2 个 patch 少于参考门禁要求的 8 个体素，因此 Rad-MMD 按参考脚本的 `status=ok` 过滤行为使用 198/200 配对。其他五项均为完整 200 例。
+
+完整 patch 指标包含 78.3129% exact-copy 体素（背景和 filtered 拒绝区域），不可替代 retained-mask generated-only 结果作模型优胜结论。
+
 ## 结论
 
 exp020 修正了 exp019 在 direct/filtered 推理时仍统一使用 GT mask 的设计。冻结的 200 例、源 T1c、路径顺序、sample seed、FP32 和 300-step RePaint 全部复用；只有条件 mask/histogram 改为与训练路线匹配：exp010 使用 GT，direct 使用 exp016 direct sidecar，filtered 使用阈值 0.964 的 filtered sidecar。
