@@ -201,6 +201,7 @@ def _region_rows(
     _, ssim_map = structural_similarity(reference, generated, data_range=2.0, win_size=7, full=True)
     union = truth_seg > 0
     regions: dict[str, np.ndarray] = {
+        "full_patch_64x64x32": np.ones(reference.shape, dtype=bool),
         **{f"gt_{name.lower()}": truth_seg == label for label, name in LABEL_NAMES.items()},
         "gt_union": union,
         "brain_outside_gt_union": support & ~union,

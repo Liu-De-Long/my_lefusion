@@ -46,6 +46,13 @@ class Exp020ConditionedTest200Tests(unittest.TestCase):
             retained=retained, support=support,
         )
         indexed = {row["region"]: row for row in rows}
+        full_patch = indexed["full_patch_64x64x32"]
+        self.assertEqual(full_patch["voxel_count"], int(np.prod(reference.shape)))
+        expected_full_mse = float(np.mean(np.square(generated - reference)))
+        self.assertAlmostEqual(full_patch["mse"], expected_full_mse)
+        self.assertAlmostEqual(
+            full_patch["psnr_db"], 10.0 * math.log10(4.0 / expected_full_mse)
+        )
         self.assertAlmostEqual(indexed["filtered_retained_union"]["mse"], 0.25)
         self.assertAlmostEqual(indexed["filtered_retained_union"]["psnr_db"], 12.041199826559248)
         self.assertEqual(indexed["filtered_rejected_gt_union"]["mse"], 0.0)
