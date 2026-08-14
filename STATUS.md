@@ -1,5 +1,11 @@
 # 当前状态
 
+## exp022：LeFusion_v2 条件下的 Fig. 2 十例重跑
+
+`20260815_exp022_gli_fig2_v2_test10_comparison` 已完成，未训练任何模型。实验从当前 p64 test split 的 1038 个 patch、74 位患者中，仅依据 GT 元数据确定性选出 10 个 patch，来自 10 位不同患者；NETC/SNFH/ET/RC 配额为 `2/4/2/2`，boundary/interior 为 `5/5`，GT union 体积百分位约为 `0.05, 0.15, …, 0.95`。五方法共享 exp016 classifier 与阈值 `0.964` 得到的 filtered-retained union。
+
+RePaint-3D、Med-DDPM-T1c、Pix2Pix-3D、Latent RFlow-3D 均加载旧 Fig. 2 冻结 checkpoint；Filtered (v2) 使用 step 46000 best/EMA、FP32、300-step RePaint、CFG 2.0。五方法各生成 10 个统一 `[-1,1]` adapted NPZ，shared hole 完全一致，区域外逐 voxel 恢复原 T1c 后最大误差为 `0`。shared-union 指标均值中，Filtered (v2) 的 PSNR/三视图局部 SSIM/MAE/Hist-W1 为 `23.1414/0.7408/0.11079/0.07269`，优于四个外部基线。标注版/清洁版 PNG、PDF 与完整审计位于 `experiments/20260815_exp022_gli_fig2_v2_test10_comparison/outputs/comparison/`。本实验不计算 FID/FSD/KID/Rad-MMD，未修改 `paper3`。
+
 ## exp020 伪 mask 条件 test200 重评
 
 exp020 已完成：exp010 复用 exp019 的 GT 条件输出，direct/filtered 分别使用 exp016 direct 与阈值 0.964 filtered test sidecar 重跑 200 例。direct union 精确等于 GT total；filtered 覆盖率 80.9007%，被拒绝的 19.0993% GT lesion 为 exact-copy 区域，不计入 generated-only 排名。共同 retained 区域的 pooled PSNR/SSIM 为 exp010 `19.1322/0.4988`、direct `20.7710/0.5977`、filtered `21.4968/0.6636`。三模型 GT union 外 MSE 均为 0、PSNR 为 +∞。完整记录见 `experiments/20260813_exp020_gli_exp010_pseudomask_conditioned_test200/result.md`。
@@ -10,7 +16,7 @@ exp019 保留为“三种训练 mask、统一 GT 推理条件”的历史对照�
 
 ## 当前版本
 
-v0.14.0-exp019-test200-complete
+v0.15.0-exp022-fig2-test10-complete
 
 ## exp019 配对 test200
 

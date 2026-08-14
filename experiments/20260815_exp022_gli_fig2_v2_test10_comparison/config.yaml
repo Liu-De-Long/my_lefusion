@@ -1,0 +1,33 @@
+experiment_id: 20260815_exp022_gli_fig2_v2_test10_comparison
+purpose: rerun Paper3 Fig. 2 qualitative comparison on the current LeFusion_v2 test split
+training: false
+seed: 20260806
+dataset:
+  root: /workspace/LeFusion_v2/dataset/brats2024_gli_t1c_local_patches
+  split: test
+  population_patches: 1038
+  population_patients: 74
+  patch_size_xyz: [64, 64, 32]
+selection:
+  count: 10
+  distinct_patients: true
+  label_quotas: {NETC: 2, SNFH: 4, ET: 2, RC: 2}
+  role_quotas: {interior: 5, boundary: 5}
+  target_volume_percentiles: [0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95]
+shared_region: filtered_retained_union
+methods:
+  repaint3d: {checkpoint_step: 4000, weights: ema, nfe: 300, domain: neg1_pos1}
+  med_ddpm_t1c: {checkpoint_step: 20, nfe: 250, domain: neg1_pos1}
+  pix2pix_3d_inpaint: {checkpoint_step: 20000, nfe: 1, domain: zero_one}
+  latent_rflow_3d: {checkpoint_step: 20000, vae_step: 20000, nfe: 50, domain: zero_one}
+  filtered_v2:
+    checkpoint_step: 46000
+    weights: ema
+    precision: fp32
+    nfe: 300
+    cfg_scale: 2.0
+classifier_filter:
+  classifier_experiment: 20260808_exp016_gli_p64_multimodal_classifier
+  threshold: 0.964
+metrics: [shared_union_psnr, three_view_local_ssim, shared_union_mae, hist_w1, full_patch_psnr, full_patch_ssim, full_patch_mae]
+paper3_mutation: false

@@ -1,0 +1,38 @@
+defaults:
+  - gli_exp020_test200_base
+  - _self_
+
+experiment_id: 20260815_exp022_gli_fig2_v2_test10_comparison
+variant: filtered_v2_best_step46000_test10
+device: cuda:0
+
+dataset:
+  mask_overlay_root: /workspace/LeFusion_v2/dataset/brats2024_gli_exp022_test10_pseudomasks/filtered
+
+checkpoint:
+  path: /workspace/LeFusion_v2/my_experiment/experiments/20260811_exp018_gli_exp016_pseudomask_lefusion/outputs/filtered_mask_fp32_50k/checkpoints/best.pt
+  weights_key: ema
+
+selection:
+  manifest_path: /workspace/LeFusion_v2/my_experiment/experiments/20260815_exp022_gli_fig2_v2_test10_comparison/outputs/selection/test10_manifest.json
+  shard_index: 0
+  shard_count: 1
+
+sampling:
+  seed: 20260806
+  cond_scale: 2.0
+
+repaint:
+  schedule_jump_params:
+    t_T: 300
+    n_sample: 1
+    jump_length: 1
+    jump_n_sample: 1
+
+output:
+  root: /workspace/LeFusion_v2/my_experiment/experiments/20260815_exp022_gli_fig2_v2_test10_comparison/outputs/inference/filtered_v2
+  max_batches: null
+  overwrite: false
+  resume: true
+  save_nifti: false
+  save_qa: false

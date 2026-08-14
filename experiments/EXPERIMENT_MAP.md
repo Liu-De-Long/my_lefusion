@@ -20,6 +20,8 @@
 | `20260808_exp016_gli_exp010_exp012_four_class_comparison` | 配对 QA 比较 | 为 exp010 补充与 exp012 完全相同的冻结 8 例 × 4 类生成，并逐例比较 histogram、GLCM、margin 与背景保持 | 已完成；exp012 的 hist/GLCM 为 21/32、26/32，优于 exp010 的 18/32、21/32，保留语义未验证边界 |
 | `20260811_exp018_gli_exp016_pseudomask_lefusion` | 方法与对照实验 | 用 exp016 direct/置信度过滤四通道 mask 分别执行 exp010 FP32 全量训练 | 已完成两路线 50k、best checkpoint gate、完整 real/overlay val 与固定 QA；test 未访问 |
 | `20260811_exp019_gli_exp010_pseudomask_test200_comparison` | 配对 test 比较 | 在冻结 200 例上比较原始 exp010、direct 和 filtered 的真实-mask 300-step 重建及分布指标 | 已完成；filtered 的 PSNR/SSIM/MAE/FID/FSD 最佳，direct 的 Hist-W1 最佳；端到端 3:24:36 |
+| `20260813_exp020_gli_exp010_pseudomask_conditioned_test200` | 配对 test 重评 | 在同一 200 例上比较 GT、direct 与 filtered 各自推理条件下的重建表现 | 已完成；共同 retained 区域 filtered 最佳，伪 mask 覆盖与 copied region 已分开审计 |
+| `20260815_exp022_gli_fig2_v2_test10_comparison` | Fig. 2 配对质控比较 | 用当前 v2 test 数据、共享 filtered union 和既有五方法 checkpoint 重跑 10 位患者的定性/配对重建比较 | 已完成；五方法各 10 例，自动审计与视觉 QA 通过，paper3 未修改 |
 
 实验 ID 只描述研究目的。两种 patch 大小分别记录在同一实验目录的配置文件中，使用同一份裁剪代码和患者划分。
 

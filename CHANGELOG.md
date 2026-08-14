@@ -1,5 +1,15 @@
 # 实验变更记录
 
+## 2026-08-15 — exp022 完成 LeFusion_v2 Fig. 2 十例五方法重跑
+
+- 不训练模型；从当前 p64 test split 的 `1038 patch / 74 patient` 中按 GT 元数据冻结 10 位患者各 1 个 patch，label 配额 `2/4/2/2`、role 配额 `5/5`，体积百分位近似 `0.05, 0.15, …, 0.95`。
+- 使用 exp016 classifier best checkpoint 与冻结阈值 `0.964` 生成 direct/filtered 伪四类 mask；本次 10 例 filtered union 均非空，fallback 为 0。
+- 只读加载旧 Fig. 2 的 RePaint EMA step 4000、Med-DDPM model-20、Pix2Pix step 20000、Latent RFlow/VAE step 20000；五个 checkpoint 与九个旧推理源码/配置均通过固定 SHA-256、权重键、形状和有限性审计。
+- Filtered (v2) 使用 step 46000 best/EMA、FP32、300-step、CFG 2.0；五方法正式结果各 10 个，统一 seed root `20260806` 和同一 shared filtered-retained union。
+- 新增统一选择器、旧模型隔离适配入口、legacy 输入打包、五方法评价/拼图脚本与 focused 单元测试；本地测试 `2/2`，远端脚本编译及五方法单例 preflight 通过。
+- 统一适配为 v2 `[-1,1]` 后，在 shared union 上 Filtered (v2) 的 PSNR/三视图局部 SSIM/MAE/Hist-W1 为 `23.1414/0.7408/0.11079/0.07269`；区域外背景最大误差为 0。
+- 生成标注版/清洁版 PNG、PDF、figure protocol、comparison manifest、checkpoint contracts、50 条 paired metrics 和五方法各 10 个 adapted NPZ；未计算或替换 FID/FSD/KID/Rad-MMD，未修改 `paper3`。
+
 ## 2026-08-13 — exp020 完成 direct/filtered Test 伪 Mask 条件配对重评
 
 - 仅为 exp019 冻结的 200 例按原 crop origin 重建 exp016 多模态输入；direct/filtered sidecar 均精确覆盖 selection manifest，未访问其余 838 例。
