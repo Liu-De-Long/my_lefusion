@@ -1,5 +1,13 @@
 # 实验变更记录
 
+## 2026-08-15 — exp023 完成 Med-DDPM 数据域修复、5k 短训与 test10 失败审计
+
+- 从 `a12db7e` 建立独立分支/工作树，仅修复旧 Med-DDPM 训练域与当前 v2 `[-1,1]` 不一致的问题；保持 mask-only、网络结构、L1 noise、EMA、NFE=250 不变，并从头初始化模型、EMA 与 optimizer。
+- 当前 p64 train/val/test 数据审计为 `7772/1032/1038 patch`、`584/73/74 patient`，无 split 泄漏；新增训练、validation、test10 统一入口及不依赖 pytest 的最小回归测试，远端 `2/2` 通过。
+- step 500 门禁通过；EMA validation loss 在 step 0/500/3000/5000 为 `0.7978831/0.7516929/0.2489628/0.1365685`。按完整 val loss 冻结 step 5000，checkpoint SHA-256 为 `e69be574a526c5cc46932386cbe16fd418c232cd746e7dd2e38847cf1de59bc1`。
+- 固定 exp022 10 例、shared mask、seed `20260806` 与 NFE=250 生成 10 个有限 NPZ；区域外最大误差均为 0。最终指标为 `13.4748/0.3363/0.39412/0.33929`，相对旧结果四项均未改善。
+- 候选拼图视觉 QA 仍见普遍高频颗粒噪声，故按预设门禁不替换论文。figure protocol 标注 `domain-fixed short-budget` 与 `paper3_modified=false`，现有 Fig. 2、PDF 和定量表保持不变。
+
 ## 2026-08-15 — exp022 完成 LeFusion_v2 Fig. 2 十例五方法重跑
 
 - 不训练模型；从当前 p64 test split 的 `1038 patch / 74 patient` 中按 GT 元数据冻结 10 位患者各 1 个 patch，label 配额 `2/4/2/2`、role 配额 `5/5`，体积百分位近似 `0.05, 0.15, …, 0.95`。
@@ -8,7 +16,7 @@
 - Filtered (v2) 使用 step 46000 best/EMA、FP32、300-step、CFG 2.0；五方法正式结果各 10 个，统一 seed root `20260806` 和同一 shared filtered-retained union。
 - 新增统一选择器、旧模型隔离适配入口、legacy 输入打包、五方法评价/拼图脚本与 focused 单元测试；本地测试 `2/2`，远端脚本编译及五方法单例 preflight 通过。
 - 统一适配为 v2 `[-1,1]` 后，在 shared union 上 Filtered (v2) 的 PSNR/三视图局部 SSIM/MAE/Hist-W1 为 `23.1414/0.7408/0.11079/0.07269`；区域外背景最大误差为 0。
-- 生成标注版/清洁版 PNG、PDF、figure protocol、comparison manifest、checkpoint contracts、50 条 paired metrics 和五方法各 10 个 adapted NPZ；未计算或替换 FID/FSD/KID/Rad-MMD，未修改 `paper3`。
+- 生成标注版/清洁版 PNG、PDF、figure protocol、comparison manifest、checkpoint contracts、50 条 paired metrics 和五方法各 10 个 adapted NPZ；未计算或替换 FID/FSD/KID/Rad-MMD。标注版随后已按用户要求写入 `paper3`。
 
 ## 2026-08-13 — exp020 完成 direct/filtered Test 伪 Mask 条件配对重评
 

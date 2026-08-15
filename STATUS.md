@@ -1,10 +1,16 @@
 # 当前状态
 
+## exp023：Med-DDPM 数据域修复短预算训练完成，论文门禁未通过
+
+`20260815_exp023_gli_medddpm_domain_fix_mintrain` 已按两小时硬预算完成。旧训练数据约为 `0–13698`，本次仅修复为当前 v2 `[-1,1]` 域，保持 mask-only、原网络、L1 noise、EMA 与 NFE=250 不变，并从头训练至硬上限 step 5000。EMA validation loss 从随机初始化 `0.7978831` 降至 step 500/3000/5000 的 `0.7516929/0.2489628/0.1365685`；最终 checkpoint SHA-256 为 `e69be574…de59bc1`。
+
+固定 exp022 test10 上，5000-step 的 PSNR/三视图局部 SSIM/MAE/Hist-W1 为 `13.4748/0.3363/0.39412/0.33929`，相对旧 Med-DDPM 的 `14.7468/0.3851/0.33111/0.21927` 四项均未改善。10 个输出均有限、区域外误差严格为 0，但视觉 QA 仍见普遍高频颗粒噪声。因此论文替换门禁失败，exp023 候选图仅保留为失败审计，`paper3` 的 Fig. 2 与 PDF 未被本实验改写。
+
 ## exp022：LeFusion_v2 条件下的 Fig. 2 十例重跑
 
 `20260815_exp022_gli_fig2_v2_test10_comparison` 已完成，未训练任何模型。实验从当前 p64 test split 的 1038 个 patch、74 位患者中，仅依据 GT 元数据确定性选出 10 个 patch，来自 10 位不同患者；NETC/SNFH/ET/RC 配额为 `2/4/2/2`，boundary/interior 为 `5/5`，GT union 体积百分位约为 `0.05, 0.15, …, 0.95`。五方法共享 exp016 classifier 与阈值 `0.964` 得到的 filtered-retained union。
 
-RePaint-3D、Med-DDPM-T1c、Pix2Pix-3D、Latent RFlow-3D 均加载旧 Fig. 2 冻结 checkpoint；Filtered (v2) 使用 step 46000 best/EMA、FP32、300-step RePaint、CFG 2.0。五方法各生成 10 个统一 `[-1,1]` adapted NPZ，shared hole 完全一致，区域外逐 voxel 恢复原 T1c 后最大误差为 `0`。shared-union 指标均值中，Filtered (v2) 的 PSNR/三视图局部 SSIM/MAE/Hist-W1 为 `23.1414/0.7408/0.11079/0.07269`，优于四个外部基线。标注版/清洁版 PNG、PDF 与完整审计位于 `experiments/20260815_exp022_gli_fig2_v2_test10_comparison/outputs/comparison/`。本实验不计算 FID/FSD/KID/Rad-MMD，未修改 `paper3`。
+RePaint-3D、Med-DDPM-T1c、Pix2Pix-3D、Latent RFlow-3D 均加载旧 Fig. 2 冻结 checkpoint；Filtered (v2) 使用 step 46000 best/EMA、FP32、300-step RePaint、CFG 2.0。五方法各生成 10 个统一 `[-1,1]` adapted NPZ，shared hole 完全一致，区域外逐 voxel 恢复原 T1c 后最大误差为 `0`。shared-union 指标均值中，Filtered (v2) 的 PSNR/三视图局部 SSIM/MAE/Hist-W1 为 `23.1414/0.7408/0.11079/0.07269`，优于四个外部基线。标注版/清洁版 PNG、PDF 与完整审计位于 `experiments/20260815_exp022_gli_fig2_v2_test10_comparison/outputs/comparison/`。本实验不计算 FID/FSD/KID/Rad-MMD；其标注版随后已按用户要求写入 `paper3`，exp023 因门禁失败未再次替换。
 
 ## exp020 伪 mask 条件 test200 重评
 
@@ -16,7 +22,7 @@ exp019 保留为“三种训练 mask、统一 GT 推理条件”的历史对照�
 
 ## 当前版本
 
-v0.15.0-exp022-fig2-test10-complete
+v0.16.0-exp023-medddpm-domain-fix-audited
 
 ## exp019 配对 test200
 

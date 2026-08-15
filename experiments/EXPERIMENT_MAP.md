@@ -21,7 +21,8 @@
 | `20260811_exp018_gli_exp016_pseudomask_lefusion` | 方法与对照实验 | 用 exp016 direct/置信度过滤四通道 mask 分别执行 exp010 FP32 全量训练 | 已完成两路线 50k、best checkpoint gate、完整 real/overlay val 与固定 QA；test 未访问 |
 | `20260811_exp019_gli_exp010_pseudomask_test200_comparison` | 配对 test 比较 | 在冻结 200 例上比较原始 exp010、direct 和 filtered 的真实-mask 300-step 重建及分布指标 | 已完成；filtered 的 PSNR/SSIM/MAE/FID/FSD 最佳，direct 的 Hist-W1 最佳；端到端 3:24:36 |
 | `20260813_exp020_gli_exp010_pseudomask_conditioned_test200` | 配对 test 重评 | 在同一 200 例上比较 GT、direct 与 filtered 各自推理条件下的重建表现 | 已完成；共同 retained 区域 filtered 最佳，伪 mask 覆盖与 copied region 已分开审计 |
-| `20260815_exp022_gli_fig2_v2_test10_comparison` | Fig. 2 配对质控比较 | 用当前 v2 test 数据、共享 filtered union 和既有五方法 checkpoint 重跑 10 位患者的定性/配对重建比较 | 已完成；五方法各 10 例，自动审计与视觉 QA 通过，paper3 未修改 |
+| `20260815_exp022_gli_fig2_v2_test10_comparison` | Fig. 2 配对质控比较 | 用当前 v2 test 数据、共享 filtered union 和既有五方法 checkpoint 重跑 10 位患者的定性/配对重建比较 | 已完成；五方法各 10 例，自动审计与视觉 QA 通过；标注版已写入 paper3 |
+| `20260815_exp023_gli_medddpm_domain_fix_mintrain` | 外部基线最小修复 | 修复 Med-DDPM T1c 数据域并在两小时内从头训练至最多 5k，再复评 Fig. 2 固定 test10 | 已完成至 step 5000；val 明显下降但 test 四项均未优于旧模型且仍有颗粒噪声，论文门禁失败，未替换 Fig. 2 |
 
 实验 ID 只描述研究目的。两种 patch 大小分别记录在同一实验目录的配置文件中，使用同一份裁剪代码和患者划分。
 

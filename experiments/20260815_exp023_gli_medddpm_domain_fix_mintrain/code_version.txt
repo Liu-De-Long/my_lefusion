@@ -1,4 +1,8 @@
 experiment_id=20260815_exp023_gli_medddpm_domain_fix_mintrain
 branch=feature/20260815-exp023-medddpm-domain-fix
-commit=pending
+base_commit=a12db7e
+implementation_commit=02c86aa
+actual_stop_step=5000
+best_checkpoint_sha256=e69be574a526c5cc46932386cbe16fd418c232cd746e7dd2e38847cf1de59bc1
+paper3_modified=false
 change=修复 Med-DDPM 训练域并进行两小时短预算重训
