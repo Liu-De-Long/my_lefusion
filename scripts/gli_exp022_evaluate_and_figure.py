@@ -120,6 +120,7 @@ def load_method(
     record: dict[str, object],
     external_root: Path,
     ours_map: dict[str, Path],
+    med_root: Path | None,
 ) -> tuple[np.ndarray, np.ndarray, Path, int]:
     if method == "filtered_v2":
         path = ours_map[str(record["relative_path"])]
@@ -128,7 +129,8 @@ def load_method(
             union = np.asarray(data["conditioning_seg_xyz"] > 0, dtype=bool)
             sample_seed = int(data["sample_seed"])
     else:
-        path = find_legacy_output(external_root, method, str(record["case_id"]))
+        search_root = med_root if method == "med_ddpm_t1c" and med_root is not None else external_root
+        path = find_legacy_output(search_root, method, str(record["case_id"]))
         with np.load(path, allow_pickle=False) as data:
             raw = cdhw_to_xyz(np.asarray(data["raw"], dtype=np.float32))
             union = cdhw_to_xyz(np.asarray(data["union"], dtype=np.uint8)) > 0
@@ -202,6 +204,10 @@ def main() -> None:
     parser.add_argument("--filtered-root", type=Path, required=True)
     parser.add_argument("--ours-root", type=Path, required=True)
     parser.add_argument("--external-root", type=Path, required=True)
+    parser.add_argument("--med-root", type=Path)
+    parser.add_argument("--med-contract", type=Path)
+    parser.add_argument("--experiment-id")
+    parser.add_argument("--paper3-modified", action="store_true")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
 
@@ -232,7 +238,7 @@ def main() -> None:
         outputs = {}
         for method, display, domain, expected_nfe in METHODS:
             raw, output_union, source_output, sample_seed = load_method(
-                method, domain, record, args.external_root, ours_map
+                method, domain, record, args.external_root, ours_map, args.med_root
             )
             if not np.array_equal(output_union, mask):
                 raise RuntimeError(f"shared-union mismatch: {method}/{record['sample_id']}")
@@ -352,7 +358,7 @@ def main() -> None:
         )
     comparison_manifest = {
         "schema_version": 1,
-        "experiment_id": selection["experiment_id"],
+        "experiment_id": args.experiment_id or selection["experiment_id"],
         "selection_manifest": str(args.selection),
         "selection_manifest_sha256": sha256_file(args.selection),
         "selection": selection["selection"],
@@ -394,6 +400,12 @@ def main() -> None:
             for method, display, domain, nfe in METHODS
         },
     }
+    if args.med_contract is not None:
+        checkpoint_contracts["med_ddpm_domain_fix"] = {
+            "contract": str(args.med_contract),
+            "contract_sha256": sha256_file(args.med_contract),
+            "payload": json.loads(args.med_contract.read_text(encoding="utf-8")),
+        }
     json_dump(args.output_dir / "checkpoint_contracts.json", checkpoint_contracts)
 
     render_figure(cases, args.output_dir / "fig2_v2_test10_labeled.png", labeled=True)
@@ -402,7 +414,7 @@ def main() -> None:
     render_figure(cases, args.output_dir / "fig2_v2_test10_clean.pdf", labeled=False)
     protocol = {
         "schema_version": 1,
-        "experiment_id": selection["experiment_id"],
+        "experiment_id": args.experiment_id or selection["experiment_id"],
         "selection_manifest": str(args.selection),
         "selection_manifest_sha256": sha256_file(args.selection),
         "column_order": [case["sample_id"] for case in cases],
@@ -416,7 +428,8 @@ def main() -> None:
         "shared_region": "filtered-retained union",
         "outside_region": "exactly restored from original T1c after domain adaptation",
         "quantitative_scope": "paired reconstruction/quality audit only; no FID/FSD/KID/Rad-MMD",
-        "paper3_modified": False,
+        "med_ddpm_protocol": "domain-fixed short-budget" if args.med_root is not None else "legacy frozen checkpoint",
+        "paper3_modified": bool(args.paper3_modified),
     }
     json_dump(args.output_dir / "figure_protocol.json", protocol)
     json_dump(
