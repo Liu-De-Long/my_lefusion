@@ -2,6 +2,7 @@ experiment_id=20260815_exp023_gli_medddpm_domain_fix_mintrain
 branch=feature/20260815-exp023-medddpm-domain-fix
 base_commit=a12db7e
 implementation_commit=02c86aa
+result_record_commit=dd5e9986374e6111f7efe61027f05e279dcb2c02
 actual_stop_step=5000
 best_checkpoint_sha256=e69be574a526c5cc46932386cbe16fd418c232cd746e7dd2e38847cf1de59bc1
 paper3_modified=false
