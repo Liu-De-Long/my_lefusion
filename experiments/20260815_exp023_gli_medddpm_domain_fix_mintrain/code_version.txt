@@ -1,0 +1,4 @@
+experiment_id=20260815_exp023_gli_medddpm_domain_fix_mintrain
+branch=feature/20260815-exp023-medddpm-domain-fix
+commit=pending
+change=修复 Med-DDPM 训练域并进行两小时短预算重训

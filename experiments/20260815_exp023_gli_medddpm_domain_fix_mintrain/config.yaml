@@ -1,0 +1,33 @@
+experiment_id: 20260815_exp023_gli_medddpm_domain_fix_mintrain
+purpose: repair the Med-DDPM T1c training-domain mismatch within a two-hour budget
+training_from_scratch: true
+paths:
+  dataset_root: /workspace/LeFusion_v2/dataset/brats2024_gli_t1c_local_patches
+  split_file: /workspace/LeFusion_v2/my_experiment/experiments/20260805_exp004_gli_inference_closed_loop/splits_v2.json
+  reference_root: /workspace/LeFusion-main/method_reference_repos/med-ddpm-main
+  output_root: /workspace/LeFusion_v2/.worktrees/exp023-medddpm-domain-fix/experiments/20260815_exp023_gli_medddpm_domain_fix_mintrain/outputs/med_ddpm
+model:
+  condition: gt_union_mask_only
+  target_domain: neg1_pos1
+  num_channels: 64
+  num_res_blocks: 2
+  timesteps: 250
+  attention_resolutions: "16"
+  loss_type: l1_noise
+training:
+  batch_size: 16
+  lr: 0.00001
+  ema_decay: 0.995
+  update_ema_every: 10
+  max_grad_norm: 1.0
+  num_workers: 16
+  log_every: 10
+  checkpoints: [500, 3000, 5000]
+runtime:
+  seed: 20260815
+  precision: fp32
+  gpus: [0, 1]
+test:
+  selection_seed: 20260806
+  nfe: 250
+  shared_region: filtered_retained_union
